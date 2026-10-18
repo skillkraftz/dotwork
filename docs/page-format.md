@@ -135,7 +135,10 @@ A spread file pairs a left and a right page:
 }
 ```
 
-Nothing may cross the spine; each side is its own page.
+Nothing may cross the spine; each side is its own page. A reader must check
+both pages against every page rule, and reject a spread whose `left` page does
+not have `"side": "left"` or whose `right` page does not have
+`"side": "right"`.
 
 ## Validation
 

@@ -25,7 +25,7 @@ export class Canvas {
 
   constructor(
     private svg: SVGSVGElement,
-    private store: Store,
+    public store: Store,
     /** Show a message under the canvas (null clears it). */
     private notify: (message: string | null) => void,
   ) {

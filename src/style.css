@@ -102,3 +102,41 @@ button.icon[aria-pressed='true'] { background: transparent; color: var(--ink); b
 .hint.end { margin: 4px 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
 .hint.end + .layers { margin-bottom: 0; }
 [hidden] { display: none !important; }
+
+/* spread view: two pages either side of the spine */
+#spread { position: absolute; inset: 0; display: flex; }
+#spread::after { content: ''; position: absolute; left: 50%; top: 5%; bottom: 5%; border-left: 1px dashed var(--gray-3); pointer-events: none; }
+.half { position: relative; flex: 1; min-width: 0; }
+.half svg { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; user-select: none; }
+.half .tag { position: absolute; top: 8px; left: 12px; z-index: 1; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--gray-4); }
+.half[data-side='right'] .tag { left: auto; right: 12px; }
+.half.active .tag { color: var(--ink); font-weight: 700; }
+.half.active .tag::before { content: '● '; }
+#spread-name { width: 150px; margin-left: 6px; }
+
+/* library window */
+dialog.library { width: min(880px, calc(100% - 28px)); max-height: calc(100% - 28px); padding: 0; border: 1px solid #000; color: var(--ink); display: none; flex-direction: column; }
+dialog.library[open] { display: flex; }
+dialog.library::backdrop { background: rgba(0, 0, 0, 0.35); }
+dialog.library header, dialog.library footer { display: flex; align-items: center; gap: 8px; padding: 10px 14px; }
+dialog.library header { justify-content: space-between; border-bottom: 1px solid var(--gray-2); }
+dialog.library header h2 { margin: 0; font-size: 14px; text-transform: uppercase; letter-spacing: 0.08em; }
+dialog.library footer { border-top: 1px solid var(--gray-2); flex-wrap: wrap; }
+dialog.library footer .hint { margin: 0; }
+button.primary { background: #000; color: #fff; border-color: #000; }
+button.primary:hover:not(:disabled) { background: #333 !important; }
+.lib-save { display: flex; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--gray-2); flex-wrap: wrap; }
+.lib-save input { flex: 1; min-width: 140px; }
+.lib-msg { margin: 0; padding: 6px 14px; background: #000; color: #fff; font-size: 12px; }
+.lib-msg span { display: block; }
+.lib-list { flex: 1; overflow-y: auto; padding: 14px; display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; align-content: start; min-height: 120px; }
+.lib-list > .hint { grid-column: 1 / -1; }
+.lib-card { display: flex; flex-direction: column; gap: 6px; border: 1px solid var(--gray-2); padding: 8px; }
+.thumb { background: var(--gray-1); padding: 6px; display: flex; justify-content: center; }
+.thumb svg { height: 150px; width: auto; max-width: 100%; background: #fff; box-shadow: 0 0 0 1px var(--gray-2); }
+.lib-meta { display: flex; flex-direction: column; min-width: 0; }
+.lib-meta .hint { margin: 0; font-size: 11px; }
+.lib-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lib-meta input { width: 100%; }
+.lib-actions { display: flex; flex-wrap: wrap; gap: 4px; }
+.lib-actions button { padding: 1px 6px; font-size: 12px; }

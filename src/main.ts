@@ -1,5 +1,6 @@
 import './style.css';
 import { emptyPage, type Page } from './format/types';
+import { buildSpread, emptySpread, readSpread, withSide, type Spread, type SpreadSide } from './format/spread';
 import { formatIssue, validatePage } from './format/validate';
 import { readPage } from './format/read';
 import { Canvas } from './canvas';
@@ -7,9 +8,14 @@ import { deleteElement, duplicateElement, nudgeElement } from './actions';
 import { Panel } from './panel';
 import { pageToPng } from './png';
 import { Store, type Tool } from './store';
+import { Library, MemoryBackend } from './library/library';
+import { idbBackend } from './library/idb';
+import { LibraryDialog, type SaveOption, type SaveWhat } from './library/dialog';
 import oflUrl from './fonts/OFL.txt?url';
 
-const STORAGE_KEY = 'dotwork.page';
+const KEYS = { page: 'dotwork.page', left: 'dotwork.spread.left', right: 'dotwork.spread.right' } as const;
+const VIEW_KEY = 'dotwork.view';
+const SPREAD_NAME_KEY = 'dotwork.spread.name';
 
 const examples = Object.entries(import.meta.glob<unknown>('../examples/*.json', { eager: true, import: 'default' }))
   .sort(([a], [b]) => a.localeCompare(b))
@@ -20,18 +26,33 @@ const examples = Object.entries(import.meta.glob<unknown>('../examples/*.json', 
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
-function loadSaved(): Page {
+type View = 'page' | 'spread';
+const stored = (key: string) => { try { return localStorage.getItem(key); } catch { return null; } };
+
+function loadDraft(key: string, fallback: Page, side?: SpreadSide): Page {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = stored(key);
     if (raw) {
       const r = readPage(JSON.parse(raw));
-      if (r.ok) return r.page;
+      if (r.ok) return side ? withSide(r.page, side) : r.page;
     }
   } catch { /* storage unavailable or corrupt: start fresh */ }
-  return emptyPage();
+  return fallback;
 }
 
-const store = new Store(loadSaved());
+const blank = emptySpread();
+/** The page being edited alone, and the two pages of the spread being edited. Each has its own undo history. */
+const stores = {
+  page: new Store(loadDraft(KEYS.page, emptyPage())),
+  left: new Store(loadDraft(KEYS.left, blank.left, 'left')),
+  right: new Store(loadDraft(KEYS.right, blank.right, 'right')),
+};
+const all = [stores.page, stores.left, stores.right];
+let view: View = stored(VIEW_KEY) === 'spread' ? 'spread' : 'page';
+let active: SpreadSide = 'left';
+let spreadName = stored(SPREAD_NAME_KEY) || blank.name;
+/** The store that undo, the panel and the keyboard act on. */
+const cur = () => (view === 'page' ? stores.page : stores[active]);
 
 // ---- notices -------------------------------------------------------------
 
@@ -58,18 +79,42 @@ function notify(message: string | string[] | null) {
 
 // ---- views ---------------------------------------------------------------
 
-const canvas = new Canvas($('canvas') as unknown as SVGSVGElement, store, notify);
-const panel = new Panel($('panel'), store);
+const canvases = {
+  page: new Canvas($('canvas') as unknown as SVGSVGElement, stores.page, notify),
+  left: new Canvas($('canvas-left') as unknown as SVGSVGElement, stores.left, notify),
+  right: new Canvas($('canvas-right') as unknown as SVGSVGElement, stores.right, notify),
+};
+const panel = new Panel($('panel'), cur());
 
-function save() {
-  if (validatePage(store.page).length > 0) return; // keep the last valid draft
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(store.page)); } catch { /* ignore */ }
+function persist(key: string, page: Page) {
+  if (validatePage(page).length > 0) return; // keep the last valid draft
+  try { localStorage.setItem(key, JSON.stringify(page)); } catch { /* ignore */ }
+}
+function persistSettings() {
+  try {
+    localStorage.setItem(VIEW_KEY, view);
+    localStorage.setItem(SPREAD_NAME_KEY, spreadName);
+  } catch { /* ignore */ }
 }
 
 function refresh() {
-  canvas.render();
+  const spread = view === 'spread';
+  const store = cur();
+  $('canvas').hidden = spread;
+  $('spread').hidden = !spread;
+  canvases.page.render();
+  if (spread) { canvases.left.render(); canvases.right.render(); }
+  for (const half of document.querySelectorAll<HTMLElement>('.half')) {
+    half.classList.toggle('active', half.dataset.side === active);
+  }
+  panel.store = store;
+  panel.lockedSide = spread ? active : null;
   panel.render();
   const preview = store.mode === 'preview';
+  $('view-page').setAttribute('aria-pressed', String(!spread));
+  $('view-spread').setAttribute('aria-pressed', String(spread));
+  $<HTMLInputElement>('spread-name').hidden = !spread;
+  if (document.activeElement !== $('spread-name')) $<HTMLInputElement>('spread-name').value = spreadName;
   $('mode-edit').setAttribute('aria-pressed', String(!preview));
   $('mode-preview').setAttribute('aria-pressed', String(preview));
   ($('undo') as HTMLButtonElement).disabled = !store.canUndo;
@@ -81,9 +126,10 @@ function refresh() {
   }
   ($('half-cells') as HTMLInputElement).checked = store.halfCells;
   const credit = `Courier Prime © The Courier Prime Project Authors, <a href="${oflUrl}">SIL OFL 1.1</a>.`;
+  const where = spread ? `Editing the ${active} page. ` : '';
   $('status').innerHTML = preview
     ? `Preview: the page as it prints, with sample values for tokens. ${credit}`
-    : `${HINTS[store.tool]} Hold Shift (or tick Half cells) to snap to half cells. ${credit}`;
+    : `${where}${HINTS[store.tool]} Hold Shift (or tick Half cells) to snap to half cells. ${credit}`;
 }
 
 const HINTS: Record<Tool, string> = {
@@ -96,33 +142,101 @@ const HINTS: Record<Tool, string> = {
   text: 'Click where the text should sit, then type it in the panel.',
 };
 
-let lastPage = store.page;
-store.subscribe(() => {
-  if (store.page !== lastPage) {
-    lastPage = store.page;
-    save();
-  }
-  refresh();
-});
+for (const key of ['page', 'left', 'right'] as const) {
+  let last = stores[key].page;
+  stores[key].subscribe(() => {
+    if (stores[key].page !== last) {
+      last = stores[key].page;
+      persist(KEYS[key], last);
+    }
+    refresh();
+  });
+}
 refresh();
+
+// ---- view: one page or a spread --------------------------------------------
+
+function setView(next: View) {
+  if (next === view) return;
+  notify(null);
+  view = next;
+  persistSettings();
+  refresh();
+}
+
+function setActive(side: SpreadSide) {
+  if (side === active) return;
+  active = side;
+  stores[side === 'left' ? 'right' : 'left'].select(null);
+  refresh();
+}
+for (const half of document.querySelectorAll<HTMLElement>('.half')) {
+  // Capture, so the page is active before its canvas handles the same press.
+  half.addEventListener('pointerdown', () => setActive(half.dataset.side as SpreadSide), true);
+}
+
+$('view-page').onclick = () => setView('page');
+$('view-spread').onclick = () => setView('spread');
+$<HTMLInputElement>('spread-name').oninput = (e) => {
+  spreadName = (e.target as HTMLInputElement).value;
+  persistSettings();
+};
+
+const currentSpread = (): Spread => buildSpread(spreadName.trim() || 'Untitled spread', stores.left.page, stores.right.page);
+
+function openPage(page: Page) {
+  notify(null);
+  stores.page.replace(structuredClone(page));
+  setView('page');
+}
+
+function openSpread(spread: Spread) {
+  notify(null);
+  spreadName = spread.name;
+  stores.left.replace(structuredClone(spread.left));
+  stores.right.replace(structuredClone(spread.right));
+  view = 'spread';
+  persistSettings();
+  refresh();
+}
+
+function placePage(page: Page, side: SpreadSide) {
+  notify(null);
+  stores[side].replace(withSide(page, side));
+  active = side;
+  view = 'spread';
+  persistSettings();
+  refresh();
+}
+
+/** New, imported or example page: it goes to the single page, or into the spread page being edited. */
+function replacePage(page: Page) {
+  if (view === 'page') stores.page.replace(structuredClone(page));
+  else stores[active].replace(withSide(page, active));
+}
 
 // ---- toolbar -------------------------------------------------------------
 
-$('mode-edit').onclick = () => store.setMode('edit');
-$('mode-preview').onclick = () => { notify(null); store.setMode('preview'); };
-$('undo').onclick = () => store.undo();
-$('redo').onclick = () => store.redo();
-
-function replacePage(page: Page) {
-  store.replace(structuredClone(page));
-}
+const setMode = (m: 'edit' | 'preview') => all.forEach((s) => s.setMode(m));
+$('mode-edit').onclick = () => setMode('edit');
+$('mode-preview').onclick = () => { notify(null); setMode('preview'); };
+$('undo').onclick = () => cur().undo();
+$('redo').onclick = () => cur().redo();
 
 for (const b of document.querySelectorAll<HTMLButtonElement>('[data-tool]')) {
-  b.onclick = () => store.setTool(b.dataset.tool as Tool);
+  b.onclick = () => all.forEach((s) => s.setTool(b.dataset.tool as Tool));
 }
-$<HTMLInputElement>('half-cells').onchange = (e) => store.setHalfCells((e.target as HTMLInputElement).checked);
+$<HTMLInputElement>('half-cells').onchange = (e) => all.forEach((s) => s.setHalfCells((e.target as HTMLInputElement).checked));
 
-$('new').onclick = () => { notify(null); replacePage(emptyPage()); };
+$('new').onclick = () => {
+  notify(null);
+  if (view === 'page') { replacePage(emptyPage()); return; }
+  const fresh = emptySpread();
+  spreadName = fresh.name;
+  stores.left.replace(fresh.left);
+  stores.right.replace(fresh.right);
+  persistSettings();
+};
 
 const exampleSelect = $<HTMLSelectElement>('examples');
 exampleSelect.append(new Option('Load example…', ''));
@@ -140,22 +254,30 @@ function download(blob: Blob, filename: string) {
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
-const slug = () => store.page.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'page';
+const slug = (name: string, fallback: string) => name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || fallback;
 
 $('export-json').onclick = () => {
-  const issues = validatePage(store.page);
-  if (issues.length) {
-    notify(['Can’t export: the page breaks the format.', ...issues.map(formatIssue)]);
+  const json = (data: unknown, name: string) =>
+    download(new Blob([JSON.stringify(data, null, 2) + '\n'], { type: 'application/json' }), `${slug(name, 'page')}.json`);
+  if (view === 'page') {
+    const issues = validatePage(stores.page.page);
+    if (issues.length) { notify(['Can’t export: the page breaks the format.', ...issues.map(formatIssue)]); return; }
+    notify(null);
+    json(stores.page.page, stores.page.page.name);
     return;
   }
+  const spread = currentSpread();
+  const r = readSpread(spread);
+  if (!r.ok) { notify(['Can’t export: the spread breaks the format.', ...r.issues.map(formatIssue)]); return; }
   notify(null);
-  download(new Blob([JSON.stringify(store.page, null, 2) + '\n'], { type: 'application/json' }), `${slug()}.json`);
+  json(spread, spread.name);
 };
 
 $('export-png').onclick = async () => {
   try {
     notify(null);
-    download(await pageToPng(store.page), `${slug()}.png`);
+    const page = cur().page;
+    download(await pageToPng(page), `${slug(page.name, 'page')}.png`);
   } catch (err) {
     notify(`PNG export failed: ${(err as Error).message}`);
   }
@@ -174,6 +296,18 @@ fileInput.onchange = async () => {
     notify(`${file.name} is not valid JSON: ${(err as Error).message}`);
     return;
   }
+  const format = (parsed as { format?: unknown } | null)?.format;
+  if (format === 'dotwork-library') {
+    notify(`${file.name} is a library backup. Use Library, then Import library.`);
+    return;
+  }
+  if (format === 'dotwork-spread') {
+    const r = readSpread(parsed);
+    if (!r.ok) { notify([`Not imported: ${file.name} breaks the spread format.`, ...r.issues.map(formatIssue)]); return; }
+    openSpread(r.spread);
+    if (r.converted) notify(`${file.name} contained version 1 pages and they have been converted to version 2.`);
+    return;
+  }
   const result = readPage(parsed);
   if (!result.ok) {
     notify([`Not imported: ${file.name} breaks the page format.`, ...result.issues.map(formatIssue)]);
@@ -183,12 +317,37 @@ fileInput.onchange = async () => {
   replacePage(result.page);
 };
 
+// ---- library -------------------------------------------------------------
+
+const library = new Library(typeof indexedDB === 'undefined' ? new MemoryBackend() : idbBackend);
+const libraryDialog = new LibraryDialog(library, {
+  saveOptions(): SaveOption[] {
+    if (view === 'page') return [{ what: 'page', label: 'This page', name: stores.page.page.name }];
+    return [
+      { what: 'spread', label: 'The spread', name: spreadName },
+      { what: 'left', label: 'Left page', name: stores.left.page.name },
+      { what: 'right', label: 'Right page', name: stores.right.page.name },
+    ];
+  },
+  data(what: SaveWhat) {
+    if (what === 'spread') return currentSpread();
+    return structuredClone(stores[what === 'page' ? 'page' : what].page);
+  },
+  openPage,
+  openSpread,
+  placePage,
+  download,
+});
+$('library').onclick = () => { notify(null); void libraryDialog.show(); };
+
 // ---- keyboard ------------------------------------------------------------
 
 const TOOL_KEYS: Record<string, Tool> = { v: 'select', s: 'shade', p: 'pattern', b: 'box', r: 'rule', c: 'checkboxes', t: 'text' };
 const ARROWS: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
 
 addEventListener('keydown', (e) => {
+  if (document.querySelector('dialog[open]')) return; // the library window has its own keys
+  const store = cur();
   const t = e.target as HTMLElement;
   const typing = t instanceof HTMLInputElement && t.type === 'text';
   const inField = t instanceof HTMLInputElement || t instanceof HTMLSelectElement || t instanceof HTMLTextAreaElement;
@@ -215,11 +374,11 @@ addEventListener('keydown', (e) => {
     const step = e.shiftKey ? 0.5 : 1;
     nudgeElement(store, sel, ARROWS[e.key][0] * step, ARROWS[e.key][1] * step);
   } else if (e.key.toLowerCase() in TOOL_KEYS && !e.shiftKey) {
-    store.setTool(TOOL_KEYS[e.key.toLowerCase()]);
+    all.forEach((s) => s.setTool(TOOL_KEYS[e.key.toLowerCase()]));
   }
   if (e.key === 'Escape') {
-    canvas.cancel();
-    store.setTool('select');
+    Object.values(canvases).forEach((c) => c.cancel());
+    all.forEach((s) => s.setTool('select'));
     store.select(null);
   }
 });
