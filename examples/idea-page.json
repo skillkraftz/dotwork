@@ -1,0 +1,38 @@
+{
+  "format": "dotwork-page",
+  "version": 1,
+  "name": "Idea page",
+  "identity": "WEEK {week}",
+  "grid": { "cols": 27, "rows": 44, "pitch_mm": 3 },
+  "regions": [
+    {
+      "x": 0, "y": 1, "w": 27, "h": 3,
+      "fill": "lines",
+      "border": { "bottom": "thin" },
+      "labels": [{ "text": "Idea:", "row": 0 }]
+    },
+    {
+      "x": 0, "y": 4, "w": 27, "h": 10,
+      "fill": "lines",
+      "border": { "bottom": "thin" },
+      "labels": [{ "text": "Problem it solves:", "row": 0 }]
+    },
+    {
+      "x": 0, "y": 14, "w": 27, "h": 10,
+      "fill": "lines",
+      "border": { "bottom": "thin" },
+      "labels": [{ "text": "Who it's for:", "row": 0 }]
+    },
+    {
+      "x": 0, "y": 24, "w": 27, "h": 10,
+      "fill": "lines",
+      "border": { "bottom": "thin" },
+      "labels": [{ "text": "Smallest test:", "row": 0 }]
+    },
+    {
+      "x": 0, "y": 34, "w": 27, "h": 10,
+      "fill": "lines",
+      "labels": [{ "text": "Next step:", "row": 0 }]
+    }
+  ]
+}
