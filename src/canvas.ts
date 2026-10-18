@@ -1,22 +1,27 @@
-import type { Page } from './format/types';
+import { GRID_X_MM, GRID_Y_MM, PITCH_MM as P, type PageElement } from './format/types';
+import { validateElement } from './format/validate';
 import {
-  cellAt, containsCell, dotAt, HANDLE_CURSOR, hitHandle, moveRect, P, placementProblem,
-  rectFromDots, resizeRect, type Dot, type Handle, type Rect,
+  elementFromDrag, HANDLE_CURSOR, hitElement, hitHandle, moveElement, resizeElement, snapPoint, snapStep,
+  type Handle, type Pt,
 } from './geometry';
+import { addElement } from './actions';
 import { EDIT_VIEWBOX, pageContent } from './render';
 import type { Store } from './store';
 
 type Drag =
-  | { kind: 'draw'; start: Dot; cur: Dot }
-  | { kind: 'move'; index: number; origin: Rect; startMm: Dot; last: Rect }
-  | { kind: 'resize'; index: number; handle: Handle; origin: Rect; last: Rect };
+  | { kind: 'draw'; start: Pt; cur: Pt }
+  | { kind: 'move'; index: number; origin: PageElement; startCells: Pt; last: PageElement; moved: boolean; clickSelect?: number }
+  | { kind: 'resize'; index: number; handle: Handle; origin: PageElement; last: PageElement };
 
 const HANDLE_TOLERANCE_PX = 8;
+const HIT_TOLERANCE_PX = 5;
+const DRAG_START_PX = 3;
 
-/** Draws the page into the SVG and turns pointer input into region edits. */
+/** Draws the page into the SVG and turns pointer input into element edits. */
 export class Canvas {
   private drag: Drag | null = null;
   private content: SVGGElement;
+  private downPx: Pt = { x: 0, y: 0 };
 
   constructor(
     private svg: SVGSVGElement,
@@ -41,63 +46,86 @@ export class Canvas {
   render() {
     const { store } = this;
     const d = this.drag;
-    let page: Page = store.page;
-    let draft = null;
+    let page = store.page;
+    let draft: PageElement | null = null;
     if (d && (d.kind === 'move' || d.kind === 'resize')) {
-      page = { ...page, regions: page.regions.map((r, i) => (i === d.index ? { ...r, ...d.last } : r)) };
-    } else if (d?.kind === 'draw') {
-      const rect = rectFromDots(d.start, d.cur);
-      draft = { rect, valid: placementProblem(rect, page.regions) === null };
+      page = { ...page, elements: page.elements.map((e, i) => (i === d.index ? d.last : e)) };
+    } else if (d?.kind === 'draw' && store.tool !== 'select' && store.tool !== 'text') {
+      draft = elementFromDrag(store.tool, d.start, d.cur);
     }
     this.content.innerHTML = pageContent(page, {
       mode: store.mode === 'preview' ? 'preview' : 'edit',
       selected: store.selected,
+      hidden: store.hiddenIndexes,
       draft,
     });
-    this.svg.style.cursor = store.mode === 'preview' ? 'default' : this.svg.style.cursor || 'crosshair';
+    if (store.mode === 'preview') this.svg.style.cursor = 'default';
+    else if (!d) this.svg.style.cursor = store.tool === 'select' ? 'default' : 'crosshair';
   }
 
-  private toMm(e: PointerEvent): { x: number; y: number; scale: number } {
+  /** Pointer position in grid cells (fractional), plus mm-per-pixel for tolerances. */
+  private toCells(e: PointerEvent): { p: Pt; cellsPerPx: number } {
     const m = this.svg.getScreenCTM()!;
     const pt = new DOMPoint(e.clientX, e.clientY).matrixTransform(m.inverse());
-    return { x: pt.x, y: pt.y, scale: m.a };
+    return { p: { x: (pt.x - GRID_X_MM) / P, y: (pt.y - GRID_Y_MM) / P }, cellsPerPx: 1 / m.a / P };
   }
 
-  private others(except: number | null): Rect[] {
-    return this.store.page.regions.filter((_, i) => i !== except);
+  /** Indexes of visible, unlocked elements under the pointer, topmost first. */
+  private hits(p: Pt, tol: number): number[] {
+    const out: number[] = [];
+    this.store.page.elements.forEach((el, i) => {
+      if (!this.store.isHidden(i) && !this.store.isLocked(i) && hitElement(el, p, tol)) out.push(i);
+    });
+    return out.reverse();
   }
 
-  private handleAt(p: { x: number; y: number; scale: number }): Handle | null {
-    const sel = this.store.selected;
-    if (sel === null) return null;
-    return hitHandle(this.store.page.regions[sel], p.x, p.y, HANDLE_TOLERANCE_PX / p.scale);
-  }
-
-  private regionAt(x: number, y: number): number {
-    const c = cellAt(x, y);
-    return this.store.page.regions.findIndex((r) => containsCell(r, c));
+  private half(e: { shiftKey: boolean }) {
+    return e.shiftKey || this.store.halfCells;
   }
 
   private onDown = (e: PointerEvent) => {
-    if (this.store.mode !== 'edit' || e.button !== 0) return;
-    const p = this.toMm(e);
-    this.notify(null);
     const { store } = this;
+    if (store.mode !== 'edit' || e.button !== 0) return;
+    const { p, cellsPerPx } = this.toCells(e);
+    this.downPx = { x: e.clientX, y: e.clientY };
+    this.notify(null);
 
-    const handle = this.handleAt(p);
-    if (handle && store.selected !== null) {
-      const origin = { ...store.page.regions[store.selected] };
-      this.drag = { kind: 'resize', index: store.selected, handle, origin, last: origin };
+    if (store.tool === 'text') {
+      const at = snapPoint(p, this.half(e));
+      addElement(store, { type: 'text', x: at.x, y: Math.min(at.y, 43), text: 'Text' });
+      return;
+    }
+    if (store.tool !== 'select') {
+      const at = snapPoint(p, this.half(e));
+      this.drag = { kind: 'draw', start: at, cur: at };
     } else {
-      const hit = this.regionAt(p.x, p.y);
-      if (hit >= 0) {
-        store.select(hit);
-        const origin = { ...store.page.regions[hit] };
-        this.drag = { kind: 'move', index: hit, origin, startMm: p, last: origin };
+      const sel = store.selected;
+      const handle = sel !== null && !store.isLocked(sel) && !store.isHidden(sel)
+        ? hitHandle(store.page.elements[sel], p, HANDLE_TOLERANCE_PX * cellsPerPx) : null;
+      if (handle && sel !== null) {
+        const origin = store.page.elements[sel];
+        this.drag = { kind: 'resize', index: sel, handle, origin, last: origin };
       } else {
-        store.select(null);
-        const dot = dotAt(p.x, p.y);
-        this.drag = { kind: 'draw', start: dot, cur: dot };
+        const hits = this.hits(p, HIT_TOLERANCE_PX * cellsPerPx);
+        let hit = hits[0];
+        let clickSelect: number | undefined;
+        if (e.altKey && hits.length > 1) {
+          // Alt-click steps down through the stack: the element beneath the selected one, wrapping around.
+          const at = store.selected === null ? -1 : hits.indexOf(store.selected);
+          hit = hits[(at + 1) % hits.length];
+        } else if (store.selected !== null && hits.includes(store.selected) && hit !== store.selected) {
+          // Pressing on the selected element drags it (so an element reached with Alt-click can be moved);
+          // letting go without dragging selects the topmost one, as a plain click does.
+          clickSelect = hit;
+          hit = store.selected;
+        }
+        if (hit === undefined) {
+          store.select(null);
+        } else {
+          store.select(hit);
+          const origin = store.page.elements[hit];
+          this.drag = { kind: 'move', index: hit, origin, startCells: p, last: origin, moved: false, clickSelect };
+        }
       }
     }
     this.svg.setPointerCapture(e.pointerId);
@@ -105,32 +133,31 @@ export class Canvas {
   };
 
   private onMove = (e: PointerEvent) => {
-    const p = this.toMm(e);
+    const { store } = this;
+    const { p, cellsPerPx } = this.toCells(e);
     const d = this.drag;
     if (!d) {
-      if (this.store.mode !== 'edit') return;
-      const h = this.handleAt(p);
-      this.svg.style.cursor = h ? HANDLE_CURSOR[h] : this.regionAt(p.x, p.y) >= 0 ? 'move' : 'crosshair';
+      if (store.mode !== 'edit' || store.tool !== 'select') return;
+      const sel = store.selected;
+      const h = sel !== null && !store.isLocked(sel) ? hitHandle(store.page.elements[sel], p, HANDLE_TOLERANCE_PX * cellsPerPx) : null;
+      this.svg.style.cursor = h ? HANDLE_CURSOR[h] : this.hits(p, HIT_TOLERANCE_PX * cellsPerPx).length ? 'move' : 'default';
       return;
     }
 
+    const step = snapStep(this.half(e));
     if (d.kind === 'draw') {
-      d.cur = dotAt(p.x, p.y);
+      d.cur = snapPoint(p, this.half(e));
+    } else if (d.kind === 'move') {
+      if (!d.moved && Math.hypot(e.clientX - this.downPx.x, e.clientY - this.downPx.y) < DRAG_START_PX) return;
+      d.moved = true;
+      const dx = Math.round((p.x - d.startCells.x) / step) * step, dy = Math.round((p.y - d.startCells.y) / step) * step;
+      d.last = moveElement(d.origin, dx, dy);
     } else {
-      let candidate: Rect;
-      if (d.kind === 'move') {
-        candidate = moveRect(d.origin, Math.round((p.x - d.startMm.x) / P), Math.round((p.y - d.startMm.y) / P));
-      } else {
-        candidate = resizeRect(d.origin, d.handle, dotAt(p.x, p.y));
-      }
-      const problem = placementProblem(candidate, this.others(d.index));
-      if (problem) {
-        // Hold at the last allowed position and say why.
-        this.notify(problem);
-      } else {
-        this.notify(null);
-        d.last = candidate;
-      }
+      const next = resizeElement(d.origin, d.handle, snapPoint(p, this.half(e)));
+      // Hold the last good shape when the drag would leave nothing, and say why.
+      if (!next) this.notify('An element can’t be resized down to nothing.');
+      else if (validateElement(next).length) this.notify(validateElement(next)[0].message);
+      else { this.notify(null); d.last = next; }
     }
     this.render();
   };
@@ -143,23 +170,17 @@ export class Canvas {
     const { store } = this;
 
     if (d.kind === 'draw') {
-      const same = d.start.x === d.cur.x && d.start.y === d.cur.y;
-      if (!same) {
-        const rect = rectFromDots(d.start, d.cur);
-        const problem = placementProblem(rect, store.page.regions);
-        if (problem) {
-          this.notify(`Not created: ${problem}`);
-        } else {
-          const next = structuredClone(store.page);
-          next.regions.push({ ...rect, fill: 'lines' });
-          store.selected = next.regions.length - 1;
-          store.commit(next);
-          return;
-        }
+      if (store.tool !== 'select' && store.tool !== 'text') {
+        const el = elementFromDrag(store.tool, d.start, d.cur);
+        if (el && validateElement(el).length === 0) { addElement(store, el); return; }
+        if (el) this.notify(`Not created: ${validateElement(el)[0].message}`);
       }
-    } else if (d.last.x !== d.origin.x || d.last.y !== d.origin.y || d.last.w !== d.origin.w || d.last.h !== d.origin.h) {
+    } else if (d.kind === 'move' && !d.moved && d.clickSelect !== undefined) {
+      store.select(d.clickSelect);
+      return;
+    } else if (JSON.stringify(d.last) !== JSON.stringify(d.origin)) {
       const next = structuredClone(store.page);
-      Object.assign(next.regions[d.index], d.last);
+      next.elements[d.index] = d.last;
       store.commit(next);
       return;
     }

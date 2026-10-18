@@ -1,10 +1,15 @@
-import { BORDER_STYLES, COLS, EDGES, FILLS, PITCH_MM, ROWS } from './types';
-import { findUnknownTokens } from './tokens';
+import {
+  ALIGNS, COLS, DIRECTIONS, ELEMENT_TYPES, PAGE_SIDES, PATTERNS, PITCH_MM, ROTATIONS, ROWS, RULE_WEIGHTS,
+  SIDES, STRIPES, TEXT_SIZES, TEXT_STYLES, TEXT_TONES, TONES, WEIGHTS,
+} from './types';
+import { checkboxSpan, insideGrid, limitsArea } from './bounds';
+import { findUnknownTokens, TOKENS } from './tokens';
+import type { PageElement } from './types';
 
 export interface ValidationIssue {
-  /** Short name of the rule that failed, e.g. "no-overlap". */
+  /** Short name of the rule that failed, e.g. "bounds". */
   rule: string;
-  /** Where in the file, e.g. "regions[2].labels[0].row". */
+  /** Where in the file, e.g. "elements[2].x". */
   path: string;
   message: string;
 }
@@ -13,14 +18,19 @@ export function formatIssue(i: ValidationIssue): string {
   return `${i.path}: ${i.message} (rule: ${i.rule})`;
 }
 
+type Fail = (rule: string, path: string, message: string) => void;
+
 const isObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
-const isInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
+const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+const isHalf = (v: unknown): v is number => isNum(v) && Number.isInteger(v * 2);
+const oneOf = (list: readonly unknown[], v: unknown) => list.includes(v);
+const list = (values: readonly unknown[]) => values.map((v) => JSON.stringify(v)).join(', ');
 
-/** Check a parsed JSON value against every rule of format version 1. Empty result means valid. */
+/** Check a parsed JSON value against every rule of format version 2. An empty result means valid. */
 export function validatePage(input: unknown): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
-  const fail = (rule: string, path: string, message: string) => issues.push({ rule, path, message });
+  const fail: Fail = (rule, path, message) => issues.push({ rule, path, message });
 
   if (!isObject(input)) {
     fail('root-object', '(file)', 'A page file must be a JSON object.');
@@ -30,133 +40,150 @@ export function validatePage(input: unknown): ValidationIssue[] {
   if (input.format !== 'dotwork-page') {
     fail('format', 'format', `"format" must be "dotwork-page", got ${JSON.stringify(input.format)}.`);
   }
-  if (input.version !== 1) {
-    fail('version', 'version', `Unknown version ${JSON.stringify(input.version)}; this reader only understands version 1.`);
+  if (input.version !== 2) {
+    fail('version', 'version', `Unknown version ${JSON.stringify(input.version)}; this reader understands version 2 (and converts version 1).`);
   }
   if (typeof input.name !== 'string') {
     fail('name', 'name', '"name" is required and must be a string.');
   }
   if (input.identity !== undefined) {
-    if (typeof input.identity !== 'string') {
-      fail('identity', 'identity', '"identity" must be a string when present.');
-    } else {
-      checkTokens(input.identity, 'identity', fail);
-    }
+    if (typeof input.identity !== 'string') fail('identity', 'identity', '"identity" must be a string when present.');
+    else checkTokens(input.identity, 'identity', fail);
+  }
+  if (input.side !== undefined && !oneOf(PAGE_SIDES, input.side)) {
+    fail('side', 'side', `"side" must be one of ${list(PAGE_SIDES)}, got ${JSON.stringify(input.side)}.`);
   }
 
   const g = input.grid;
   if (!isObject(g) || g.cols !== COLS || g.rows !== ROWS || g.pitch_mm !== PITCH_MM) {
-    fail('grid', 'grid', `"grid" must be exactly { "cols": ${COLS}, "rows": ${ROWS}, "pitch_mm": ${PITCH_MM} } in version 1.`);
+    fail('grid', 'grid', `"grid" must be exactly { "cols": ${COLS}, "rows": ${ROWS}, "pitch_mm": ${PITCH_MM} }.`);
   }
 
-  if (!Array.isArray(input.regions)) {
-    fail('regions-array', 'regions', '"regions" is required and must be an array (it may be empty).');
+  if (!Array.isArray(input.elements)) {
+    fail('elements-array', 'elements', '"elements" is required and must be an array (it may be empty).');
     return issues;
   }
-
-  // Regions whose x/y/w/h are usable integers; only these take part in the overlap check.
-  const placed: { i: number; x: number; y: number; w: number; h: number }[] = [];
-
-  input.regions.forEach((r: unknown, i: number) => {
-    const at = `regions[${i}]`;
-    if (!isObject(r)) {
-      fail('region-object', at, 'A region must be an object.');
-      return;
-    }
-
-    let ints = true;
-    for (const k of ['x', 'y', 'w', 'h'] as const) {
-      if (!isInt(r[k])) {
-        fail('region-integers', `${at}.${k}`, `"${k}" is required and must be an integer number of cells.`);
-        ints = false;
-      }
-    }
-    if (ints) {
-      const { x, y, w, h } = r as Record<'x' | 'y' | 'w' | 'h', number>;
-      let ok = true;
-      if (y === 0) {
-        fail('header-row', `${at}.y`, 'Row 0 is the header row; no region may include it, so y must be at least 1.');
-        ok = false;
-      }
-      if (w < 1 || h < 1) {
-        fail('size', at, `"w" and "h" must be at least 1 (got w=${w}, h=${h}).`);
-        ok = false;
-      }
-      if (x < 0 || y < 0 || x + w > COLS || y + h > ROWS) {
-        fail('bounds', at, `Region (x=${x}, y=${y}, w=${w}, h=${h}) does not fit in the ${COLS} x ${ROWS} grid: need x >= 0, y >= 1, x + w <= ${COLS}, y + h <= ${ROWS}.`);
-        ok = false;
-      }
-      if (ok) placed.push({ i, x, y, w, h });
-    }
-
-    if (typeof r.fill !== 'string' || !(FILLS as readonly string[]).includes(r.fill)) {
-      fail('fill', `${at}.fill`, `Unknown fill type ${JSON.stringify(r.fill)}; expected one of ${FILLS.join(', ')}.`);
-    }
-
-    if (r.border !== undefined) {
-      if (!isObject(r.border)) {
-        fail('border', `${at}.border`, '"border" must be an object with top, bottom, left and/or right.');
-      } else {
-        for (const [edge, style] of Object.entries(r.border)) {
-          if (!(EDGES as readonly string[]).includes(edge)) {
-            fail('border', `${at}.border.${edge}`, `Unknown border edge "${edge}"; expected top, bottom, left or right.`);
-          } else if (!(BORDER_STYLES as readonly unknown[]).includes(style)) {
-            fail('border', `${at}.border.${edge}`, `Border style must be "thin" or "thick", got ${JSON.stringify(style)}.`);
-          }
-        }
-      }
-    }
-
-    if (r.labels !== undefined) {
-      if (!Array.isArray(r.labels)) {
-        fail('labels', `${at}.labels`, '"labels" must be an array.');
-      } else {
-        r.labels.forEach((l: unknown, j: number) => {
-          const lat = `${at}.labels[${j}]`;
-          if (!isObject(l)) {
-            fail('label-object', lat, 'A label must be an object.');
-            return;
-          }
-          if (typeof l.text !== 'string') {
-            fail('label-text', `${lat}.text`, '"text" is required and must be a string.');
-          } else {
-            checkTokens(l.text, `${lat}.text`, fail);
-          }
-          if (l.row !== undefined) {
-            const h = isInt(r.h) ? r.h : undefined;
-            if (!isInt(l.row) || l.row < 0 || (h !== undefined && l.row >= h)) {
-              fail('label-row', `${lat}.row`, `"row" must be an integer from 0 to the region's height minus 1${h !== undefined ? ` (${h - 1})` : ''}.`);
-            }
-          }
-          if (l.align !== undefined && l.align !== 'left' && l.align !== 'right') {
-            fail('label-align', `${lat}.align`, `"align" must be "left" or "right", got ${JSON.stringify(l.align)}.`);
-          }
-          if (l.vertical !== undefined && typeof l.vertical !== 'boolean') {
-            fail('label-vertical', `${lat}.vertical`, '"vertical" must be true or false.');
-          }
-        });
-      }
-    }
-  });
-
-  for (let a = 0; a < placed.length; a++) {
-    for (let b = a + 1; b < placed.length; b++) {
-      const p = placed[a], q = placed[b];
-      if (p.x < q.x + q.w && q.x < p.x + p.w && p.y < q.y + q.h && q.y < p.y + p.h) {
-        fail('no-overlap', `regions[${q.i}]`, `Overlaps regions[${p.i}]; regions may not overlap in version 1.`);
-      }
-    }
-  }
-
+  input.elements.forEach((el: unknown, i: number) => validateElementInto(el, `elements[${i}]`, fail));
   return issues;
 }
 
-function checkTokens(
-  text: string,
-  path: string,
-  fail: (rule: string, path: string, message: string) => void,
-) {
+/** The rule failures of one element, for the editor to check an edit before it is committed. */
+export function validateElement(el: unknown, path = 'element'): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+  validateElementInto(el, path, (rule, p, message) => issues.push({ rule, path: p, message }));
+  return issues;
+}
+
+function validateElementInto(el: unknown, at: string, fail: Fail) {
+  if (!isObject(el)) {
+    fail('element-object', at, 'An element must be an object.');
+    return;
+  }
+  if (!oneOf(ELEMENT_TYPES, el.type)) {
+    fail('element-type', `${at}.type`, `Unknown element type ${JSON.stringify(el.type)}; expected one of ${list(ELEMENT_TYPES)}.`);
+    return;
+  }
+
+  // Every number field: present, a multiple of 0.5. Fields that are not usable skip the bounds check.
+  let usable = true;
+  const half = (key: string, required = true) => {
+    const v = el[key];
+    if (v === undefined && !required) return;
+    if (!isHalf(v)) {
+      fail('half-cell', `${at}.${key}`, `"${key}" is required and must be a multiple of 0.5 (got ${JSON.stringify(v)}).`);
+      usable = false;
+    }
+  };
+  const choice = (key: string, allowed: readonly unknown[]) => {
+    if (el[key] !== undefined && !oneOf(allowed, el[key])) {
+      fail('value', `${at}.${key}`, `"${key}" must be one of ${list(allowed)}, got ${JSON.stringify(el[key])}.`);
+    }
+  };
+  const every = () => {
+    if (el.every === undefined) return;
+    if (!isHalf(el.every) || (el.every as number) <= 0) {
+      fail('every', `${at}.every`, `"every" must be a positive multiple of 0.5 (got ${JSON.stringify(el.every)}).`);
+      usable = false;
+    }
+  };
+
+  switch (el.type) {
+    case 'shade':
+    case 'pattern':
+    case 'box': {
+      for (const k of ['x', 'y', 'w', 'h']) half(k);
+      if (usable && ((el.w as number) <= 0 || (el.h as number) <= 0)) {
+        fail('size', at, `"w" and "h" must be greater than 0 (got w=${el.w}, h=${el.h}).`);
+        usable = false;
+      }
+      if (el.type === 'shade') { choice('tone', TONES); choice('stripes', STRIPES); }
+      if (el.type === 'pattern') {
+        if (!oneOf(PATTERNS, el.pattern)) {
+          fail('value', `${at}.pattern`, `"pattern" is required and must be one of ${list(PATTERNS)}, got ${JSON.stringify(el.pattern)}.`);
+        }
+        every();
+      }
+      if (el.type === 'box') {
+        choice('weight', WEIGHTS);
+        if (el.sides !== undefined) {
+          if (!Array.isArray(el.sides) || el.sides.some((s) => !oneOf(SIDES, s))) {
+            fail('value', `${at}.sides`, `"sides" must be a list of ${list(SIDES)}.`);
+          }
+        }
+      }
+      break;
+    }
+    case 'rule': {
+      for (const k of ['x1', 'y1', 'x2', 'y2']) half(k);
+      choice('weight', RULE_WEIGHTS);
+      if (usable && el.x1 !== el.x2 && el.y1 !== el.y2) {
+        fail('diagonal', at, `A rule must be horizontal or vertical (got (${el.x1}, ${el.y1}) to (${el.x2}, ${el.y2})).`);
+        usable = false;
+      } else if (usable && el.x1 === el.x2 && el.y1 === el.y2) {
+        fail('size', at, 'A rule must have a length greater than 0.');
+        usable = false;
+      }
+      break;
+    }
+    case 'checkboxes': {
+      half('x'); half('y');
+      if (!Number.isInteger(el.count) || (el.count as number) < 1) {
+        fail('count', `${at}.count`, `"count" is required and must be a whole number of at least 1 (got ${JSON.stringify(el.count)}).`);
+        usable = false;
+      }
+      every();
+      choice('direction', DIRECTIONS);
+      choice('weight', WEIGHTS);
+      if (el.size !== undefined && !(isNum(el.size) && el.size >= 0.5 && el.size <= 1)) {
+        fail('size', `${at}.size`, `"size" must be a number from 0.5 to 1 (got ${JSON.stringify(el.size)}).`);
+      }
+      break;
+    }
+    case 'text': {
+      half('x'); half('y');
+      if (typeof el.text !== 'string') fail('text', `${at}.text`, '"text" is required and must be a string.');
+      else checkTokens(el.text, `${at}.text`, fail);
+      choice('size', TEXT_SIZES); choice('style', TEXT_STYLES); choice('tone', TEXT_TONES); choice('align', ALIGNS);
+      choice('rotate', ROTATIONS);
+      break;
+    }
+  }
+
+  if (usable) {
+    const area = limitsArea(el as unknown as PageElement);
+    if (!insideGrid(area)) {
+      const extra = el.type === 'checkboxes'
+        ? ` The ${el.count} boxes (every ${el.every ?? 1}, ${el.direction ?? 'down'}) cover ${checkboxSpan(el.count as number, (el.every as number) ?? 1)} cells.`
+        : '';
+      const onlyHeader = area.y >= 0 && area.y < 1 && area.x >= 0 && area.x + area.w <= COLS && area.y + area.h <= ROWS;
+      fail(onlyHeader ? 'header-row' : 'bounds', at,
+        `Does not fit below the header in the ${COLS} x ${ROWS} grid: need x >= 0, y >= 1, x + w <= ${COLS}, y + h <= ${ROWS}; this one spans x ${area.x} to ${area.x + area.w}, y ${area.y} to ${area.y + area.h}.${extra}`);
+    }
+  }
+}
+
+function checkTokens(text: string, path: string, fail: Fail) {
   for (const name of findUnknownTokens(text)) {
-    fail('token', path, `Unknown token {${name}}; known tokens are {weekday} {month} {monthname} {day} {year} {week}.`);
+    fail('token', path, `Unknown token {${name}}; known tokens are ${TOKENS.map((t) => `{${t}}`).join(' ')}.`);
   }
 }

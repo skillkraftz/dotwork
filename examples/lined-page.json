@@ -1,10 +1,10 @@
 {
   "format": "dotwork-page",
-  "version": 1,
+  "version": 2,
   "name": "Lined page",
   "identity": "{weekday} {month} {day}",
   "grid": { "cols": 27, "rows": 44, "pitch_mm": 3 },
-  "regions": [
-    { "x": 0, "y": 1, "w": 27, "h": 43, "fill": "lines" }
+  "elements": [
+    { "type": "pattern", "pattern": "lines", "x": 0, "y": 1, "w": 27, "h": 43 }
   ]
 }
