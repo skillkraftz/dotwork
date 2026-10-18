@@ -13,9 +13,10 @@
         <div class="group" role="group" aria-label="View">
           <button id="view-page" type="button" title="Edit one page">Page</button>
           <button id="view-spread" type="button" title="Edit a left and a right page side by side">Spread</button>
+          <button id="view-book" type="button" title="Arrange pages into a book and export print files">Book</button>
           <input id="spread-name" type="text" aria-label="Spread name" placeholder="Spread name" maxlength="80" />
         </div>
-        <div class="group" role="group" aria-label="Mode">
+        <div class="group" id="group-mode" role="group" aria-label="Mode">
           <button id="mode-edit" type="button">Edit</button>
           <button id="mode-preview" type="button">Preview</button>
         </div>
@@ -29,7 +30,7 @@
           <button type="button" data-tool="text" title="Text (T)">Text</button>
           <label class="toggle" title="Snap to half cells (or hold Shift)"><input id="half-cells" type="checkbox" /> Half cells</label>
         </div>
-        <div class="group">
+        <div class="group" id="group-history">
           <button id="undo" type="button" title="Undo (Ctrl/Cmd+Z)">Undo</button>
           <button id="redo" type="button" title="Redo (Shift+Ctrl/Cmd+Z)">Redo</button>
         </div>
@@ -46,6 +47,7 @@
         <input id="import-file" type="file" accept=".json,application/json" hidden />
       </header>
       <main>
+        <section id="book" hidden></section>
         <section id="canvas-wrap">
           <svg id="canvas" role="img" aria-label="Page editor"></svg>
           <div id="spread" hidden>

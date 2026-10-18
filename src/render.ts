@@ -10,13 +10,13 @@ import { handlesFor, type Pt } from './geometry';
 export const EDIT_VIEWBOX = `-8 -6 ${PAGE_W_MM + 16} ${PAGE_H_MM + 12}`;
 export const SAMPLE_PAGE_NUMBER = '47';
 
-const FONT = `font-family="'Courier Prime', 'Courier New', monospace"`;
-const PT = 25.4 / 72;
-const LINE = { hair: { w: 0.12, c: '#c4c4c4' }, thin: { w: 0.5 * PT, c: '#000' }, thick: { w: 1.5 * PT, c: '#000' } } as const;
-const GRAY_DOT = '#b0b0b0';
-const TONES = { light: '#efefef', medium: '#dcdcdc', dark: '#bdbdbd' } as const;
-const TEXT_TONES = { gray: '#808080', black: '#000' } as const;
-const BASELINE_MM = 0.6; // text sits this far above the bottom of its cell band
+export const FONT_FAMILY = `font-family="'Courier Prime', 'Courier New', monospace"`;
+export const PT = 25.4 / 72;
+export const LINE = { hair: { w: 0.12, c: '#c4c4c4' }, thin: { w: 0.5 * PT, c: '#000' }, thick: { w: 1.5 * PT, c: '#000' } } as const;
+export const GRAY_DOT = '#b0b0b0';
+export const SHADE_TONES = { light: '#efefef', medium: '#dcdcdc', dark: '#bdbdbd' } as const;
+export const TEXT_COLORS = { gray: '#808080', black: '#000' } as const;
+export const BASELINE_MM = 0.6; // text sits this far above the bottom of its cell band
 
 export interface RenderOptions {
   /** edit: grid dots, header shading and selection; preview: as printed, on screen; export: as printed, page only. */
@@ -25,13 +25,18 @@ export interface RenderOptions {
   /** Indexes of elements the editor is hiding (edit mode only). */
   hidden?: ReadonlySet<number>;
   draft?: PageElement | null;
+  /** The number in the header's outer corner. Defaults to a sample; null leaves it out. */
+  pageNumber?: string | null;
+  /** How text turns its {tokens} into what is drawn. Defaults to sample values. */
+  expand?: (text: string) => string;
 }
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const n = (v: number) => +v.toFixed(3);
+const sample = (text: string) => expandTokens(text);
 
 /** Positions of the boundaries inside [from, from+len]: every `step`, plus the far edge. */
-function ticks(from: number, len: number, step: number, includeStart: boolean): number[] {
+export function ticks(from: number, len: number, step: number, includeStart: boolean): number[] {
   const out: number[] = [];
   for (let t = includeStart ? 0 : step; t < len; t += step) out.push(from + t);
   out.push(from + len);
@@ -42,7 +47,7 @@ const stroke = (d: string, w: number, c: string, cap = 'butt') =>
   d ? `<path d="${d}" fill="none" stroke="${c}" stroke-width="${n(w)}" stroke-linecap="${cap}"/>` : '';
 
 function shadeMarkup(e: Shade): string {
-  const fill = TONES[e.tone ?? DEFAULTS.tone];
+  const fill = SHADE_TONES[e.tone ?? DEFAULTS.tone];
   const stripes = e.stripes ?? DEFAULTS.stripes;
   const rect = (x: number, y: number, w: number, h: number) =>
     `<rect x="${n(x * P)}" y="${n(y * P)}" width="${n(w * P)}" height="${n(h * P)}" fill="${fill}"/>`;
@@ -100,7 +105,7 @@ function checkboxesMarkup(e: Checkboxes): string {
   return `<g fill="none" stroke="#000" stroke-width="${n(w)}">${boxes}</g>`;
 }
 
-function textMarkup(e: Text): string {
+function textMarkup(e: Text, expand: (t: string) => string): string {
   const size = TEXT_SIZE_MM[e.size ?? DEFAULTS.textSize];
   const align = e.align ?? DEFAULTS.align;
   const anchor = align === 'left' ? 'start' : align === 'center' ? 'middle' : 'end';
@@ -109,31 +114,39 @@ function textMarkup(e: Text): string {
   // Drawn in the text's own frame: origin at the anchor, x along the text, y down the one-cell band.
   const frame = `translate(${n(e.x * P)} ${n(e.y * P)})${rotate === 90 ? ' rotate(-90)' : rotate === 270 ? ' rotate(90)' : ''}`;
   const weight = (e.style ?? DEFAULTS.style) === 'bold' ? ' font-weight="700"' : '';
-  return `<text transform="${frame}" x="${n(dx)}" y="${n(P - BASELINE_MM)}" font-size="${size}"${weight} text-anchor="${anchor}" fill="${TEXT_TONES[e.tone ?? DEFAULTS.textTone]}" xml:space="preserve">${esc(expandTokens(e.text))}</text>`;
+  return `<text transform="${frame}" x="${n(dx)}" y="${n(P - BASELINE_MM)}" font-size="${size}"${weight} text-anchor="${anchor}" fill="${TEXT_COLORS[e.tone ?? DEFAULTS.textTone]}" xml:space="preserve">${esc(expand(e.text))}</text>`;
 }
 
-export function elementMarkup(e: PageElement): string {
+export function elementMarkup(e: PageElement, expand: (t: string) => string = sample): string {
   switch (e.type) {
     case 'shade': return shadeMarkup(e);
     case 'pattern': return patternMarkup(e);
     case 'box': return boxMarkup(e);
     case 'rule': return ruleMarkup(e);
     case 'checkboxes': return checkboxesMarkup(e);
-    case 'text': return textMarkup(e);
+    case 'text': return textMarkup(e, expand);
   }
 }
 
-/** Header row: page number at the outer top corner, identity by the spine. The spine is right of a left page. */
-function headerMarkup(page: Page): string {
-  const id = expandTokens(page.identity ?? '').toUpperCase();
+export interface HeaderItem { text: string; x: number; bold: boolean; anchor: 'start' | 'end' }
+
+/** Header row, in cells' mm from the grid's corner: page number at the outer top corner, identity by the spine. The spine is right of a left page. */
+export function headerItems(page: Page, pageNumber: string | null, expand: (t: string) => string = sample): HeaderItem[] {
   const spineRight = page.side === 'left';
-  const common = `y="2.1" font-size="${TEXT_SIZE_MM.label}" fill="#404040"`;
-  const idX = spineRight ? COLS * P : 0, numX = spineRight ? 0 : COLS * P;
-  const anchor = (atEnd: boolean) => (atEnd ? ' text-anchor="end"' : '');
-  return (
-    `<text x="${idX}" ${common} font-weight="700"${anchor(spineRight)} xml:space="preserve">${esc(id)}</text>` +
-    `<text x="${numX}" ${common}${anchor(!spineRight)}>${SAMPLE_PAGE_NUMBER}</text>`
-  );
+  const edge = (atEnd: boolean) => (atEnd ? COLS * P : 0);
+  const items: HeaderItem[] = [];
+  const id = expand(page.identity ?? '').toUpperCase();
+  if (id.trim()) items.push({ text: id, x: edge(spineRight), bold: true, anchor: spineRight ? 'end' : 'start' });
+  if (pageNumber) items.push({ text: pageNumber, x: edge(!spineRight), bold: false, anchor: spineRight ? 'start' : 'end' });
+  return items;
+}
+export const HEADER_BASELINE_MM = 2.1;
+export const HEADER_COLOR = '#404040';
+
+function headerMarkup(page: Page, pageNumber: string | null, expand: (t: string) => string): string {
+  return headerItems(page, pageNumber, expand).map((i) =>
+    `<text x="${i.x}" y="${HEADER_BASELINE_MM}" font-size="${TEXT_SIZE_MM.label}" fill="${HEADER_COLOR}"` +
+    `${i.bold ? ' font-weight="700"' : ''}${i.anchor === 'end' ? ' text-anchor="end"' : ''}${i.bold ? ' xml:space="preserve"' : ''}>${esc(i.text)}</text>`).join('');
 }
 
 function gridDots(): string {
@@ -157,7 +170,7 @@ function selectionMarkup(e: PageElement, withHandles = true): string {
 
 function spineLabel(side: PageSide | undefined): string {
   const x = side === 'left' ? PAGE_W_MM + 2.6 : -2.6;
-  return `<text transform="translate(${x} ${PAGE_H_MM / 2}) rotate(-90)" text-anchor="middle" font-size="1.8" fill="#999" ${FONT}>SPINE</text>`;
+  return `<text transform="translate(${x} ${PAGE_H_MM / 2}) rotate(-90)" text-anchor="middle" font-size="1.8" fill="#999" ${FONT_FAMILY}>SPINE</text>`;
 }
 
 /** The page drawn in mm units, origin at the page's top-left corner (not the grid's). */
@@ -165,20 +178,21 @@ export function pageContent(page: Page, opts: RenderOptions): string {
   const edit = opts.mode === 'edit';
   const exporting = opts.mode === 'export';
   let out = `<rect x="0" y="0" width="${PAGE_W_MM}" height="${PAGE_H_MM}" fill="#fff"${exporting ? '' : ' stroke="#a8a8a8" stroke-width="0.2"'}/>`;
-  out += `<g transform="translate(${GRID_X_MM} ${GRID_Y_MM})" ${FONT}>`;
+  out += `<g transform="translate(${GRID_X_MM} ${GRID_Y_MM})" ${FONT_FAMILY}>`;
   if (edit) {
     out += `<rect x="0" y="0" width="${COLS * P}" height="${ROWS * P}" fill="#f7f7f7"/>`;
     out += `<rect x="0" y="0" width="${COLS * P}" height="${P}" fill="#e4e4e4"/>`;
     out += gridDots();
   }
+  const expand = opts.expand ?? sample;
   page.elements.forEach((e, i) => {
-    if (!(edit && opts.hidden?.has(i))) out += elementMarkup(e);
+    if (!(edit && opts.hidden?.has(i))) out += elementMarkup(e, expand);
   });
-  out += headerMarkup(page);
+  out += headerMarkup(page, opts.pageNumber === undefined ? SAMPLE_PAGE_NUMBER : opts.pageNumber, expand);
   if (edit) {
     const sel = opts.selected != null ? page.elements[opts.selected] : undefined;
     if (sel && !opts.hidden?.has(opts.selected!)) out += selectionMarkup(sel);
-    if (opts.draft) out += `<g opacity="0.55">${elementMarkup(opts.draft)}</g>${selectionMarkup(opts.draft, false)}`;
+    if (opts.draft) out += `<g opacity="0.55">${elementMarkup(opts.draft, expand)}</g>${selectionMarkup(opts.draft, false)}`;
   }
   out += '</g>';
   if (!exporting) out += spineLabel(page.side);

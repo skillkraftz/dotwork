@@ -2,27 +2,32 @@ import { formatIssue } from '../format/validate';
 import { readPage } from '../format/read';
 import type { Page } from '../format/types';
 import { readSpread, type Spread, type SpreadSide } from '../format/spread';
+import { readBook, bookPage, type Book } from '../book/book';
 import { h } from '../panel';
 import { thumbnailSvg } from '../render';
 import type { Library, LibraryItem } from './library';
 
 /** What can be saved from the editor right now. */
-export type SaveWhat = 'page' | 'spread' | 'left' | 'right';
+export type SaveWhat = 'page' | 'spread' | 'left' | 'right' | 'book';
 
 export interface SaveOption { what: SaveWhat; label: string; name: string }
 
 /** What the dialog needs from the editor around it. */
 export interface LibraryHost {
   saveOptions(): SaveOption[];
-  data(what: SaveWhat): Page | Spread;
+  data(what: SaveWhat): Page | Spread | Book;
   openPage(page: Page): void;
   openSpread(spread: Spread): void;
+  openBook(book: Book): void;
   placePage(page: Page, side: SpreadSide): void;
   download(blob: Blob, filename: string): void;
+  /** The window was closed; anything that lists the library can refresh. */
+  closed?(): void;
 }
 
 const itemThumb = (item: LibraryItem) =>
-  thumbnailSvg(item.kind === 'page' ? [item.data] : [item.data.left, item.data.right]);
+  thumbnailSvg(item.kind === 'page' ? [item.data] : item.kind === 'spread' ? [item.data.left, item.data.right]
+    : [bookPage(item.data, 0), bookPage(item.data, 1)]); // a book shows as its first spread
 
 const when = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
@@ -56,6 +61,7 @@ export class LibraryDialog {
         h('span', { class: 'hint' }, 'Kept in this browser. Export a backup file to keep it safe.')),
     );
     this.dialog.addEventListener('click', (e) => { if (e.target === this.dialog) this.dialog.close(); });
+    this.dialog.addEventListener('close', () => host.closed?.());
     document.body.append(this.dialog);
   }
 
@@ -96,18 +102,18 @@ export class LibraryDialog {
   }
 
   private async save(what: SaveWhat, name: string) {
-    const kind = what === 'spread' ? 'spread' : 'page';
+    const kind = what === 'spread' ? 'spread' : what === 'book' ? 'book' : 'page';
     const existing = await this.library.findByName(kind, name);
     if (existing && !confirm(`Replace the saved ${kind} “${existing.name}”?`)) return;
     const data = this.host.data(what);
-    const check = kind === 'spread' ? readSpread(data) : readPage(data);
+    const check = kind === 'spread' ? readSpread(data) : kind === 'book' ? readBook(data) : readPage(data);
     if (!check.ok) {
       this.say(['Not saved: it breaks the page format.', ...check.issues.slice(0, 8).map(formatIssue)]);
       return;
     }
-    const item = kind === 'spread'
-      ? await this.library.save('spread', name, data as Spread)
-      : await this.library.save('page', name, data as Page);
+    const item = kind === 'spread' ? await this.library.save('spread', name, data as Spread)
+      : kind === 'book' ? await this.library.save('book', name, data as Book)
+        : await this.library.save('page', name, data as Page);
     this.say(`Saved ${kind} “${item.name}” to the library.`);
     this.nameEdited = false;
     this.renderSave(what);
@@ -119,7 +125,7 @@ export class LibraryDialog {
   private async renderList() {
     const items = await this.library.list();
     if (!items.length) {
-      this.listEl.replaceChildren(h('p', { class: 'hint' }, 'Nothing saved yet. Name the current page or spread above and save it.'));
+      this.listEl.replaceChildren(h('p', { class: 'hint' }, 'Nothing saved yet. Name the current page, spread or book above and save it.'));
       return;
     }
     this.listEl.replaceChildren(...items.map((item) => this.card(item)));
@@ -136,8 +142,12 @@ export class LibraryDialog {
       h('button', { type: 'button', title, onclick: () => void fn() }, label);
 
     const actions: HTMLElement[] = [
-      btn('Open', () => { item.kind === 'page' ? this.host.openPage(item.data) : this.host.openSpread(item.data); this.close(); },
-        item.kind === 'page' ? 'Edit this page on its own' : 'Edit this spread'),
+      btn('Open', () => {
+        if (item.kind === 'page') this.host.openPage(item.data);
+        else if (item.kind === 'spread') this.host.openSpread(item.data);
+        else this.host.openBook(item.data);
+        this.close();
+      }, item.kind === 'page' ? 'Edit this page on its own' : item.kind === 'spread' ? 'Edit this spread' : 'Arrange this book'),
     ];
     if (item.kind === 'page') {
       const place = (side: SpreadSide) => () => { this.host.placePage(item.data, side); this.close(); };

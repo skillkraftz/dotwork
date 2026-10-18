@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { elementMarkup, exportSvg, pageContent } from '../src/render';
 import { emptyPage, type Page, type PageElement } from '../src/format/types';
+import { blankTokens } from '../src/format/tokens';
 
 const page = (elements: PageElement[], extra: Partial<Page> = {}): Page => ({ ...emptyPage(), elements, ...extra });
 const count = (s: string, re: RegExp) => (s.match(re) ?? []).length;
@@ -115,5 +116,27 @@ describe('elements', () => {
 
   it('fills tokens in text with sample values', () => {
     expect(elementMarkup({ type: 'text', x: 0, y: 1, text: '{monthname} {year}' })).toContain('OCTOBER 2026');
+  });
+});
+
+describe('page numbers and tokens in a book', () => {
+  const header = (p: Page, opts = {}) => pageContent(p, { mode: 'export', ...opts });
+
+  it('prints the number it is given in the outer corner, and nothing when null', () => {
+    expect(header(page([], { side: 'right' }), { pageNumber: '9' })).toMatch(/text-anchor="end">9<\/text>/);
+    expect(header(page([], { side: 'left' }), { pageNumber: '10' })).toMatch(/<text x="0" [^>]*>10<\/text>/);
+    expect(header(page([], { side: 'right' }), { pageNumber: null })).not.toContain('47');
+    expect(header(page([], { side: 'right' }), { pageNumber: null })).not.toMatch(/<text x="81"/);
+  });
+
+  it('expands tokens the way it is told to, in the header and in text', () => {
+    const els: PageElement[] = [{ type: 'text', x: 0, y: 1, text: 'Week {week}' }];
+    const p = page(els, { identity: '{weekday} {month}' });
+    expect(header(p)).toContain('MON OCT');
+    expect(header(p)).toContain('Week 44');
+    const blank = header(p, { expand: blankTokens, pageNumber: null });
+    expect(blank).toContain('>Week <');
+    expect(blank).not.toContain('MON');
+    expect(blank).not.toContain('font-weight="700"'); // a blank identity leaves no empty bold text behind
   });
 });

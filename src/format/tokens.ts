@@ -27,3 +27,6 @@ export function findUnknownTokens(text: string): string[] {
 export function expandTokens(text: string, values: Record<Token, string> = SAMPLE_VALUES): string {
   return text.replace(TOKEN_RE, (whole, name: string) => (isToken(name) ? values[name] : whole));
 }
+
+/** For print: a known token is left empty, so the date can be written in by hand. Unknown tokens are left as typed. */
+export const blankTokens = (text: string) => text.replace(TOKEN_RE, (whole, name: string) => (isToken(name) ? '' : whole));
