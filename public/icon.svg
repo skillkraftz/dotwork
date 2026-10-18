@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="#000"/>
+  <rect x="146" y="96" width="220" height="320" fill="#fff"/>
+  <g fill="#b0b0b0">
+    <circle cx="176" cy="160" r="5"/><circle cx="216" cy="160" r="5"/><circle cx="256" cy="160" r="5"/><circle cx="296" cy="160" r="5"/><circle cx="336" cy="160" r="5"/>
+    <circle cx="176" cy="200" r="5"/><circle cx="216" cy="200" r="5"/><circle cx="256" cy="200" r="5"/><circle cx="296" cy="200" r="5"/><circle cx="336" cy="200" r="5"/>
+    <circle cx="176" cy="240" r="5"/><circle cx="216" cy="240" r="5"/><circle cx="256" cy="240" r="5"/><circle cx="296" cy="240" r="5"/><circle cx="336" cy="240" r="5"/>
+    <circle cx="176" cy="280" r="5"/><circle cx="216" cy="280" r="5"/><circle cx="256" cy="280" r="5"/><circle cx="296" cy="280" r="5"/><circle cx="336" cy="280" r="5"/>
+    <circle cx="176" cy="320" r="5"/><circle cx="216" cy="320" r="5"/><circle cx="296" cy="320" r="5"/><circle cx="336" cy="320" r="5"/>
+    <circle cx="176" cy="360" r="5"/><circle cx="216" cy="360" r="5"/><circle cx="256" cy="360" r="5"/><circle cx="296" cy="360" r="5"/><circle cx="336" cy="360" r="5"/>
+  </g>
+  <circle cx="256" cy="320" r="13" fill="#000"/>
+  <rect x="146" y="96" width="220" height="40" fill="#e4e4e4"/>
+</svg>

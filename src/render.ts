@@ -7,7 +7,10 @@ import { expandTokens } from './format/tokens';
 import { handlesFor, type Pt } from './geometry';
 
 /** Editor view box: the page plus a quiet margin around it. */
-export const EDIT_VIEWBOX = `-8 -6 ${PAGE_W_MM + 16} ${PAGE_H_MM + 12}`;
+export const EDIT_BOX = { x: -8, y: -6, w: PAGE_W_MM + 16, h: PAGE_H_MM + 12 };
+/** What a fitted view shows on a narrow screen: the page with a sliver of margin. */
+export const FIT_BOX = { x: -2, y: -3, w: PAGE_W_MM + 4, h: PAGE_H_MM + 6 };
+export const EDIT_VIEWBOX = `${EDIT_BOX.x} ${EDIT_BOX.y} ${EDIT_BOX.w} ${EDIT_BOX.h}`;
 export const SAMPLE_PAGE_NUMBER = '47';
 
 export const FONT_FAMILY = `font-family="'Courier Prime', 'Courier New', monospace"`;
@@ -25,6 +28,8 @@ export interface RenderOptions {
   /** Indexes of elements the editor is hiding (edit mode only). */
   hidden?: ReadonlySet<number>;
   draft?: PageElement | null;
+  /** Side of the selection's resize handles in mm (edit mode); the editor sizes them to stay finger-sized on screen. */
+  handleMm?: number;
   /** The number in the header's outer corner. Defaults to a sample; null leaves it out. */
   pageNumber?: string | null;
   /** How text turns its {tokens} into what is drawn. Defaults to sample values. */
@@ -157,13 +162,13 @@ function gridDots(): string {
 
 const HANDLE_MM = 1.6;
 
-function selectionMarkup(e: PageElement, withHandles = true): string {
+function selectionMarkup(e: PageElement, withHandles = true, handleMm = HANDLE_MM): string {
   const a = elementArea(e);
   const pad = e.type === 'rule' || e.type === 'text' ? 0.6 : 0;
   const x = a.x * P - pad, y = a.y * P - pad, w = a.w * P + 2 * pad, h = a.h * P + 2 * pad;
   const outline = `<rect x="${n(x)}" y="${n(y)}" width="${n(w)}" height="${n(h)}" fill="none" stroke="#000" stroke-width="0.35" stroke-dasharray="1 0.8"/>`;
   const handles = (withHandles ? handlesFor(e) : [])
-    .map(({ at }: { at: Pt }) => `<rect x="${n(at.x * P - HANDLE_MM / 2)}" y="${n(at.y * P - HANDLE_MM / 2)}" width="${HANDLE_MM}" height="${HANDLE_MM}"/>`)
+    .map(({ at }: { at: Pt }) => `<rect x="${n(at.x * P - handleMm / 2)}" y="${n(at.y * P - handleMm / 2)}" width="${n(handleMm)}" height="${n(handleMm)}"/>`)
     .join('');
   return outline + `<g fill="#fff" stroke="#000" stroke-width="0.25">${handles}</g>`;
 }
@@ -191,7 +196,7 @@ export function pageContent(page: Page, opts: RenderOptions): string {
   out += headerMarkup(page, opts.pageNumber === undefined ? SAMPLE_PAGE_NUMBER : opts.pageNumber, expand);
   if (edit) {
     const sel = opts.selected != null ? page.elements[opts.selected] : undefined;
-    if (sel && !opts.hidden?.has(opts.selected!)) out += selectionMarkup(sel);
+    if (sel && !opts.hidden?.has(opts.selected!)) out += selectionMarkup(sel, true, opts.handleMm);
     if (opts.draft) out += `<g opacity="0.55">${elementMarkup(opts.draft, expand)}</g>${selectionMarkup(opts.draft, false)}`;
   }
   out += '</g>';

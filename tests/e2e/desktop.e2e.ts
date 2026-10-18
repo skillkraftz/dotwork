@@ -1,0 +1,113 @@
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { box, cellToClient, draft, drag, open, shot, start, stop, tap, viewBoxOf, type Env } from './harness';
+
+let env: Env;
+beforeAll(async () => { env = await start(); });
+afterAll(async () => { await stop(env); });
+
+const elements = async (app: Awaited<ReturnType<typeof open>>) => (await draft(app)).elements;
+
+describe('desktop (1280 x 800, mouse and keyboard)', () => {
+  it('keeps the side panel, the inline controls and no menu button', async () => {
+    const app = await open(env, 'desktop');
+    const { page } = app;
+    expect(await page.locator('#menu-button').isVisible()).toBe(false);
+    for (const id of ['#library', '#export-json', '#export-png', '#mode-preview', '#help', '#undo', '#redo']) expect(await page.locator(id).isVisible(), id).toBe(true);
+    expect((await box(app, '#sheet'))!.width).toBeCloseTo(320, 0);
+    expect(await page.locator('.grip').isVisible()).toBe(false);
+    expect(await page.locator('#panel .tabs').isVisible()).toBe(false);
+    for (const h of ['Page', 'Layers', 'Properties']) expect(await page.locator('#panel h2', { hasText: h }).first().isVisible()).toBe(true);
+    await shot(app, 'desktop-page');
+    expect(app.errors).toEqual([]);
+  });
+
+  it('draws with the mouse, snaps to half cells with Shift, and uses the keyboard shortcuts', async () => {
+    const app = await open(env, 'desktop');
+    const { page } = app;
+    await page.keyboard.press('b');
+    await drag(app, await cellToClient(app, 3, 4), await cellToClient(app, 9, 8));
+    expect(await elements(app)).toMatchObject([{ type: 'box', x: 3, y: 4, w: 6, h: 4 }]);
+    // the sheet logic must not take over the desktop panel
+    expect(await page.locator('#sheet').getAttribute('data-state')).toBe('closed');
+    expect(await page.locator('#sheet').isVisible()).toBe(true);
+
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('Shift+ArrowDown');
+    expect(await elements(app)).toMatchObject([{ x: 4, y: 4.5 }]);
+    await page.keyboard.press('Control+d');
+    expect(await elements(app)).toHaveLength(2);
+    await page.keyboard.press('Delete');
+    expect(await elements(app)).toHaveLength(1);
+    await page.keyboard.press('Control+z');
+    expect(await elements(app)).toHaveLength(2);
+    await page.keyboard.press('Control+Shift+z');
+    expect(await elements(app)).toHaveLength(1);
+
+    await page.keyboard.press('r');
+    await page.keyboard.down('Shift');
+    await drag(app, await cellToClient(app, 2.5, 12), await cellToClient(app, 8.5, 12));
+    await page.keyboard.up('Shift');
+    expect(await elements(app)).toMatchObject([{}, { type: 'rule', x1: 2.5, x2: 8.5 }]);
+    expect(app.errors).toEqual([]);
+  });
+
+  it('Alt-click steps to the element underneath; right-click opens the same menu as a long press', async () => {
+    const app = await open(env, 'desktop');
+    const { page } = app;
+    await page.keyboard.press('s');
+    await drag(app, await cellToClient(app, 4, 6), await cellToClient(app, 14, 14));
+    await page.keyboard.press('s');
+    await drag(app, await cellToClient(app, 6, 8), await cellToClient(app, 12, 16));
+    const p = await cellToClient(app, 9, 11);
+    await page.keyboard.down('Alt');
+    await page.mouse.click(p.x, p.y);
+    await page.keyboard.up('Alt');
+    expect(await page.locator('#panel input[data-key="prop-x"]').inputValue()).toBe('4');
+    await page.mouse.click(p.x, p.y, { button: 'right' });
+    await page.waitForSelector('.ctx-menu');
+    expect(await page.locator('.ctx-menu button').count()).toBe(5);
+    await page.keyboard.press('Escape');
+    expect(await page.locator('.ctx-menu').count()).toBe(0);
+    expect(app.errors).toEqual([]);
+  });
+
+  it('zooms with ctrl+wheel and Fit restores the view', async () => {
+    const app = await open(env, 'desktop');
+    const before = await viewBoxOf(app);
+    const c = await cellToClient(app, 13, 20);
+    await app.page.mouse.move(c.x, c.y);
+    await app.page.keyboard.down('Control');
+    await app.page.mouse.wheel(0, -300);
+    await app.page.keyboard.up('Control');
+    expect((await viewBoxOf(app))[2]).toBeLessThan(before[2]);
+    await app.page.click('#fit');
+    expect((await viewBoxOf(app))[2]).toBeCloseTo(before[2], 1);
+  });
+
+  it('shows both pages of a spread side by side, and edits either', async () => {
+    const app = await open(env, 'desktop');
+    const { page } = app;
+    await page.click('#view-spread');
+    expect(await page.locator('#spread-bar').isVisible()).toBe(false);
+    const l = (await box(app, '#canvas-left'))!, r = (await box(app, '#canvas-right'))!;
+    expect(l.width).toBeGreaterThan(300);
+    expect(l.x + l.width).toBeLessThanOrEqual(r.x + 1);
+    expect(await page.locator('#canvas').isVisible()).toBe(false);
+    await page.keyboard.press('b');
+    await drag(app, await cellToClient(app, 3, 4, '#canvas-right'), await cellToClient(app, 8, 9, '#canvas-right'));
+    expect(await page.evaluate(() => JSON.parse(localStorage.getItem('dotwork.spread.right')!).elements.length)).toBe(1);
+    await shot(app, 'desktop-spread');
+    await tap(app, { x: 5, y: 5 });
+    expect(app.errors).toEqual([]);
+  });
+
+  it('opens the library as a window, not a full-screen sheet', async () => {
+    const app = await open(env, 'desktop');
+    await app.page.click('#library');
+    await app.page.waitForSelector('dialog[aria-label="Library"][open]');
+    const d = (await box(app, 'dialog[aria-label="Library"]'))!;
+    expect(d.width).toBeLessThan(1280);
+    expect(d.height).toBeLessThanOrEqual(800);
+    await shot(app, 'desktop-library');
+  });
+});

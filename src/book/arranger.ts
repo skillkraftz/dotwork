@@ -44,7 +44,7 @@ export class Arranger {
   private selText = h('p', {});
   private fromInput = h('input', { type: 'number', min: 1, 'aria-label': 'From page' });
   private toInput = h('input', { type: 'number', min: 1, 'aria-label': 'To page' });
-  private placeBtn = h('button', { type: 'button', class: 'primary', title: 'Put the chosen design in the selected slots (or double-click a slot)' });
+  private placeBtn = h('button', { type: 'button', class: 'primary', title: 'Put the chosen design in the selected slots' });
   private clearBtn = h('button', { type: 'button' }, 'Clear');
 
   constructor(root: HTMLElement, private host: ArrangerHost, book: Book) {
@@ -258,7 +258,7 @@ export class Arranger {
       this.selText,
       h('div', { class: 'row' }, h('label', { class: 'compact' }, 'Pages from', this.fromInput), h('label', { class: 'compact' }, 'to', this.toInput)),
       h('div', { class: 'row' }, this.placeBtn, this.clearBtn),
-      h('p', { class: 'hint' }, 'Click a page to select it, Shift-click to extend, or choose a range above. The covers are the first and last slots. A spread design needs two slots; with one selected it fills that whole spread.'),
+      h('p', { class: 'hint' }, 'Tap a page to select it (Shift-click extends on a keyboard), or choose a range above, then press Place. The covers are the first and last slots. A spread design needs two slots; with one selected it fills that whole spread.'),
       this.warnEl,
       h('h2', {}, 'Designs'),
       cards.length ? h('div', { class: 'design-list' }, ...cards) : h('p', { class: 'hint' }, 'No saved pages or spreads yet. Design some, save them to the Library, then choose them here.'),

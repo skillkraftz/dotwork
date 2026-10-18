@@ -3,9 +3,11 @@ import { emptyPage, type Page } from './format/types';
 import { buildSpread, emptySpread, readSpread, withSide, type Spread, type SpreadSide } from './format/spread';
 import { formatIssue, validatePage } from './format/validate';
 import { readPage } from './format/read';
-import { Canvas } from './canvas';
-import { deleteElement, duplicateElement, nudgeElement } from './actions';
-import { Panel } from './panel';
+import { Canvas, type CanvasHooks } from './canvas';
+import { contextActions, deleteElement, duplicateElement, nudgeElement } from './actions';
+import { h, Panel } from './panel';
+import { closeContextMenu, showContextMenu } from './ctxmenu';
+import { isCompact, Sheet } from './sheet';
 import { pageToPng } from './png';
 import { Store, type Tool } from './store';
 import { Library, MemoryBackend } from './library/library';
@@ -90,13 +92,18 @@ function notify(message: string | string[] | null) {
 
 // ---- views ---------------------------------------------------------------
 
+/** What a touch gesture on a page canvas asks of the screen around it. */
+function hooksFor(store: () => Store): CanvasHooks {
+  return {
+    contextMenu: (index, hits, at) => showContextMenu(at, contextActions(store(), index, hits)),
+    swipe: (direction) => { if (view === 'spread' && isCompact() && !showBoth) setActive(direction > 0 ? 'right' : 'left'); },
+  };
+}
 const canvases = {
-  page: new Canvas($('canvas') as unknown as SVGSVGElement, stores.page, notify),
-  left: new Canvas($('canvas-left') as unknown as SVGSVGElement, stores.left, notify),
-  right: new Canvas($('canvas-right') as unknown as SVGSVGElement, stores.right, notify),
+  page: new Canvas($('canvas') as unknown as SVGSVGElement, stores.page, notify, hooksFor(() => stores.page)),
+  left: new Canvas($('canvas-left') as unknown as SVGSVGElement, stores.left, notify, hooksFor(() => stores.left)),
+  right: new Canvas($('canvas-right') as unknown as SVGSVGElement, stores.right, notify, hooksFor(() => stores.right)),
 };
-const panel = new Panel($('panel'), cur());
-
 function persist(key: string, page: Page) {
   if (validatePage(page).length > 0) return; // keep the last valid draft
   try { localStorage.setItem(key, JSON.stringify(page)); } catch { /* ignore */ }
@@ -108,23 +115,35 @@ function persistSettings() {
   } catch { /* ignore */ }
 }
 
+/** On a narrow screen: show both pages of the spread side by side, read-only, instead of editing one. */
+let showBoth = false;
+const panel = new Panel($('panel'), cur());
+
 function refresh() {
   const spread = view === 'spread';
   const book = view === 'book';
   const store = cur();
+  const preview = store.mode === 'preview';
+  const both = spread && isCompact() && showBoth;
   $('book').hidden = !book;
   $('canvas-wrap').hidden = book;
+  $('canvas').toggleAttribute('hidden', spread); // an SVG element has no `hidden` property, only the attribute
+  $('spread').hidden = !spread;
+  $('spread').classList.toggle('both', both);
   $('view-book').setAttribute('aria-pressed', String(book));
-  for (const id of ['group-mode', 'tools', 'group-history', 'export-png', 'examples']) $(id).hidden = book || (id === 'tools' && store.mode === 'preview');
+  for (const id of ['group-mode', 'tools', 'group-history', 'export-png', 'examples']) $(id).hidden = book || (id === 'tools' && preview);
+  $('spread-bar').hidden = !spread || preview;
+  $('layers-button').hidden = book || preview;
   if (book) {
     ensureArranger();
-    $('panel').hidden = true;
+    $('sheet').hidden = true;
     $('view-page').setAttribute('aria-pressed', 'false');
     $('view-spread').setAttribute('aria-pressed', 'false');
     $<HTMLInputElement>('spread-name').hidden = true;
-    $('status').textContent = 'Book: place saved pages and spreads in slots, set the covers, then export print files. Courier Prime © The Courier Prime Project Authors, SIL OFL 1.1.';
+    setInset();
     return;
   }
+  canvases.left.readOnly = canvases.right.readOnly = both;
   canvases.page.render();
   if (spread) { canvases.left.render(); canvases.right.render(); }
   for (const half of document.querySelectorAll<HTMLElement>('.half')) {
@@ -133,48 +152,69 @@ function refresh() {
   panel.store = store;
   panel.lockedSide = spread ? active : null;
   panel.render();
-  const preview = store.mode === 'preview';
   $('view-page').setAttribute('aria-pressed', String(!spread));
   $('view-spread').setAttribute('aria-pressed', String(spread));
   $<HTMLInputElement>('spread-name').hidden = !spread;
   if (document.activeElement !== $('spread-name')) $<HTMLInputElement>('spread-name').value = spreadName;
+  $('side-left').setAttribute('aria-pressed', String(!both && active === 'left'));
+  $('side-right').setAttribute('aria-pressed', String(!both && active === 'right'));
+  $('side-both').setAttribute('aria-pressed', String(both));
   $('mode-edit').setAttribute('aria-pressed', String(!preview));
   $('mode-preview').setAttribute('aria-pressed', String(preview));
   ($('undo') as HTMLButtonElement).disabled = !store.canUndo;
   ($('redo') as HTMLButtonElement).disabled = !store.canRedo;
-  $('panel').hidden = preview;
+  $('sheet').hidden = preview;
   for (const b of document.querySelectorAll<HTMLButtonElement>('[data-tool]')) {
     b.setAttribute('aria-pressed', String(b.dataset.tool === store.tool));
   }
-  ($('half-cells') as HTMLInputElement).checked = store.halfCells;
-  const credit = `Courier Prime © The Courier Prime Project Authors, <a href="${oflUrl}">SIL OFL 1.1</a>.`;
-  const where = spread ? `Editing the ${active} page. ` : '';
-  $('status').innerHTML = preview
-    ? `Preview: the page as it prints, with sample values for tokens. ${credit}`
-    : `${where}${HINTS[store.tool]} Hold Shift (or tick Half cells) to snap to half cells. ${credit}`;
+  $('half-cells').setAttribute('aria-pressed', String(store.halfCells));
+  setInset();
 }
 
-const HINTS: Record<Tool, string> = {
-  select: 'Click to select (Alt-click to reach what’s underneath); drag to move; drag handles to resize; arrow keys nudge a cell; Ctrl/Cmd+D duplicates; Delete removes.',
-  shade: 'Drag on the page to shade an area.',
-  pattern: 'Drag on the page to fill an area with lines, a grid or dots.',
-  box: 'Drag on the page to draw a box.',
-  rule: 'Drag along a grid line to draw a rule.',
-  checkboxes: 'Drag down or across to lay out a strip of checkboxes.',
-  text: 'Click where the text should sit, then type it in the panel.',
-};
+/** Tell the notice how much of the bottom the sheet covers (the canvases ask `insetNow` themselves). */
+const insetNow = () => (view === 'book' || cur().mode === 'preview' ? 0 : sheet.inset);
+function setInset() {
+  document.querySelector('main')!.style.setProperty('--inset', `${insetNow()}px`);
+}
+const sheet = new Sheet($('sheet'), () => {
+  setInset();
+  // Closed: put the page back in the middle if it was only moved to clear the sheet. Open: keep the selection in view.
+  for (const c of Object.values(canvases)) {
+    if (sheet.state === 'closed') c.restore(); else c.revealSelection();
+  }
+});
+for (const c of Object.values(canvases)) c.inset = insetNow;
+panel.onTab = () => sheet.open();
 
 for (const key of ['page', 'left', 'right'] as const) {
   let last = stores[key].page;
+  let lastSelected = stores[key].selected;
   stores[key].subscribe(() => {
-    if (stores[key].page !== last) {
-      last = stores[key].page;
+    const store = stores[key];
+    if (store.page !== last) {
+      last = store.page;
       persist(KEYS[key], last);
+    }
+    if (store.selected !== lastSelected) {
+      lastSelected = store.selected;
+      if (store === cur()) selectionChanged(store);
     }
     refresh();
   });
 }
 refresh();
+
+/** Selecting something opens the sheet on its properties and scrolls the page so the selection isn't under it. */
+function selectionChanged(store: Store) {
+  if (store.selected === null) {
+    if (panel.tab === 'properties' && sheet.state !== 'closed') sheet.set('closed');
+    return;
+  }
+  if (!isCompact() || store.mode !== 'edit') return;
+  if (sheet.state === 'closed') { panel.tab = 'properties'; sheet.open(); }
+  canvasOf(store).revealSelection();
+}
+const canvasOf = (store: Store) => (store === stores.page ? canvases.page : store === stores.left ? canvases.left : canvases.right);
 
 // ---- view: one page or a spread --------------------------------------------
 
@@ -187,11 +227,21 @@ function setView(next: View) {
 }
 
 function setActive(side: SpreadSide) {
-  if (side === active) return;
+  const wasBoth = showBoth;
+  showBoth = false;
+  if (side === active) { if (wasBoth) refresh(); return; }
   active = side;
   stores[side === 'left' ? 'right' : 'left'].select(null);
   refresh();
 }
+$('side-left').onclick = () => setActive('left');
+$('side-right').onclick = () => setActive('right');
+$('side-both').onclick = () => {
+  showBoth = !showBoth;
+  stores[active].select(null);
+  refresh();
+  if (showBoth) for (const c of [canvases.left, canvases.right]) c.fit(); // each page whole in its half
+};
 for (const half of document.querySelectorAll<HTMLElement>('.half')) {
   // Capture, so the page is active before its canvas handles the same press.
   half.addEventListener('pointerdown', () => setActive(half.dataset.side as SpreadSide), true);
@@ -280,7 +330,36 @@ function replacePage(page: Page) {
   else stores[active].replace(withSide(page, active));
 }
 
-// ---- toolbar -------------------------------------------------------------
+// ---- toolbar and menu ------------------------------------------------------
+
+/** The canvases showing the page(s) being edited. */
+const visibleCanvases = () => (view === 'page' ? [canvases.page] : [canvases.left, canvases.right]);
+$('fit').onclick = () => visibleCanvases().forEach((c) => c.fit());
+$('layers-button').onclick = () => {
+  panel.tab = 'layers';
+  panel.render();
+  if (sheet.state === 'closed') sheet.open(); else sheet.set('closed');
+};
+
+// On a narrow screen the top bar's extras live in a menu; on a wide one the same controls sit in the bar.
+const menu = $('menu');
+const menuButton = $('menu-button');
+function setMenu(open: boolean) {
+  menu.classList.toggle('open', open);
+  menuButton.setAttribute('aria-expanded', String(open));
+}
+menuButton.onclick = () => { closeContextMenu(); setMenu(!menu.classList.contains('open')); };
+menu.addEventListener('click', (e) => {
+  // Choosing something closes the menu; the fields in it (example list, spread name) keep it open while used.
+  const t = e.target as HTMLElement;
+  if (t.closest('button')) setMenu(false);
+});
+document.addEventListener('pointerdown', (e) => {
+  if (menu.classList.contains('open') && !menu.contains(e.target as Node) && !menuButton.contains(e.target as Node)) setMenu(false);
+}, true);
+addEventListener('keydown', (e) => { if (e.key === 'Escape') setMenu(false); });
+// Leaving the narrow layout (rotating, resizing) must not leave the menu stuck open or the spread read-only.
+addEventListener('resize', () => { if (!isCompact()) setMenu(false); refresh(); });
 
 const setMode = (m: 'edit' | 'preview') => all.forEach((s) => s.setMode(m));
 $('mode-edit').onclick = () => setMode('edit');
@@ -291,7 +370,7 @@ $('redo').onclick = () => cur().redo();
 for (const b of document.querySelectorAll<HTMLButtonElement>('[data-tool]')) {
   b.onclick = () => all.forEach((s) => s.setTool(b.dataset.tool as Tool));
 }
-$<HTMLInputElement>('half-cells').onchange = (e) => all.forEach((s) => s.setHalfCells((e.target as HTMLInputElement).checked));
+$('half-cells').onclick = () => { const on = !cur().halfCells; all.forEach((s) => s.setHalfCells(on)); };
 
 $('new').onclick = () => {
   notify(null);
@@ -427,6 +506,35 @@ const libraryDialog = new LibraryDialog(library, {
   closed: () => void arranger?.refreshDesigns(),
 });
 $('library').onclick = () => { notify(null); void libraryDialog.show(); };
+
+// ---- help ------------------------------------------------------------------
+
+const helpList = (...items: string[]) => h('ul', {}, ...items.map((t) => h('li', {}, t)));
+const helpDialog = h('dialog', { class: 'library help', 'aria-label': 'Help' },
+  h('header', {}, h('h2', {}, 'Help'), h('button', { type: 'button', onclick: () => helpDialog.close() }, 'Close')),
+  h('div', { class: 'help-body' },
+    h('h3', {}, 'Drawing'),
+    helpList(
+      'Pick a tool along the bottom (or the keys V S P B R C T), then drag on the page: shade or pattern an area, draw a box, a rule along a grid line, or a strip of checkboxes. With Text, tap where the text should go, then type it in the panel.',
+      'Drawing snaps to whole cells. Turn on Half to snap to half cells (on a keyboard, hold Shift).',
+      'Pinch to zoom and drag with two fingers to pan; the Fit button puts the whole page back on the screen.'),
+    h('h3', {}, 'Changing things'),
+    helpList(
+      'Select, then tap an element to select it. Drag it to move it, and drag its square handles to resize it.',
+      'Long-press an element (or right-click it) for a menu: duplicate, delete, bring forward, send backward, and select the one underneath.',
+      'The panel shows the selected element’s properties, with arrow buttons to nudge it a cell (or half a cell). Layers lists everything on the page: select, hide, lock, delete and reorder with the arrows.',
+      'Keyboard: arrow keys nudge a cell (Shift: half a cell); Ctrl/Cmd+D duplicates; Delete removes; Alt-click steps down through what’s underneath; Ctrl/Cmd+Z undoes, Shift+Ctrl/Cmd+Z redoes.'),
+    h('h3', {}, 'Pages and spreads'),
+    helpList(
+      'Page edits one page. Spread edits a left and a right page; on a phone you edit one at a time with Left and Right (or swipe sideways over an empty part of the page), and View spread shows the pair side by side as they will look open.',
+      'Preview (in the menu) shows the page as it prints, with sample values for tokens. Library saves and reopens pages, spreads and books. Everything is kept in this browser; export JSON to keep a copy.',
+      'Book arranges saved pages into a book and exports the print files.'),
+    h('h3', {}, 'Credits'),
+    h('p', {}, 'Courier Prime © The Courier Prime Project Authors, ',
+      Object.assign(document.createElement('a'), { href: oflUrl, textContent: 'SIL OFL 1.1' }), '.'))) as HTMLDialogElement;
+helpDialog.addEventListener('click', (e) => { if (e.target === helpDialog) helpDialog.close(); });
+document.body.append(helpDialog);
+$('help').onclick = () => helpDialog.showModal();
 
 // ---- keyboard ------------------------------------------------------------
 

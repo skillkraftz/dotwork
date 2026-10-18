@@ -95,6 +95,23 @@ export function hitHandle(el: PageElement, p: Pt, tol: number): Handle | null {
   return ((ns + ew) as Handle) || null;
 }
 
+/** The handle of `el` nearest a point (in cells) within `tol` cells, or null. Unlike `hitHandle` only the drawn handles count, so a finger can still grab the rest of an edge to move the element. */
+export function hitHandlePoint(el: PageElement, p: Pt, tol: number): Handle | null {
+  let best: Handle | null = null, bestD = tol;
+  for (const { handle, at } of handlesFor(el)) {
+    const d = Math.hypot(at.x - p.x, at.y - p.y);
+    if (d <= bestD) { best = handle; bestD = d; }
+  }
+  return best;
+}
+
+/** Of the elements under a point (topmost first), the one beneath the selected one, wrapping to the top; the topmost if the selection isn't among them. */
+export function cycleHit(hits: number[], selected: number | null): number | undefined {
+  if (!hits.length) return undefined;
+  const at = selected === null ? -1 : hits.indexOf(selected);
+  return hits[(at + 1) % hits.length];
+}
+
 /** The element with the edge or corner named by `handle` dragged to `dot`, or null if that leaves nothing. */
 export function resizeElement<T extends PageElement>(el: T, handle: Handle, dot: Pt): T | null {
   if (el.type === 'rule') {
