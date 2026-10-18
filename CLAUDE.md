@@ -77,6 +77,13 @@ Dotwork's print export follows the same physical rules as journal-system
 - Don't add features beyond the task. When a choice is unclear, take the
   simplest version and list the question in the PR.
 - Include screenshots of UI changes in every PR.
+- Mobile first. Dotwork must be fully usable on a phone (390 x 844) and a
+  tablet, not just on a desktop. On every screen, the page being designed gets
+  most of the space. Nothing may depend on a keyboard, a mouse hover, Alt or
+  Shift, double-click, or HTML drag-and-drop; those can stay as desktop
+  shortcuts, but every action needs a visible touch control too. Touch targets
+  are at least 44 px. Test every UI change at phone, tablet and desktop sizes,
+  with touch emulation, and include screenshots of all three in the PR.
 
 ## Roadmap
 
@@ -86,4 +93,6 @@ Dotwork's print export follows the same physical rules as journal-system
 3. Spreads and a library of saved pages and spreads (done).
 4. Book arranger and print export (imposition, creep, manual duplex, covers)
    (done).
-5. Later: dials and other components, color, sharing, a page gallery.
+5. Mobile-first editor: phone and tablet layout, touch controls, home-screen
+   install (done).
+6. Later: dials and other components, color, sharing, a page gallery.

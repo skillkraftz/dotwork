@@ -4,7 +4,7 @@ import {
 } from './format/types';
 import { findUnknownTokens, TOKENS } from './format/tokens';
 import { validateElement } from './format/validate';
-import { deleteElement, duplicateElement, reorderElement } from './actions';
+import { canNudge, deleteElement, duplicateElement, nudgeButton, nudgeStep, reorderElement } from './actions';
 import type { Store } from './store';
 
 type Child = Node | string | null | false;
@@ -43,10 +43,14 @@ const ICONS = {
   up: '<path d="M4 10l4-4 4 4"/>',
   down: '<path d="M4 6l4 4 4-4"/>',
   trash: '<path d="M3 4.5h10M6 4.5V3h4v1.5M4.5 4.5l.5 9h6l.5-9"/>',
+  left: '<path d="M10 3L5 8l5 5"/>',
+  right: '<path d="M6 3l5 5-5 5"/>',
+  nudgeUp: '<path d="M3 10l5-5 5 5"/>',
+  nudgeDown: '<path d="M3 6l5 5 5-5"/>',
 };
 
-function icon(name: keyof typeof ICONS, label: string, onclick: () => void, opts: { disabled?: boolean; pressed?: boolean } = {}) {
-  const b = h('button', { type: 'button', class: 'icon', title: label, 'aria-label': label, disabled: opts.disabled, onclick });
+function icon(name: keyof typeof ICONS, label: string, onclick: () => void, opts: { disabled?: boolean; pressed?: boolean; key?: string; class?: string } = {}) {
+  const b = h('button', { type: 'button', class: opts.class ? `icon ${opts.class}` : 'icon', title: label, 'aria-label': label, disabled: opts.disabled, 'data-key': opts.key, onclick });
   b.innerHTML = `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
   if (opts.pressed !== undefined) b.setAttribute('aria-pressed', String(opts.pressed));
   return b;
@@ -66,8 +70,19 @@ export function describe(el: PageElement): string {
   }
 }
 
-/** The side panel: page settings, the layers list, and the selected element's properties. */
+export type PanelTab = 'properties' | 'layers' | 'page';
+const TABS: [PanelTab, string][] = [['properties', 'Properties'], ['layers', 'Layers'], ['page', 'Page']];
+
+/**
+ * The side panel: page settings, the layers list, and the selected element's properties. On a wide screen all
+ * three show at once; on a narrow one (the bottom sheet) the tabs pick one.
+ */
 export class Panel {
+  /** Which section the tabs show on a narrow screen. */
+  tab: PanelTab = 'properties';
+  /** Called when a tab is picked, so the sheet can open or grow. */
+  onTab: ((tab: PanelTab) => void) | null = null;
+
   /** Where the reason the last typed value was refused is shown. */
   private problemEl: HTMLElement | null = null;
 
@@ -84,7 +99,8 @@ export class Panel {
     const caret = focusKey ? [active!.selectionStart, active!.selectionEnd] : null;
     const scroll = root.querySelector('.layers')?.scrollTop ?? 0;
 
-    root.replaceChildren(this.pageSection(), this.layersSection(), this.propertiesSection());
+    root.dataset.tab = this.tab;
+    root.replaceChildren(this.tabBar(), this.pageSection(), this.layersSection(), this.propertiesSection());
     const layers = root.querySelector('.layers');
     if (layers) layers.scrollTop = scroll;
     root.querySelector('.layer.selected')?.scrollIntoView({ block: 'nearest' });
@@ -94,6 +110,14 @@ export class Panel {
       el?.focus();
       if (el && caret && el.type === 'text') el.setSelectionRange(caret[0], caret[1]);
     }
+  }
+
+  private tabBar(): HTMLElement {
+    return h('div', { class: 'tabs', role: 'tablist' }, ...TABS.map(([id, label]) =>
+      h('button', {
+        type: 'button', role: 'tab', 'data-tab-button': id, 'aria-selected': this.tab === id, 'aria-pressed': this.tab === id, 'data-key': `tab-${id}`,
+        onclick: () => { this.tab = id; this.onTab?.(id); this.render(); },
+      }, label)));
   }
 
   // ---- page ---------------------------------------------------------------
@@ -106,7 +130,7 @@ export class Panel {
 
   private pageSection(): HTMLElement {
     const page = this.store.page;
-    return h('section', {},
+    return h('section', { 'data-tab': 'page' },
       h('h2', {}, 'Page'),
       h('label', {}, 'Name',
         h('input', {
@@ -142,7 +166,7 @@ export class Panel {
       const hidden = store.isHidden(i), locked = store.isLocked(i);
       const row = h('li', {
         class: `layer${store.selected === i ? ' selected' : ''}${hidden ? ' is-hidden' : ''}`,
-        draggable: 'true',
+        draggable: matchMedia('(pointer: fine)').matches ? 'true' : null, // drag and drop is a desktop shortcut; the arrows work everywhere
         ondragstart: (e: DragEvent) => { e.dataTransfer?.setData('text/plain', String(i)); e.dataTransfer!.effectAllowed = 'move'; },
         ondragover: (e: DragEvent) => { e.preventDefault(); row.classList.add('drop'); },
         ondragleave: () => row.classList.remove('drop'),
@@ -161,7 +185,7 @@ export class Panel {
       );
       return row;
     });
-    return h('section', {},
+    return h('section', { 'data-tab': 'layers' },
       h('h2', {}, 'Layers'),
       els.length
         ? h('div', {},
@@ -169,7 +193,7 @@ export class Panel {
           h('ol', { class: 'layers' }, ...rows.reverse()),
           h('p', { class: 'hint end' }, 'Bottom: drawn first'))
         : h('p', { class: 'hint' }, 'Nothing on the page yet. Pick a tool and draw on the page.'),
-      els.length ? h('p', { class: 'hint' }, 'Drag rows to reorder. Hiding affects only this editor.') : null,
+      els.length ? h('p', { class: 'hint' }, 'Use the arrows to reorder (or drag a row). Hiding affects only this editor.') : null,
     );
   }
 
@@ -275,20 +299,34 @@ export class Panel {
     }
   }
 
+  /** Arrow buttons that move the selection by a cell, or half a cell with the half-cell toggle on. */
+  private nudgePad(i: number): HTMLElement {
+    const { store } = this;
+    const arrow = (name: keyof typeof ICONS, label: string, dx: number, dy: number, area: string) =>
+      icon(name, `Nudge ${label}`, () => nudgeButton(store, i, dx, dy), { disabled: !canNudge(store, i, dx, dy), key: `nudge-${label}`, class: `nudge ${area}` });
+    const half = h('button', {
+      type: 'button', class: 'nudge step', 'data-key': 'nudge-half', 'aria-pressed': store.halfCells,
+      title: 'Nudge by half a cell instead of a whole cell', onclick: () => store.setHalfCells(!store.halfCells),
+    }, nudgeStep(store) === 0.5 ? '½' : '1');
+    return h('div', { class: 'nudge-pad', role: 'group', 'aria-label': 'Nudge' },
+      arrow('nudgeUp', 'up', 0, -1, 'up'), arrow('left', 'left', -1, 0, 'left'), half, arrow('right', 'right', 1, 0, 'right'), arrow('nudgeDown', 'down', 0, 1, 'down'));
+  }
+
   private propertiesSection(): HTMLElement {
     const { store } = this;
     const i = store.selected;
     if (i === null) {
-      return h('section', {}, h('h2', {}, 'Properties'),
-        h('p', { class: 'hint' }, 'Click an element to select it. Alt-click again to reach the ones underneath.'));
+      return h('section', { 'data-tab': 'properties' }, h('h2', {}, 'Properties'),
+        h('p', { class: 'hint' }, 'Tap or click an element to select it. Long-press it (or Alt-click) to reach the ones underneath.'));
     }
     const el = store.page.elements[i];
     const locked = store.isLocked(i);
     const problemEl = h('p', { class: 'warn', hidden: true });
     this.problemEl = problemEl;
-    return h('section', {},
+    return h('section', { 'data-tab': 'properties' },
       h('h2', {}, `Properties · ${el.type}`),
       locked ? h('p', { class: 'hint' }, 'Locked: unlock it in the layers list to edit.') : null,
+      this.nudgePad(i),
       h('fieldset', { disabled: locked }, ...this.fields(el), problemEl),
       h('div', { class: 'row' },
         h('button', { type: 'button', disabled: locked, onclick: () => duplicateElement(store, i) }, 'Duplicate'),

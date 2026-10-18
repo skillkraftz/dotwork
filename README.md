@@ -13,7 +13,7 @@ the identity by the spine. Version 1 files are converted when imported.
 
 ## Using the editor
 
-- **Tools** (toolbar, or the keys V S P B R C T): select, shade, pattern, box,
+- **Tools** (bottom bar on a phone, toolbar on a desktop, or the keys V S P B R C T): select, shade, pattern, box,
   rule, checkboxes, text. Drawing snaps to whole cells; hold **Shift** or tick
   **Half cells** to snap to half cells.
 - **Select** by clicking (the topmost element under the pointer); **Alt-click**
@@ -29,6 +29,31 @@ the identity by the spine. Version 1 files are converted when imported.
 - **Page** holds the name, the identity (tokens such as `{weekday}` allowed) and
   the side: the spine and header are drawn on the correct side.
 
+## On a phone or tablet
+
+The same app is laid out for touch below 1000 px wide: a one-row top bar (Page /
+Spread / Book, Undo, Redo, and a menu holding Library, New, examples, import and
+export, Preview and Help), the page filling the screen, and the tools along the
+bottom (including a **Half** toggle that replaces holding Shift).
+
+![Phone: selection above the properties sheet](docs/screenshots/mobile/phone-selection-above-sheet.png)
+
+- **Pinch** to zoom, **two fingers** to pan, the **Fit** button to bring the
+  whole page back.
+- Selecting an element opens the **bottom sheet** (properties with nudge arrows
+  for a cell or half a cell; tabs for Layers and Page). Pull the grip up or
+  swipe it down; the page scrolls so the selection never hides under it.
+- **Long-press** an element for duplicate, delete, bring forward, send backward
+  and select the one underneath. Resize handles are finger-sized.
+- **Spread** edits one page at a time (Left / Right, or swipe over an empty
+  part of the page); **View spread** shows the pair as it will look open.
+- Library and print-file windows are full-screen sheets; on a phone the print
+  files download as one zip.
+- A web app manifest and icon let you add Dotwork to the home screen.
+
+Screenshots for phone, tablet and desktop are in
+[docs/screenshots/mobile/](docs/screenshots/mobile/).
+
 ## Run locally
 
 ```sh
@@ -36,6 +61,7 @@ npm install
 npm run dev      # editor at http://localhost:5173
 npm test         # validator, conversion, geometry, history, rendering, imposition and PDF tests
 npm run build    # type-checks, then builds to dist/
+npm run test:e2e # drives the app in headless Chromium at phone, tablet and desktop sizes
 ```
 
 The current page autosaves to your browser's localStorage. Use Export JSON,

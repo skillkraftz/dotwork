@@ -4,6 +4,7 @@ import { zip } from '../print/zip';
 import type { ExportedFile } from '../print/export';
 import type { Book } from './book';
 import { svgToPng, FONT_CSS } from '../png';
+import { isCompact } from '../sheet';
 import regularUrl from '../fonts/CourierPrime-Regular.ttf?url';
 import boldUrl from '../fonts/CourierPrime-Bold.ttf?url';
 
@@ -61,9 +62,14 @@ export class ExportDialog {
       type: 'button', class: 'primary',
       onclick: () => this.download(new Blob([zip(files) as BlobPart], { type: 'application/zip' }), `${slug(book.name)}-print.zip`),
     }, 'Download all (.zip)');
+    // Phone browsers often refuse several downloads at once, so there the zip is the way and the files are tucked away.
+    const list = h('ul', { class: 'export-files' }, ...rows);
+    const individual = isCompact()
+      ? h('details', { class: 'export-individual' }, h('summary', {}, 'Download files one at a time'), list)
+      : list;
     this.body.replaceChildren(
       h('div', { class: 'export-actions' }, all),
-      h('ul', { class: 'export-files' }, ...rows),
+      individual,
       h('p', { class: 'hint' }, 'Print each signature: print-first.pdf, put the stack back in the tray the same way, then print-second.pdf. Print cover.pdf single-sided on the cover paper. Fold, sew, then trim 3.5 in from the fold.'),
       img);
     this.dialog.addEventListener('close', () => URL.revokeObjectURL(previewUrl), { once: true });
