@@ -1,14 +1,16 @@
 import { readPage } from '../format/read';
 import { readSpread, type Spread } from '../format/spread';
+import { readBook, type Book } from '../book/book';
 import type { Page } from '../format/types';
 import type { ValidationIssue } from '../format/validate';
 
-export type LibraryKind = 'page' | 'spread';
+export type LibraryKind = 'page' | 'spread' | 'book';
 
 interface ItemBase { id: string; name: string; /** ISO time of the last change. */ updated: string }
 export type LibraryItem =
   | (ItemBase & { kind: 'page'; data: Page })
-  | (ItemBase & { kind: 'spread'; data: Spread });
+  | (ItemBase & { kind: 'spread'; data: Spread })
+  | (ItemBase & { kind: 'book'; data: Book });
 
 /** Where items are kept. IndexedDB in the browser, memory in tests. */
 export interface Backend {
@@ -36,7 +38,7 @@ export type ImportResult = { ok: true; added: number; replaced: number } | { ok:
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
-/** Check a parsed backup file; every page and spread inside is checked against the page format too. */
+/** Check a parsed backup file; every page, spread and book inside is checked against the page format too. */
 export function readLibraryFile(input: unknown): { ok: true; items: LibraryItem[] } | { ok: false; issues: ValidationIssue[] } {
   const issues: ValidationIssue[] = [];
   const fail = (rule: string, path: string, message: string) => issues.push({ rule, path, message });
@@ -58,22 +60,22 @@ export function readLibraryFile(input: unknown): { ok: true; items: LibraryItem[
     else seen.add(raw.id);
     if (typeof raw.name !== 'string') fail('name', `${at}.name`, '"name" is required and must be a string.');
     if (typeof raw.updated !== 'string' || Number.isNaN(Date.parse(raw.updated))) fail('updated', `${at}.updated`, '"updated" must be an ISO date string.');
-    if (raw.kind !== 'page' && raw.kind !== 'spread') return fail('kind', `${at}.kind`, `"kind" must be "page" or "spread", got ${JSON.stringify(raw.kind)}.`);
-    const data = raw.kind === 'page' ? readPage(raw.data) : readSpread(raw.data);
+    if (raw.kind !== 'page' && raw.kind !== 'spread' && raw.kind !== 'book') return fail('kind', `${at}.kind`, `"kind" must be "page", "spread" or "book", got ${JSON.stringify(raw.kind)}.`);
+    const data = raw.kind === 'page' ? readPage(raw.data) : raw.kind === 'spread' ? readSpread(raw.data) : readBook(raw.data);
     if (!data.ok) {
       for (const d of data.issues) issues.push({ ...d, path: `${at}.data${d.path === '(file)' ? '' : '.' + d.path}` });
       return;
     }
     if (issues.length > before) return;
     const base = { id: raw.id as string, name: raw.name as string, updated: raw.updated as string };
-    items.push(raw.kind === 'page'
-      ? { ...base, kind: 'page', data: (data as { page: Page }).page }
-      : { ...base, kind: 'spread', data: (data as { spread: Spread }).spread });
+    items.push(raw.kind === 'page' ? { ...base, kind: 'page', data: (data as { page: Page }).page }
+      : raw.kind === 'spread' ? { ...base, kind: 'spread', data: (data as { spread: Spread }).spread }
+        : { ...base, kind: 'book', data: (data as { book: Book }).book });
   });
   return issues.length ? { ok: false, issues } : { ok: true, items };
 }
 
-/** Saved pages and spreads: save, open, rename, duplicate, delete, back up and restore. */
+/** Saved pages, spreads and books: save, open, rename, duplicate, delete, back up and restore. */
 export class Library {
   constructor(
     private backend: Backend,
@@ -98,7 +100,8 @@ export class Library {
   /** Save under a name, keeping the page's or spread's own name in step. Saving over an existing name replaces it. */
   async save(kind: 'page', name: string, data: Page): Promise<LibraryItem>;
   async save(kind: 'spread', name: string, data: Spread): Promise<LibraryItem>;
-  async save(kind: LibraryKind, name: string, data: Page | Spread): Promise<LibraryItem> {
+  async save(kind: 'book', name: string, data: Book): Promise<LibraryItem>;
+  async save(kind: LibraryKind, name: string, data: Page | Spread | Book): Promise<LibraryItem> {
     const clean = name.trim() || 'Untitled';
     const existing = await this.findByName(kind, clean);
     const item = { id: existing?.id ?? this.newId(), kind, name: clean, updated: this.now().toISOString(), data: { ...structuredClone(data), name: clean } } as LibraryItem;

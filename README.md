@@ -34,7 +34,7 @@ the identity by the spine. Version 1 files are converted when imported.
 ```sh
 npm install
 npm run dev      # editor at http://localhost:5173
-npm test         # validator, conversion, geometry, history and rendering tests
+npm test         # validator, conversion, geometry, history, rendering, imposition and PDF tests
 npm run build    # type-checks, then builds to dist/
 ```
 
@@ -44,6 +44,40 @@ Example pages live in [examples/](examples/); the monthly tracker, daily Good
 Time Journal, idea and weekly pages recreate journal-system's pages. Compare
 them with `reference/` in [docs/screenshots/](docs/screenshots/)
 (`compare-*.png`: reference on the left, Dotwork's export on the right).
+
+## Books and print files
+
+The **Book** view arranges a book (52 pages by default; the count is a setting,
+rounded to a multiple of 4) as spreads, the way it opens: the inside front cover
+beside page 1, pages 2 and 3, and so on to the last page beside the inside back
+cover.
+
+![The book arranger](docs/screenshots/book-arranger.png)
+
+- **Choose** a saved page or spread under *Designs*, **select** slots (click,
+  Shift-click for a range, the page label under a spread for both pages, or type
+  a page range) and press **Place**. Double-click a design, or drag it onto a
+  slot, to place it at once. A spread design fills both slots of a spread. The
+  covers are the first and last slots. **Clear** empties a slot, **Undo** steps
+  back.
+- **Page numbers** are on by default, in each page's outer top corner. Date
+  tokens (`{weekday}` and so on) print blank so the date can be written in.
+- **Print settings**: paper thickness for creep (0.14 mm), the back-side offset
+  (x and y, for printers that shift on the second pass) and the number of
+  signatures. A creep that would cross the fold is refused with the reason.
+- **Export print files** builds `pages.pdf`, `print-first.pdf` and
+  `print-second.pdf` (one pair per signature), `cover.pdf`, a `preview.png`
+  contact sheet and a `summary.txt`, and offers them one by one or as a zip.
+  Text stays real text in the embedded Courier Prime and lines stay vector.
+
+![The print files](docs/screenshots/book-export.png)
+
+A book is saved to the Library beside pages and spreads, and **Export JSON** /
+**Import JSON** read and write it as a file; the format and the print files are
+described in [docs/book-format.md](docs/book-format.md). The imposition is a
+port of journal-system's `pocketjournal/imposition.py`, tested with the same
+cases. Print each signature the way it says in `summary.txt`: `print-first.pdf`,
+put the stack back in the tray the same way, then `print-second.pdf`.
 
 ## Deploy
 

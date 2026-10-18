@@ -11,10 +11,14 @@ import { Store, type Tool } from './store';
 import { Library, MemoryBackend } from './library/library';
 import { idbBackend } from './library/idb';
 import { LibraryDialog, type SaveOption, type SaveWhat } from './library/dialog';
+import { Arranger } from './book/arranger';
+import { emptyBook, readBook, type Book } from './book/book';
+import { ExportDialog } from './book/export-dialog';
 import oflUrl from './fonts/OFL.txt?url';
 
 const KEYS = { page: 'dotwork.page', left: 'dotwork.spread.left', right: 'dotwork.spread.right' } as const;
 const VIEW_KEY = 'dotwork.view';
+const BOOK_KEY = 'dotwork.book';
 const SPREAD_NAME_KEY = 'dotwork.spread.name';
 
 const examples = Object.entries(import.meta.glob<unknown>('../examples/*.json', { eager: true, import: 'default' }))
@@ -26,7 +30,7 @@ const examples = Object.entries(import.meta.glob<unknown>('../examples/*.json', 
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
-type View = 'page' | 'spread';
+type View = 'page' | 'spread' | 'book';
 const stored = (key: string) => { try { return localStorage.getItem(key); } catch { return null; } };
 
 function loadDraft(key: string, fallback: Page, side?: SpreadSide): Page {
@@ -48,11 +52,18 @@ const stores = {
   right: new Store(loadDraft(KEYS.right, blank.right, 'right')),
 };
 const all = [stores.page, stores.left, stores.right];
-let view: View = stored(VIEW_KEY) === 'spread' ? 'spread' : 'page';
+const storedView = stored(VIEW_KEY);
+let view: View = storedView === 'spread' || storedView === 'book' ? storedView : 'page';
 let active: SpreadSide = 'left';
+/** The book being arranged and its view; made the first time the book view is shown. */
+let book: Book | null = null;
+let arranger: Arranger | null = null;
 let spreadName = stored(SPREAD_NAME_KEY) || blank.name;
 /** The store that undo, the panel and the keyboard act on. */
 const cur = () => (view === 'page' ? stores.page : stores[active]);
+
+const library = new Library(typeof indexedDB === 'undefined' ? new MemoryBackend() : idbBackend);
+const exportDialog = new ExportDialog((blob, name) => download(blob, name));
 
 // ---- notices -------------------------------------------------------------
 
@@ -99,9 +110,21 @@ function persistSettings() {
 
 function refresh() {
   const spread = view === 'spread';
+  const book = view === 'book';
   const store = cur();
-  $('canvas').hidden = spread;
-  $('spread').hidden = !spread;
+  $('book').hidden = !book;
+  $('canvas-wrap').hidden = book;
+  $('view-book').setAttribute('aria-pressed', String(book));
+  for (const id of ['group-mode', 'tools', 'group-history', 'export-png', 'examples']) $(id).hidden = book || (id === 'tools' && store.mode === 'preview');
+  if (book) {
+    ensureArranger();
+    $('panel').hidden = true;
+    $('view-page').setAttribute('aria-pressed', 'false');
+    $('view-spread').setAttribute('aria-pressed', 'false');
+    $<HTMLInputElement>('spread-name').hidden = true;
+    $('status').textContent = 'Book: place saved pages and spreads in slots, set the covers, then export print files. Courier Prime © The Courier Prime Project Authors, SIL OFL 1.1.';
+    return;
+  }
   canvases.page.render();
   if (spread) { canvases.left.render(); canvases.right.render(); }
   for (const half of document.querySelectorAll<HTMLElement>('.half')) {
@@ -120,7 +143,6 @@ function refresh() {
   ($('undo') as HTMLButtonElement).disabled = !store.canUndo;
   ($('redo') as HTMLButtonElement).disabled = !store.canRedo;
   $('panel').hidden = preview;
-  $('tools').hidden = preview;
   for (const b of document.querySelectorAll<HTMLButtonElement>('[data-tool]')) {
     b.setAttribute('aria-pressed', String(b.dataset.tool === store.tool));
   }
@@ -175,8 +197,51 @@ for (const half of document.querySelectorAll<HTMLElement>('.half')) {
   half.addEventListener('pointerdown', () => setActive(half.dataset.side as SpreadSide), true);
 }
 
+// ---- view: the book ----------------------------------------------------------
+
+function loadBook(): Book {
+  try {
+    const raw = stored(BOOK_KEY);
+    if (raw) {
+      const r = readBook(JSON.parse(raw));
+      if (r.ok) return r.book;
+    }
+  } catch { /* corrupt draft: start fresh */ }
+  return emptyBook();
+}
+
+
+function ensureArranger() {
+  if (arranger) { void arranger.refreshDesigns(); return; }
+  book ??= loadBook();
+  arranger = new Arranger($('book'), {
+    library,
+    changed(b) {
+      book = b;
+      try { localStorage.setItem(BOOK_KEY, JSON.stringify(b)); } catch {
+        notify('This browser can’t keep a draft of the book (storage is full or blocked). Save it to the Library or export it as JSON.');
+      }
+    },
+    exportFiles: (b) => void exportDialog.show(b),
+  }, book);
+  void arranger.refreshDesigns();
+}
+
+const currentBook = (): Book => arranger?.current ?? (book ??= loadBook());
+
+function openBook(next: Book) {
+  notify(null);
+  book = structuredClone(next);
+  try { localStorage.setItem(BOOK_KEY, JSON.stringify(book)); } catch { /* ignore */ }
+  arranger?.setBook(book);
+  view = 'book';
+  persistSettings();
+  refresh();
+}
+
 $('view-page').onclick = () => setView('page');
 $('view-spread').onclick = () => setView('spread');
+$('view-book').onclick = () => setView('book');
 $<HTMLInputElement>('spread-name').oninput = (e) => {
   spreadName = (e.target as HTMLInputElement).value;
   persistSettings();
@@ -230,6 +295,11 @@ $<HTMLInputElement>('half-cells').onchange = (e) => all.forEach((s) => s.setHalf
 
 $('new').onclick = () => {
   notify(null);
+  if (view === 'book') {
+    if (currentBook().pages.some(Boolean) && !confirm('Start a new book? The current draft is replaced (save it to the Library first to keep it).')) return;
+    openBook(emptyBook());
+    return;
+  }
   if (view === 'page') { replacePage(emptyPage()); return; }
   const fresh = emptySpread();
   spreadName = fresh.name;
@@ -259,6 +329,14 @@ const slug = (name: string, fallback: string) => name.trim().toLowerCase().repla
 $('export-json').onclick = () => {
   const json = (data: unknown, name: string) =>
     download(new Blob([JSON.stringify(data, null, 2) + '\n'], { type: 'application/json' }), `${slug(name, 'page')}.json`);
+  if (view === 'book') {
+    const b = currentBook();
+    const r = readBook(b);
+    if (!r.ok) { notify(['Can’t export: the book breaks the format.', ...r.issues.slice(0, 8).map(formatIssue)]); return; }
+    notify(null);
+    json(b, b.name || 'book');
+    return;
+  }
   if (view === 'page') {
     const issues = validatePage(stores.page.page);
     if (issues.length) { notify(['Can’t export: the page breaks the format.', ...issues.map(formatIssue)]); return; }
@@ -301,6 +379,13 @@ fileInput.onchange = async () => {
     notify(`${file.name} is a library backup. Use Library, then Import library.`);
     return;
   }
+  if (format === 'dotwork-book') {
+    const r = readBook(parsed);
+    if (!r.ok) { notify([`Not imported: ${file.name} breaks the book format.`, ...r.issues.slice(0, 12).map(formatIssue)]); return; }
+    openBook(r.book);
+    if (r.converted) notify(`${file.name} contained version 1 pages and they have been converted to version 2.`);
+    return;
+  }
   if (format === 'dotwork-spread') {
     const r = readSpread(parsed);
     if (!r.ok) { notify([`Not imported: ${file.name} breaks the spread format.`, ...r.issues.map(formatIssue)]); return; }
@@ -319,9 +404,9 @@ fileInput.onchange = async () => {
 
 // ---- library -------------------------------------------------------------
 
-const library = new Library(typeof indexedDB === 'undefined' ? new MemoryBackend() : idbBackend);
 const libraryDialog = new LibraryDialog(library, {
   saveOptions(): SaveOption[] {
+    if (view === 'book') return [{ what: 'book', label: 'This book', name: currentBook().name }];
     if (view === 'page') return [{ what: 'page', label: 'This page', name: stores.page.page.name }];
     return [
       { what: 'spread', label: 'The spread', name: spreadName },
@@ -330,13 +415,16 @@ const libraryDialog = new LibraryDialog(library, {
     ];
   },
   data(what: SaveWhat) {
+    if (what === 'book') return structuredClone(currentBook());
     if (what === 'spread') return currentSpread();
-    return structuredClone(stores[what === 'page' ? 'page' : what].page);
+    return structuredClone(stores[what].page);
   },
   openPage,
   openSpread,
+  openBook,
   placePage,
   download,
+  closed: () => void arranger?.refreshDesigns(),
 });
 $('library').onclick = () => { notify(null); void libraryDialog.show(); };
 
@@ -346,7 +434,7 @@ const TOOL_KEYS: Record<string, Tool> = { v: 'select', s: 'shade', p: 'pattern',
 const ARROWS: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
 
 addEventListener('keydown', (e) => {
-  if (document.querySelector('dialog[open]')) return; // the library window has its own keys
+  if (document.querySelector('dialog[open]') || view === 'book') return; // the library window has its own keys; the book view has none
   const store = cur();
   const t = e.target as HTMLElement;
   const typing = t instanceof HTMLInputElement && t.type === 'text';

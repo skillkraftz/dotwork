@@ -126,7 +126,7 @@ describe('Library backup', () => {
     expect(rules({ ...file, format: 'x' })).toContain('format');
     expect(rules({ ...file, version: 2 })).toContain('version');
     expect(rules({ ...file, items: 3 })).toContain('items-array');
-    expect(rules({ ...file, items: [{ ...item, kind: 'book' }] })).toContain('kind');
+    expect(rules({ ...file, items: [{ ...item, kind: 'notebook' }] })).toContain('kind');
     expect(rules({ ...file, items: [item, item] })).toContain('id');
     expect(rules({ ...file, items: [{ ...item, updated: 'yesterday' }] })).toContain('updated');
     expect(rules({ ...file, items: [{ ...item, kind: 'spread' }] })).toContain('format'); // a page where a spread belongs
