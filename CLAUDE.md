@@ -83,6 +83,6 @@ Dotwork's print export follows the same physical rules as journal-system
 1. Single-page editor (done, format version 1).
 2. Format version 2: layered elements, half-cell positions, shading, true
    page margins, recreations of the owner's pages (done).
-3. Spreads and a library of saved pages and spreads.
+3. Spreads and a library of saved pages and spreads (done).
 4. Book arranger and print export (imposition, creep, manual duplex, covers).
 5. Later: dials and other components, color, sharing, a page gallery.

@@ -10,6 +10,11 @@
     <div id="app">
       <header class="toolbar">
         <h1>Dotwork</h1>
+        <div class="group" role="group" aria-label="View">
+          <button id="view-page" type="button" title="Edit one page">Page</button>
+          <button id="view-spread" type="button" title="Edit a left and a right page side by side">Spread</button>
+          <input id="spread-name" type="text" aria-label="Spread name" placeholder="Spread name" maxlength="80" />
+        </div>
         <div class="group" role="group" aria-label="Mode">
           <button id="mode-edit" type="button">Edit</button>
           <button id="mode-preview" type="button">Preview</button>
@@ -29,6 +34,7 @@
           <button id="redo" type="button" title="Redo (Shift+Ctrl/Cmd+Z)">Redo</button>
         </div>
         <div class="group">
+          <button id="library" type="button" title="Saved pages and spreads">Library</button>
           <button id="new" type="button">New</button>
           <select id="examples" aria-label="Load an example"></select>
         </div>
@@ -42,6 +48,10 @@
       <main>
         <section id="canvas-wrap">
           <svg id="canvas" role="img" aria-label="Page editor"></svg>
+          <div id="spread" hidden>
+            <div class="half" data-side="left"><span class="tag">Left page</span><svg id="canvas-left" role="img" aria-label="Left page editor"></svg></div>
+            <div class="half" data-side="right"><span class="tag">Right page</span><svg id="canvas-right" role="img" aria-label="Right page editor"></svg></div>
+          </div>
           <div id="notice" role="status" hidden></div>
         </section>
         <aside id="panel"></aside>

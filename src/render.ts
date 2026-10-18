@@ -192,3 +192,11 @@ export function exportSvg(page: Page, widthPx: number, heightPx: number, fontCss
     `<style>${fontCss}</style>${pageContent(page, { mode: 'export' })}</svg>`
   );
 }
+
+/** Thumbnail of a page, or a spread's two pages side by side (left page on the left), as printed. */
+export function thumbnailSvg(pages: Page[]): string {
+  const body = pages.map((p, i) => `<g transform="translate(${i * PAGE_W_MM} 0)">${pageContent(p, { mode: 'export' })}</g>`).join('');
+  const outline = `<rect x="0.1" y="0.1" width="${pages.length * PAGE_W_MM - 0.2}" height="${PAGE_H_MM - 0.2}" fill="none" stroke="#a8a8a8" stroke-width="0.4"/>`;
+  const fold = pages.length > 1 ? `<path d="M${PAGE_W_MM} 0V${PAGE_H_MM}" stroke="#a8a8a8" stroke-width="0.4"/>` : '';
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${pages.length * PAGE_W_MM} ${PAGE_H_MM}" role="img">${body}${outline}${fold}</svg>`;
+}

@@ -9,7 +9,7 @@ import type { Store } from './store';
 
 type Child = Node | string | null | false;
 
-function h<K extends keyof HTMLElementTagNameMap>(
+export function h<K extends keyof HTMLElementTagNameMap>(
   tag: K,
   props: Record<string, unknown> = {},
   ...children: Child[]
@@ -71,7 +71,10 @@ export class Panel {
   /** Where the reason the last typed value was refused is shown. */
   private problemEl: HTMLElement | null = null;
 
-  constructor(private root: HTMLElement, private store: Store) {}
+  /** In a spread the side belongs to the slot the page is in, so the field is replaced by a note. */
+  lockedSide: 'left' | 'right' | null = null;
+
+  constructor(private root: HTMLElement, public store: Store) {}
 
   render() {
     const { root } = this;
@@ -119,10 +122,12 @@ export class Panel {
           }),
         })),
       warnUnknownTokens(page.identity ?? ''),
-      h('label', {}, 'Side',
-        this.select('page-side', PAGE_SIDES, page.side ?? DEFAULTS.side, (v) => this.editPage('page-side', (p) => {
-          if (v === 'either') delete p.side; else p.side = v as Page['side'];
-        }))),
+      this.lockedSide
+        ? h('p', { class: 'hint' }, `This is the ${this.lockedSide} page of the spread.`)
+        : h('label', {}, 'Side',
+          this.select('page-side', PAGE_SIDES, page.side ?? DEFAULTS.side, (v) => this.editPage('page-side', (p) => {
+            if (v === 'either') delete p.side; else p.side = v as Page['side'];
+          }))),
       h('p', { class: 'hint' }, `Tokens: ${TOKENS.map((t) => `{${t}}`).join(' ')}`),
       h('p', { class: 'hint' }, 'The spine is right of a left page, left of a right page; “either” shows as a right page.'),
     );
