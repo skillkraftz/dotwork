@@ -1,19 +1,22 @@
 import './style.css';
 import { emptyPage, type Page } from './format/types';
 import { formatIssue, validatePage } from './format/validate';
+import { readPage } from './format/read';
 import { Canvas } from './canvas';
-import { deleteSelected, Panel } from './panel';
+import { deleteElement, duplicateElement, nudgeElement } from './actions';
+import { Panel } from './panel';
 import { pageToPng } from './png';
-import { Store } from './store';
+import { Store, type Tool } from './store';
 import oflUrl from './fonts/OFL.txt?url';
 
 const STORAGE_KEY = 'dotwork.page';
 
-const examples = Object.entries(
-  import.meta.glob<Page>('../examples/*.json', { eager: true, import: 'default' }),
-)
+const examples = Object.entries(import.meta.glob<unknown>('../examples/*.json', { eager: true, import: 'default' }))
   .sort(([a], [b]) => a.localeCompare(b))
-  .map(([, page]) => page);
+  .flatMap(([, raw]) => {
+    const r = readPage(raw);
+    return r.ok ? [r.page] : [];
+  });
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -21,8 +24,8 @@ function loadSaved(): Page {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
-      const parsed = JSON.parse(raw);
-      if (validatePage(parsed).length === 0) return parsed;
+      const r = readPage(JSON.parse(raw));
+      if (r.ok) return r.page;
     }
   } catch { /* storage unavailable or corrupt: start fresh */ }
   return emptyPage();
@@ -72,10 +75,26 @@ function refresh() {
   ($('undo') as HTMLButtonElement).disabled = !store.canUndo;
   ($('redo') as HTMLButtonElement).disabled = !store.canRedo;
   $('panel').hidden = preview;
+  $('tools').hidden = preview;
+  for (const b of document.querySelectorAll<HTMLButtonElement>('[data-tool]')) {
+    b.setAttribute('aria-pressed', String(b.dataset.tool === store.tool));
+  }
+  ($('half-cells') as HTMLInputElement).checked = store.halfCells;
+  const credit = `Courier Prime © The Courier Prime Project Authors, <a href="${oflUrl}">SIL OFL 1.1</a>.`;
   $('status').innerHTML = preview
-    ? `Preview: the page as it prints, with sample values for tokens. Courier Prime © The Courier Prime Project Authors, <a href="${oflUrl}">SIL OFL 1.1</a>.`
-    : `Drag from dot to dot to draw a region. Click to select; drag to move; drag edges or corners to resize; Delete removes. Courier Prime © The Courier Prime Project Authors, <a href="${oflUrl}">SIL OFL 1.1</a>.`;
+    ? `Preview: the page as it prints, with sample values for tokens. ${credit}`
+    : `${HINTS[store.tool]} Hold Shift (or tick Half cells) to snap to half cells. ${credit}`;
 }
+
+const HINTS: Record<Tool, string> = {
+  select: 'Click to select (Alt-click to reach what’s underneath); drag to move; drag handles to resize; arrow keys nudge a cell; Ctrl/Cmd+D duplicates; Delete removes.',
+  shade: 'Drag on the page to shade an area.',
+  pattern: 'Drag on the page to fill an area with lines, a grid or dots.',
+  box: 'Drag on the page to draw a box.',
+  rule: 'Drag along a grid line to draw a rule.',
+  checkboxes: 'Drag down or across to lay out a strip of checkboxes.',
+  text: 'Click where the text should sit, then type it in the panel.',
+};
 
 let lastPage = store.page;
 store.subscribe(() => {
@@ -95,9 +114,13 @@ $('undo').onclick = () => store.undo();
 $('redo').onclick = () => store.redo();
 
 function replacePage(page: Page) {
-  store.selected = null;
-  store.commit(structuredClone(page));
+  store.replace(structuredClone(page));
 }
+
+for (const b of document.querySelectorAll<HTMLButtonElement>('[data-tool]')) {
+  b.onclick = () => store.setTool(b.dataset.tool as Tool);
+}
+$<HTMLInputElement>('half-cells').onchange = (e) => store.setHalfCells((e.target as HTMLInputElement).checked);
 
 $('new').onclick = () => { notify(null); replacePage(emptyPage()); };
 
@@ -151,33 +174,52 @@ fileInput.onchange = async () => {
     notify(`${file.name} is not valid JSON: ${(err as Error).message}`);
     return;
   }
-  const issues = validatePage(parsed);
-  if (issues.length) {
-    notify([`Not imported: ${file.name} breaks the page format.`, ...issues.map(formatIssue)]);
+  const result = readPage(parsed);
+  if (!result.ok) {
+    notify([`Not imported: ${file.name} breaks the page format.`, ...result.issues.map(formatIssue)]);
     return;
   }
-  notify(null);
-  replacePage(parsed as Page);
+  notify(result.converted ? `${file.name} was a version 1 file and has been converted to version 2.` : null);
+  replacePage(result.page);
 };
 
 // ---- keyboard ------------------------------------------------------------
 
+const TOOL_KEYS: Record<string, Tool> = { v: 'select', s: 'shade', p: 'pattern', b: 'box', r: 'rule', c: 'checkboxes', t: 'text' };
+const ARROWS: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+
 addEventListener('keydown', (e) => {
   const t = e.target as HTMLElement;
   const typing = t instanceof HTMLInputElement && t.type === 'text';
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+  const inField = t instanceof HTMLInputElement || t instanceof HTMLSelectElement || t instanceof HTMLTextAreaElement;
+  const mod = e.ctrlKey || e.metaKey;
+  const sel = store.selected;
+  if (mod && e.key.toLowerCase() === 'z') {
     if (typing) return; // let the field undo its own text
     e.preventDefault();
     if (e.shiftKey) store.redo(); else store.undo();
-  } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+  } else if (mod && e.key.toLowerCase() === 'y') {
     if (typing) return;
     e.preventDefault();
     store.redo();
-  } else if ((e.key === 'Delete' || e.key === 'Backspace') && store.mode === 'edit' && !typing && !(t instanceof HTMLSelectElement) && !(t instanceof HTMLInputElement)) {
+  } else if (mod && e.key.toLowerCase() === 'd') {
+    e.preventDefault(); // the browser would bookmark the page
+    if (store.mode === 'edit' && sel !== null && !store.isLocked(sel)) duplicateElement(store, sel);
+  } else if (store.mode !== 'edit' || inField || mod || e.altKey) {
+    // Fields keep their own keys; nothing below applies in preview.
+  } else if (e.key === 'Delete' || e.key === 'Backspace') {
     e.preventDefault();
-    deleteSelected(store);
-  } else if (e.key === 'Escape') {
+    if (sel !== null && !store.isLocked(sel)) deleteElement(store, sel);
+  } else if (e.key in ARROWS && sel !== null) {
+    e.preventDefault();
+    const step = e.shiftKey ? 0.5 : 1;
+    nudgeElement(store, sel, ARROWS[e.key][0] * step, ARROWS[e.key][1] * step);
+  } else if (e.key.toLowerCase() in TOOL_KEYS && !e.shiftKey) {
+    store.setTool(TOOL_KEYS[e.key.toLowerCase()]);
+  }
+  if (e.key === 'Escape') {
     canvas.cancel();
+    store.setTool('select');
     store.select(null);
   }
 });

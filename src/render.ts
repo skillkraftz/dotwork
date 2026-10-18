@@ -1,173 +1,194 @@
-import { COLS, ROWS, type Edge, type Page, type Region } from './format/types';
+import {
+  COLS, DEFAULTS, GRID_X_MM, GRID_Y_MM, PAGE_H_MM, PAGE_W_MM, PITCH_MM as P, ROWS,
+  type Page, type PageElement, type PageSide, type Shade, type Pattern, type Box, type Rule, type Checkboxes, type Text,
+} from './format/types';
+import { elementArea, TEXT_INSET_MM, TEXT_SIZE_MM } from './format/bounds';
 import { expandTokens } from './format/tokens';
-import { P, type Rect } from './geometry';
+import { handlesFor, type Pt } from './geometry';
 
-export const PAGE_W = COLS * P; // 81 mm
-export const PAGE_H = ROWS * P; // 132 mm
-/** Editor view box: the page plus a quiet margin. */
-export const EDIT_VIEWBOX = `-7 -5 ${PAGE_W + 14} ${PAGE_H + 10}`;
-
+/** Editor view box: the page plus a quiet margin around it. */
+export const EDIT_VIEWBOX = `-8 -6 ${PAGE_W_MM + 16} ${PAGE_H_MM + 12}`;
 export const SAMPLE_PAGE_NUMBER = '47';
 
 const FONT = `font-family="'Courier Prime', 'Courier New', monospace"`;
-const LABEL_SIZE = 2.3; // mm, about 6.5 pt
-const GRAY_LINE = '#c4c4c4';
+const PT = 25.4 / 72;
+const LINE = { hair: { w: 0.12, c: '#c4c4c4' }, thin: { w: 0.5 * PT, c: '#000' }, thick: { w: 1.5 * PT, c: '#000' } } as const;
 const GRAY_DOT = '#b0b0b0';
-const BORDER_WIDTH = { thin: 0.2, thick: 0.6 } as const;
+const TONES = { light: '#efefef', medium: '#dcdcdc', dark: '#bdbdbd' } as const;
+const TEXT_TONES = { gray: '#808080', black: '#000' } as const;
+const BASELINE_MM = 0.6; // text sits this far above the bottom of its cell band
 
 export interface RenderOptions {
-  /** edit: dots, header shading and selection; preview: as printed, on screen; export: as printed, page only. */
+  /** edit: grid dots, header shading and selection; preview: as printed, on screen; export: as printed, page only. */
   mode: 'edit' | 'preview' | 'export';
   selected?: number | null;
-  draft?: { rect: Rect; valid: boolean } | null;
+  /** Indexes of elements the editor is hiding (edit mode only). */
+  hidden?: ReadonlySet<number>;
+  draft?: PageElement | null;
 }
 
-const esc = (s: string) =>
-  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const n = (v: number) => +v.toFixed(3);
 
-function fillMarkup(r: Region): string {
-  const x0 = r.x * P, x1 = (r.x + r.w) * P, y0 = r.y * P, y1 = (r.y + r.h) * P;
-  const hlines = (fromX: number) => {
-    let d = '';
-    for (let i = 1; i <= r.h; i++) d += `M${fromX} ${(r.y + i) * P}H${x1}`;
-    return d;
-  };
-  const vlines = () => {
-    let d = '';
-    for (let i = 1; i <= r.w; i++) d += `M${(r.x + i) * P} ${y0}V${y1}`;
-    return d;
-  };
-  const line = (d: string) => (d ? `<path d="${d}" fill="none" stroke="${GRAY_LINE}" stroke-width="0.12"/>` : '');
+/** Positions of the boundaries inside [from, from+len]: every `step`, plus the far edge. */
+function ticks(from: number, len: number, step: number, includeStart: boolean): number[] {
+  const out: number[] = [];
+  for (let t = includeStart ? 0 : step; t < len; t += step) out.push(from + t);
+  out.push(from + len);
+  return out;
+}
 
-  switch (r.fill) {
-    case 'blank':
-      return '';
-    case 'lines':
-      return line(hlines(x0));
-    case 'vlines':
-      return line(vlines());
-    case 'grid':
-      return line(hlines(x0) + vlines());
+const stroke = (d: string, w: number, c: string, cap = 'butt') =>
+  d ? `<path d="${d}" fill="none" stroke="${c}" stroke-width="${n(w)}" stroke-linecap="${cap}"/>` : '';
+
+function shadeMarkup(e: Shade): string {
+  const fill = TONES[e.tone ?? DEFAULTS.tone];
+  const stripes = e.stripes ?? DEFAULTS.stripes;
+  const rect = (x: number, y: number, w: number, h: number) =>
+    `<rect x="${n(x * P)}" y="${n(y * P)}" width="${n(w * P)}" height="${n(h * P)}" fill="${fill}"/>`;
+  if (stripes === 'none') return rect(e.x, e.y, e.w, e.h);
+  let out = '';
+  if (stripes === 'rows') for (let t = 0; t < e.h; t += 2) out += rect(e.x, e.y + t, e.w, Math.min(1, e.h - t));
+  else for (let t = 0; t < e.w; t += 2) out += rect(e.x + t, e.y, Math.min(1, e.w - t), e.h);
+  return out;
+}
+
+function patternMarkup(e: Pattern): string {
+  const step = e.every ?? DEFAULTS.every;
+  const x0 = e.x * P, x1 = (e.x + e.w) * P, y0 = e.y * P, y1 = (e.y + e.h) * P;
+  const rows = (start: boolean) => ticks(e.y, e.h, step, start).map((y) => y * P);
+  const cols = (start: boolean) => ticks(e.x, e.w, step, start).map((x) => x * P);
+  const h = (start: boolean) => rows(start).map((y) => `M${n(x0)} ${n(y)}H${n(x1)}`).join('');
+  const v = (start: boolean) => cols(start).map((x) => `M${n(x)} ${n(y0)}V${n(y1)}`).join('');
+  switch (e.pattern) {
+    case 'lines': return stroke(h(false), LINE.hair.w, LINE.hair.c);
+    case 'vlines': return stroke(v(false), LINE.hair.w, LINE.hair.c);
+    case 'grid': return stroke(h(true) + v(true), LINE.hair.w, LINE.hair.c);
     case 'dots': {
       let d = '';
-      for (let i = 0; i <= r.w; i++) for (let j = 0; j <= r.h; j++) d += `M${(r.x + i) * P} ${(r.y + j) * P}h0`;
-      return `<path d="${d}" stroke="${GRAY_DOT}" stroke-width="0.5" stroke-linecap="round"/>`;
-    }
-    case 'checkboxes': {
-      let boxes = '';
-      for (let i = 0; i < r.h; i += 2) {
-        boxes += `<rect x="${n(x0 + 0.6)}" y="${n((r.y + i) * P + 0.7)}" width="1.8" height="1.8"/>`;
-      }
-      return line(hlines(x0 + P)) + `<g fill="none" stroke="#777" stroke-width="0.15">${boxes}</g>`;
+      for (const x of cols(true)) for (const y of rows(true)) d += `M${n(x)} ${n(y)}h0`;
+      return stroke(d, 0.5, GRAY_DOT, 'round');
     }
   }
 }
 
-function borderMarkup(r: Region): string {
-  const x0 = r.x * P, x1 = (r.x + r.w) * P, y0 = r.y * P, y1 = (r.y + r.h) * P;
-  const seg: Record<Edge, string> = {
-    top: `M${x0} ${y0}H${x1}`,
-    bottom: `M${x0} ${y1}H${x1}`,
-    left: `M${x0} ${y0}V${y1}`,
-    right: `M${x1} ${y0}V${y1}`,
+function boxMarkup(e: Box): string {
+  const w = LINE[e.weight ?? DEFAULTS.boxWeight].w;
+  const x0 = e.x * P, x1 = (e.x + e.w) * P, y0 = e.y * P, y1 = (e.y + e.h) * P;
+  const seg = {
+    top: `M${n(x0)} ${n(y0)}H${n(x1)}`, bottom: `M${n(x0)} ${n(y1)}H${n(x1)}`,
+    left: `M${n(x0)} ${n(y0)}V${n(y1)}`, right: `M${n(x1)} ${n(y0)}V${n(y1)}`,
   };
-  let out = '';
-  for (const [edge, style] of Object.entries(r.border ?? {}) as [Edge, 'thin' | 'thick'][]) {
-    out += `<path d="${seg[edge]}" stroke="#000" stroke-width="${BORDER_WIDTH[style]}" stroke-linecap="square" fill="none"/>`;
-  }
-  return out;
+  return stroke((e.sides ?? ['top', 'bottom', 'left', 'right']).map((s) => seg[s]).join(''), w, '#000', 'square');
 }
 
-function labelsMarkup(r: Region): string {
-  let out = '';
-  for (const l of r.labels ?? []) {
-    const text = esc(expandTokens(l.text));
-    const attrs = `font-size="${LABEL_SIZE}" fill="#808080"`;
-    if (l.vertical) {
-      const tx = n(r.x * P + 2.2), ty = n((r.y + r.h) * P - 0.8);
-      out += `<text transform="translate(${tx} ${ty}) rotate(-90)" ${attrs}>${text}</text>`;
-    } else {
-      const y = n((r.y + (l.row ?? 0) + 1) * P - 0.6);
-      if (l.align === 'right') {
-        out += `<text x="${n((r.x + r.w) * P - 0.8)}" y="${y}" text-anchor="end" ${attrs}>${text}</text>`;
-      } else {
-        out += `<text x="${n(r.x * P + 0.8)}" y="${y}" ${attrs}>${text}</text>`;
-      }
-    }
-  }
-  return out;
+function ruleMarkup(e: Rule): string {
+  const l = LINE[e.weight ?? DEFAULTS.ruleWeight];
+  return stroke(`M${n(e.x1 * P)} ${n(e.y1 * P)}L${n(e.x2 * P)} ${n(e.y2 * P)}`, l.w, l.c, e.weight === 'hair' ? 'butt' : 'square');
 }
 
+function checkboxesMarkup(e: Checkboxes): string {
+  const size = (e.size ?? DEFAULTS.checkSize) * P;
+  const every = e.every ?? DEFAULTS.every;
+  const across = (e.direction ?? DEFAULTS.direction) === 'across';
+  const w = LINE[e.weight ?? DEFAULTS.boxWeight].w;
+  let boxes = '';
+  for (let i = 0; i < e.count; i++) {
+    const cx = (e.x + (across ? i * every : 0)) * P, cy = (e.y + (across ? 0 : i * every)) * P;
+    boxes += `<rect x="${n(cx + (P - size) / 2)}" y="${n(cy + (P - size) / 2)}" width="${n(size)}" height="${n(size)}"/>`;
+  }
+  return `<g fill="none" stroke="#000" stroke-width="${n(w)}">${boxes}</g>`;
+}
+
+function textMarkup(e: Text): string {
+  const size = TEXT_SIZE_MM[e.size ?? DEFAULTS.textSize];
+  const align = e.align ?? DEFAULTS.align;
+  const anchor = align === 'left' ? 'start' : align === 'center' ? 'middle' : 'end';
+  const dx = align === 'left' ? TEXT_INSET_MM : align === 'right' ? -TEXT_INSET_MM : 0;
+  const rotate = e.rotate ?? DEFAULTS.rotate;
+  // Drawn in the text's own frame: origin at the anchor, x along the text, y down the one-cell band.
+  const frame = `translate(${n(e.x * P)} ${n(e.y * P)})${rotate === 90 ? ' rotate(-90)' : rotate === 270 ? ' rotate(90)' : ''}`;
+  const weight = (e.style ?? DEFAULTS.style) === 'bold' ? ' font-weight="700"' : '';
+  return `<text transform="${frame}" x="${n(dx)}" y="${n(P - BASELINE_MM)}" font-size="${size}"${weight} text-anchor="${anchor}" fill="${TEXT_TONES[e.tone ?? DEFAULTS.textTone]}" xml:space="preserve">${esc(expandTokens(e.text))}</text>`;
+}
+
+export function elementMarkup(e: PageElement): string {
+  switch (e.type) {
+    case 'shade': return shadeMarkup(e);
+    case 'pattern': return patternMarkup(e);
+    case 'box': return boxMarkup(e);
+    case 'rule': return ruleMarkup(e);
+    case 'checkboxes': return checkboxesMarkup(e);
+    case 'text': return textMarkup(e);
+  }
+}
+
+/** Header row: page number at the outer top corner, identity by the spine. The spine is right of a left page. */
 function headerMarkup(page: Page): string {
   const id = expandTokens(page.identity ?? '').toUpperCase();
-  // Right-hand page: the spine is on the left, the outer corner top right.
+  const spineRight = page.side === 'left';
+  const common = `y="2.1" font-size="${TEXT_SIZE_MM.label}" fill="#404040"`;
+  const idX = spineRight ? COLS * P : 0, numX = spineRight ? 0 : COLS * P;
+  const anchor = (atEnd: boolean) => (atEnd ? ' text-anchor="end"' : '');
   return (
-    `<text x="1" y="2.1" font-size="2.3" font-weight="700" fill="#404040">${esc(id)}</text>` +
-    `<text x="${PAGE_W - 1}" y="2.1" font-size="2.3" fill="#404040" text-anchor="end">${SAMPLE_PAGE_NUMBER}</text>`
+    `<text x="${idX}" ${common} font-weight="700"${anchor(spineRight)} xml:space="preserve">${esc(id)}</text>` +
+    `<text x="${numX}" ${common}${anchor(!spineRight)}>${SAMPLE_PAGE_NUMBER}</text>`
   );
 }
 
-function allDots(): string {
+function gridDots(): string {
   let d = '';
   for (let i = 0; i <= COLS; i++) for (let j = 0; j <= ROWS; j++) d += `M${i * P} ${j * P}h0`;
-  return `<path d="${d}" stroke="#cfcfcf" stroke-width="0.4" stroke-linecap="round"/>`;
+  return stroke(d, 0.4, '#cfcfcf', 'round');
 }
 
-const HANDLE_SIZE = 1.6;
+const HANDLE_MM = 1.6;
 
-function selectionMarkup(r: Region): string {
-  const x0 = r.x * P, x1 = (r.x + r.w) * P, y0 = r.y * P, y1 = (r.y + r.h) * P;
-  const xm = (x0 + x1) / 2, ym = (y0 + y1) / 2;
-  const hs = [[x0, y0], [xm, y0], [x1, y0], [x0, ym], [x1, ym], [x0, y1], [xm, y1], [x1, y1]];
-  const handles = hs
-    .map(([x, y]) => `<rect x="${n(x - HANDLE_SIZE / 2)}" y="${n(y - HANDLE_SIZE / 2)}" width="${HANDLE_SIZE}" height="${HANDLE_SIZE}"/>`)
+function selectionMarkup(e: PageElement, withHandles = true): string {
+  const a = elementArea(e);
+  const pad = e.type === 'rule' || e.type === 'text' ? 0.6 : 0;
+  const x = a.x * P - pad, y = a.y * P - pad, w = a.w * P + 2 * pad, h = a.h * P + 2 * pad;
+  const outline = `<rect x="${n(x)}" y="${n(y)}" width="${n(w)}" height="${n(h)}" fill="none" stroke="#000" stroke-width="0.35" stroke-dasharray="1 0.8"/>`;
+  const handles = (withHandles ? handlesFor(e) : [])
+    .map(({ at }: { at: Pt }) => `<rect x="${n(at.x * P - HANDLE_MM / 2)}" y="${n(at.y * P - HANDLE_MM / 2)}" width="${HANDLE_MM}" height="${HANDLE_MM}"/>`)
     .join('');
-  return (
-    `<rect x="${x0}" y="${y0}" width="${x1 - x0}" height="${y1 - y0}" fill="none" stroke="#000" stroke-width="0.35" stroke-dasharray="1 0.8"/>` +
-    `<g fill="#fff" stroke="#000" stroke-width="0.25">${handles}</g>`
-  );
+  return outline + `<g fill="#fff" stroke="#000" stroke-width="0.25">${handles}</g>`;
 }
 
-function draftMarkup({ rect, valid }: { rect: Rect; valid: boolean }): string {
-  const style = valid
-    ? 'fill="#000" fill-opacity="0.06" stroke="#000" stroke-dasharray="1 0.8"'
-    : 'fill="#000" fill-opacity="0.3" stroke="#000" stroke-dasharray="0.2 0.8" stroke-linecap="round"';
-  return `<rect x="${rect.x * P}" y="${rect.y * P}" width="${rect.w * P}" height="${rect.h * P}" ${style} stroke-width="0.35"/>`;
+function spineLabel(side: PageSide | undefined): string {
+  const x = side === 'left' ? PAGE_W_MM + 2.6 : -2.6;
+  return `<text transform="translate(${x} ${PAGE_H_MM / 2}) rotate(-90)" text-anchor="middle" font-size="1.8" fill="#999" ${FONT}>SPINE</text>`;
 }
 
-/** The page drawn in mm units, origin at the page's top-left corner. */
+/** The page drawn in mm units, origin at the page's top-left corner (not the grid's). */
 export function pageContent(page: Page, opts: RenderOptions): string {
   const edit = opts.mode === 'edit';
-  let out = `<rect x="0" y="0" width="${PAGE_W}" height="${PAGE_H}" fill="#fff"${opts.mode === 'export' ? '' : ' stroke="#a8a8a8" stroke-width="0.2"'}/>`;
+  const exporting = opts.mode === 'export';
+  let out = `<rect x="0" y="0" width="${PAGE_W_MM}" height="${PAGE_H_MM}" fill="#fff"${exporting ? '' : ' stroke="#a8a8a8" stroke-width="0.2"'}/>`;
+  out += `<g transform="translate(${GRID_X_MM} ${GRID_Y_MM})" ${FONT}>`;
   if (edit) {
-    out += `<rect x="0" y="0" width="${PAGE_W}" height="${P}" fill="#e4e4e4"/>`;
-    for (const r of page.regions) {
-      out += `<rect x="${r.x * P}" y="${r.y * P}" width="${r.w * P}" height="${r.h * P}" fill="#f5f5f5"/>`;
-    }
-    out += allDots();
+    out += `<rect x="0" y="0" width="${COLS * P}" height="${ROWS * P}" fill="#f7f7f7"/>`;
+    out += `<rect x="0" y="0" width="${COLS * P}" height="${P}" fill="#e4e4e4"/>`;
+    out += gridDots();
   }
-  out += `<g ${FONT}>`;
-  for (const r of page.regions) out += fillMarkup(r);
-  for (const r of page.regions) out += borderMarkup(r);
-  for (const r of page.regions) out += labelsMarkup(r);
+  page.elements.forEach((e, i) => {
+    if (!(edit && opts.hidden?.has(i))) out += elementMarkup(e);
+  });
   out += headerMarkup(page);
-  out += '</g>';
-  if (opts.mode !== 'export') {
-    out += `<text transform="translate(-2.4 ${PAGE_H / 2}) rotate(-90)" text-anchor="middle" font-size="1.8" fill="#999" ${FONT}>SPINE</text>`;
-  }
   if (edit) {
-    const sel = opts.selected != null ? page.regions[opts.selected] : undefined;
-    if (sel) out += selectionMarkup(sel);
-    if (opts.draft) out += draftMarkup(opts.draft);
+    const sel = opts.selected != null ? page.elements[opts.selected] : undefined;
+    if (sel && !opts.hidden?.has(opts.selected!)) out += selectionMarkup(sel);
+    if (opts.draft) out += `<g opacity="0.55">${elementMarkup(opts.draft)}</g>${selectionMarkup(opts.draft, false)}`;
   }
+  out += '</g>';
+  if (!exporting) out += spineLabel(page.side);
   return out;
 }
 
 /** Standalone SVG of the page as printed, for rasterising. */
 export function exportSvg(page: Page, widthPx: number, heightPx: number, fontCss: string): string {
   return (
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${widthPx}" height="${heightPx}" viewBox="0 0 ${PAGE_W} ${PAGE_H}">` +
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${widthPx}" height="${heightPx}" viewBox="0 0 ${PAGE_W_MM} ${PAGE_H_MM}">` +
     `<style>${fontCss}</style>${pageContent(page, { mode: 'export' })}</svg>`
   );
 }

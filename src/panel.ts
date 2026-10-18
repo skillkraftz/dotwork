@@ -1,5 +1,10 @@
-import { BORDER_STYLES, EDGES, FILLS, type Edge, type Label, type Page, type Region } from './format/types';
+import {
+  ALIGNS, DEFAULTS, DIRECTIONS, PAGE_SIDES, PATTERNS, RULE_WEIGHTS, SIDES, STRIPES, TEXT_SIZES, TEXT_STYLES,
+  TEXT_TONES, TONES, WEIGHTS, type BoxSide, type Page, type PageElement,
+} from './format/types';
 import { findUnknownTokens, TOKENS } from './format/tokens';
+import { validateElement } from './format/validate';
+import { deleteElement, duplicateElement, reorderElement } from './actions';
 import type { Store } from './store';
 
 type Child = Node | string | null | false;
@@ -30,8 +35,42 @@ const warnUnknownTokens = (text: string) => {
   return bad.length ? h('p', { class: 'warn' }, `Unknown token ${bad.map((b) => `{${b}}`).join(' ')} – the page can’t be exported until it is fixed.`) : null;
 };
 
-/** The side panel: page fields, plus the selected region's fill, borders and labels. */
+const ICONS = {
+  show: '<path d="M1 8s2.6-4.5 7-4.5S15 8 15 8s-2.6 4.5-7 4.5S1 8 1 8z"/><circle cx="8" cy="8" r="2"/>',
+  hide: '<path d="M1 8s2.6-4.5 7-4.5S15 8 15 8s-2.6 4.5-7 4.5S1 8 1 8z"/><path d="M2 14L14 2"/>',
+  lock: '<rect x="3.5" y="7" width="9" height="6.5"/><path d="M5.5 7V5a2.5 2.5 0 015 0v2"/>',
+  unlock: '<rect x="3.5" y="7" width="9" height="6.5"/><path d="M5.5 7V5a2.5 2.5 0 015-.5"/>',
+  up: '<path d="M4 10l4-4 4 4"/>',
+  down: '<path d="M4 6l4 4 4-4"/>',
+  trash: '<path d="M3 4.5h10M6 4.5V3h4v1.5M4.5 4.5l.5 9h6l.5-9"/>',
+};
+
+function icon(name: keyof typeof ICONS, label: string, onclick: () => void, opts: { disabled?: boolean; pressed?: boolean } = {}) {
+  const b = h('button', { type: 'button', class: 'icon', title: label, 'aria-label': label, disabled: opts.disabled, onclick });
+  b.innerHTML = `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
+  if (opts.pressed !== undefined) b.setAttribute('aria-pressed', String(opts.pressed));
+  return b;
+}
+
+const fmt = (v: number) => String(+v.toFixed(2));
+
+/** A one-line description of an element for the layers list. */
+export function describe(el: PageElement): string {
+  switch (el.type) {
+    case 'shade': return `shade ${el.tone ?? DEFAULTS.tone}${el.stripes && el.stripes !== 'none' ? ` ${el.stripes}` : ''} · ${fmt(el.x)},${fmt(el.y)} ${fmt(el.w)}×${fmt(el.h)}`;
+    case 'pattern': return `${el.pattern} · ${fmt(el.x)},${fmt(el.y)} ${fmt(el.w)}×${fmt(el.h)}`;
+    case 'box': return `box · ${fmt(el.x)},${fmt(el.y)} ${fmt(el.w)}×${fmt(el.h)}`;
+    case 'rule': return `rule · ${fmt(el.x1)},${fmt(el.y1)} → ${fmt(el.x2)},${fmt(el.y2)}`;
+    case 'checkboxes': return `checkboxes · ${fmt(el.x)},${fmt(el.y)} ×${el.count}`;
+    case 'text': return `text · “${el.text.length > 22 ? el.text.slice(0, 21) + '…' : el.text}”`;
+  }
+}
+
+/** The side panel: page settings, the layers list, and the selected element's properties. */
 export class Panel {
+  /** Where the reason the last typed value was refused is shown. */
+  private problemEl: HTMLElement | null = null;
+
   constructor(private root: HTMLElement, private store: Store) {}
 
   render() {
@@ -40,8 +79,12 @@ export class Panel {
     const active = document.activeElement as HTMLInputElement | null;
     const focusKey = active && root.contains(active) ? active.dataset.key : undefined;
     const caret = focusKey ? [active!.selectionStart, active!.selectionEnd] : null;
+    const scroll = root.querySelector('.layers')?.scrollTop ?? 0;
 
-    root.replaceChildren(this.pageSection(), ...this.regionSection());
+    root.replaceChildren(this.pageSection(), this.layersSection(), this.propertiesSection());
+    const layers = root.querySelector('.layers');
+    if (layers) layers.scrollTop = scroll;
+    root.querySelector('.layer.selected')?.scrollIntoView({ block: 'nearest' });
 
     if (focusKey) {
       const el = root.querySelector<HTMLInputElement>(`[data-key="${focusKey}"]`);
@@ -50,19 +93,12 @@ export class Panel {
     }
   }
 
+  // ---- page ---------------------------------------------------------------
+
   private editPage(key: string, fn: (p: Page) => void) {
     const next = structuredClone(this.store.page);
     fn(next);
     this.store.commit(next, key);
-  }
-
-  /** `key` null means a discrete action that always gets its own undo step. */
-  private editRegion(key: string | null, fn: (r: Region) => void) {
-    const i = this.store.selected;
-    if (i === null) return;
-    const next = structuredClone(this.store.page);
-    fn(next.regions[i]);
-    this.store.commit(next, key === null ? undefined : `${key}:${i}`);
   }
 
   private pageSection(): HTMLElement {
@@ -82,93 +118,176 @@ export class Panel {
             if (v) p.identity = v; else delete p.identity;
           }),
         })),
-      h('p', { class: 'hint' }, `Tokens: ${TOKENS.map((t) => `{${t}}`).join(' ')}`),
       warnUnknownTokens(page.identity ?? ''),
+      h('label', {}, 'Side',
+        this.select('page-side', PAGE_SIDES, page.side ?? DEFAULTS.side, (v) => this.editPage('page-side', (p) => {
+          if (v === 'either') delete p.side; else p.side = v as Page['side'];
+        }))),
+      h('p', { class: 'hint' }, `Tokens: ${TOKENS.map((t) => `{${t}}`).join(' ')}`),
+      h('p', { class: 'hint' }, 'The spine is right of a left page, left of a right page; “either” shows as a right page.'),
     );
   }
 
-  private regionSection(): Node[] {
+  // ---- layers -------------------------------------------------------------
+
+  private layersSection(): HTMLElement {
+    const { store } = this;
+    const els = store.page.elements;
+    const rows = els.map((el, i) => {
+      const hidden = store.isHidden(i), locked = store.isLocked(i);
+      const row = h('li', {
+        class: `layer${store.selected === i ? ' selected' : ''}${hidden ? ' is-hidden' : ''}`,
+        draggable: 'true',
+        ondragstart: (e: DragEvent) => { e.dataTransfer?.setData('text/plain', String(i)); e.dataTransfer!.effectAllowed = 'move'; },
+        ondragover: (e: DragEvent) => { e.preventDefault(); row.classList.add('drop'); },
+        ondragleave: () => row.classList.remove('drop'),
+        ondrop: (e: DragEvent) => {
+          e.preventDefault();
+          const from = Number(e.dataTransfer?.getData('text/plain'));
+          if (Number.isInteger(from)) reorderElement(store, from, i);
+        },
+      },
+        h('button', { type: 'button', class: 'layer-name', 'aria-current': store.selected === i, onclick: () => store.select(i) }, describe(el)),
+        icon(hidden ? 'hide' : 'show', hidden ? 'Show' : 'Hide', () => store.toggleHidden(i), { pressed: hidden }),
+        icon(locked ? 'lock' : 'unlock', locked ? 'Unlock' : 'Lock', () => store.toggleLocked(i), { pressed: locked }),
+        icon('up', 'Move up (toward the front)', () => reorderElement(store, i, i + 1), { disabled: i === els.length - 1 }),
+        icon('down', 'Move down (toward the back)', () => reorderElement(store, i, i - 1), { disabled: i === 0 }),
+        icon('trash', 'Delete', () => deleteElement(store, i), { disabled: locked }),
+      );
+      return row;
+    });
+    return h('section', {},
+      h('h2', {}, 'Layers'),
+      els.length
+        ? h('div', {},
+          h('p', { class: 'hint end' }, 'Top: drawn last'),
+          h('ol', { class: 'layers' }, ...rows.reverse()),
+          h('p', { class: 'hint end' }, 'Bottom: drawn first'))
+        : h('p', { class: 'hint' }, 'Nothing on the page yet. Pick a tool and draw on the page.'),
+      els.length ? h('p', { class: 'hint' }, 'Drag rows to reorder. Hiding affects only this editor.') : null,
+    );
+  }
+
+  // ---- properties ---------------------------------------------------------
+
+  private select(key: string, options: readonly (string | number)[], value: string | number, onchange: (v: string) => void) {
+    return h('select', { 'data-key': key, onchange: (e: Event) => onchange((e.target as HTMLSelectElement).value) },
+      ...options.map((o) => h('option', { value: o, selected: o === value }, String(o))));
+  }
+
+  /** Commit an edit of the selected element, unless it would make the element invalid (then say why). */
+  private edit(key: string | null, fn: (el: PageElement) => void) {
+    const { store } = this;
+    const i = store.selected;
+    if (i === null) return;
+    const el = structuredClone(store.page.elements[i]);
+    fn(el);
+    const issues = validateElement(el);
+    if (issues.length) {
+      this.showProblem(issues[0].message);
+      return;
+    }
+    const next = structuredClone(store.page);
+    next.elements[i] = el;
+    store.commit(next, key === null ? undefined : `${key}:${store.idAt(i)}`);
+  }
+
+  private showProblem(message: string) {
+    if (this.problemEl) { this.problemEl.textContent = message; this.problemEl.hidden = false; }
+  }
+
+  private num(el: PageElement, key: string, label: string, opts: { step?: number; min?: number; max?: number } = {}) {
+    const rec = el as unknown as Record<string, number | undefined>;
+    return h('label', { class: 'field' }, label,
+      h('input', {
+        type: 'number', 'data-key': `prop-${key}`, step: opts.step ?? 0.5, min: opts.min, max: opts.max,
+        value: rec[key] ?? (DEFAULTS as unknown as Record<string, number>)[key === 'size' ? 'checkSize' : key] ?? '',
+        oninput: (e: Event) => {
+          const v = parseFloat((e.target as HTMLInputElement).value);
+          if (Number.isFinite(v)) this.edit(key, (x) => { (x as unknown as Record<string, number>)[key] = v; });
+        },
+      }));
+  }
+
+  private choice<T extends string | number>(el: PageElement, key: string, label: string, options: readonly T[], dflt: T) {
+    const rec = el as unknown as Record<string, T | undefined>;
+    return h('label', { class: 'field' }, label,
+      this.select(`prop-${key}`, options, rec[key] ?? dflt, (v) => this.edit(null, (x) => {
+        (x as unknown as Record<string, T>)[key] = (typeof dflt === 'number' ? Number(v) : v) as T;
+      })));
+  }
+
+  private fields(el: PageElement): Child[] {
+    const area = [this.num(el, 'x', 'x'), this.num(el, 'y', 'y'), this.num(el, 'w', 'w', { min: 0.5 }), this.num(el, 'h', 'h', { min: 0.5 })];
+    switch (el.type) {
+      case 'shade':
+        return [h('div', { class: 'grid2' }, ...area),
+          this.choice(el, 'tone', 'Tone', TONES, DEFAULTS.tone),
+          this.choice(el, 'stripes', 'Stripes', STRIPES, DEFAULTS.stripes)];
+      case 'pattern':
+        return [h('div', { class: 'grid2' }, ...area),
+          this.choice(el, 'pattern', 'Pattern', PATTERNS, el.pattern),
+          h('div', { class: 'grid2' }, this.num(el, 'every', 'Every (cells)', { min: 0.5 }))];
+      case 'box': {
+        const sides = h('div', { class: 'grid2' }, ...SIDES.map((s: BoxSide) =>
+          h('label', { class: 'inline' },
+            h('input', {
+              type: 'checkbox', 'data-key': `prop-side-${s}`, checked: (el.sides ?? SIDES).includes(s),
+              onchange: (e: Event) => this.edit(null, (x) => {
+                const b = x as typeof el;
+                const on = (e.target as HTMLInputElement).checked;
+                const next = SIDES.filter((t) => (t === s ? on : (b.sides ?? SIDES).includes(t)));
+                if (next.length === SIDES.length) delete b.sides; else b.sides = next;
+              }),
+            }), s)));
+        return [h('div', { class: 'grid2' }, ...area), h('h3', {}, 'Sides'), sides,
+          this.choice(el, 'weight', 'Weight', WEIGHTS, DEFAULTS.boxWeight)];
+      }
+      case 'rule':
+        return [h('div', { class: 'grid2' }, this.num(el, 'x1', 'x1'), this.num(el, 'y1', 'y1'), this.num(el, 'x2', 'x2'), this.num(el, 'y2', 'y2')),
+          this.choice(el, 'weight', 'Weight', RULE_WEIGHTS, DEFAULTS.ruleWeight)];
+      case 'checkboxes':
+        return [h('div', { class: 'grid2' }, this.num(el, 'x', 'x'), this.num(el, 'y', 'y'),
+          this.num(el, 'count', 'Count', { step: 1, min: 1 }), this.num(el, 'every', 'Spacing (cells)', { min: 0.5 })),
+        this.choice(el, 'direction', 'Direction', DIRECTIONS, DEFAULTS.direction),
+        h('div', { class: 'grid2' }, this.num(el, 'size', 'Size (0.5–1)', { step: 0.05, min: 0.5, max: 1 })),
+        this.choice(el, 'weight', 'Weight', WEIGHTS, DEFAULTS.boxWeight)];
+      case 'text':
+        return [
+          h('label', { class: 'field' }, 'Text',
+            h('input', {
+              type: 'text', 'data-key': 'prop-text', value: el.text,
+              oninput: (e: Event) => this.edit('text', (x) => { (x as typeof el).text = (e.target as HTMLInputElement).value; }),
+            })),
+          warnUnknownTokens(el.text),
+          h('div', { class: 'grid2' }, this.num(el, 'x', 'x'), this.num(el, 'y', 'y')),
+          this.choice(el, 'size', 'Size', TEXT_SIZES, DEFAULTS.textSize),
+          this.choice(el, 'style', 'Style', TEXT_STYLES, DEFAULTS.style),
+          this.choice(el, 'tone', 'Tone', TEXT_TONES, DEFAULTS.textTone),
+          this.choice(el, 'align', 'Align', ALIGNS, DEFAULTS.align),
+          this.choice(el, 'rotate', 'Rotate (°)', [0, 90, 270] as const, 0 as 0 | 90 | 270),
+        ];
+    }
+  }
+
+  private propertiesSection(): HTMLElement {
     const { store } = this;
     const i = store.selected;
     if (i === null) {
-      return [h('section', {}, h('h2', {}, 'Region'),
-        h('p', { class: 'hint' }, 'Drag from dot to dot on the page to draw a region, or click a region to edit it.'))];
+      return h('section', {}, h('h2', {}, 'Properties'),
+        h('p', { class: 'hint' }, 'Click an element to select it. Alt-click again to reach the ones underneath.'));
     }
-    const r = store.page.regions[i];
-
-    const select = (key: string, options: readonly string[], value: string, onchange: (v: string) => void) =>
-      h('select', { 'data-key': key, onchange: (e: Event) => onchange((e.target as HTMLSelectElement).value) },
-        ...options.map((o) => h('option', { value: o, selected: o === value }, o)));
-
-    const borders = EDGES.map((edge: Edge) =>
-      h('label', { class: 'inline' }, edge,
-        select(`border-${edge}`, ['none', ...BORDER_STYLES], r.border?.[edge] ?? 'none', (v) =>
-          this.editRegion(null, (rg) => {
-            if (v === 'none') { if (rg.border) delete rg.border[edge]; }
-            else (rg.border ??= {})[edge] = v as 'thin' | 'thick';
-          }))));
-
-    const labels = (r.labels ?? []).map((l, j) => this.labelEditor(l, j, r));
-
-    return [h('section', {},
-      h('h2', {}, `Region ${i + 1}`),
-      h('p', { class: 'hint' }, `x ${r.x}, y ${r.y}, ${r.w} × ${r.h} cells`),
-      h('label', {}, 'Fill',
-        select('fill', FILLS, r.fill, (v) => this.editRegion(null, (rg) => { rg.fill = v as Region['fill']; }))),
-      h('h3', {}, 'Borders'),
-      h('div', { class: 'grid2' }, ...borders),
-      h('h3', {}, 'Labels'),
-      ...labels,
-      h('button', {
-        type: 'button',
-        onclick: () => this.editRegion(null, (rg) => { (rg.labels ??= []).push({ text: 'Label:', row: 0 }); }),
-      }, 'Add label'),
-      h('button', { type: 'button', class: 'danger', onclick: () => deleteSelected(store) }, 'Delete region'),
-    )];
-  }
-
-  private labelEditor(l: Label, j: number, r: Region): HTMLElement {
-    const edit = (key: string, fn: (l: Label) => void) =>
-      this.editRegion(`${key}-${j}`, (rg) => fn(rg.labels![j]));
-    return h('div', { class: 'label-box' },
-      h('input', {
-        type: 'text', 'data-key': `label-text-${j}`, value: l.text, 'aria-label': 'Label text',
-        oninput: (e: Event) => edit('label-text', (lb) => { lb.text = (e.target as HTMLInputElement).value; }),
-      }),
-      warnUnknownTokens(l.text),
+    const el = store.page.elements[i];
+    const locked = store.isLocked(i);
+    const problemEl = h('p', { class: 'warn', hidden: true });
+    this.problemEl = problemEl;
+    return h('section', {},
+      h('h2', {}, `Properties · ${el.type}`),
+      locked ? h('p', { class: 'hint' }, 'Locked: unlock it in the layers list to edit.') : null,
+      h('fieldset', { disabled: locked }, ...this.fields(el), problemEl),
       h('div', { class: 'row' },
-        h('label', { class: 'inline' }, 'row',
-          h('input', {
-            type: 'number', min: 0, max: r.h - 1, step: 1, 'data-key': `label-row-${j}`, value: l.row ?? 0,
-            oninput: (e: Event) => {
-              const v = parseInt((e.target as HTMLInputElement).value, 10);
-              if (Number.isInteger(v)) edit('label-row', (lb) => { lb.row = Math.max(0, Math.min(r.h - 1, v)); });
-            },
-          })),
-        h('label', { class: 'inline' }, 'align',
-          h('select', {
-            'data-key': `label-align-${j}`,
-            onchange: (e: Event) => edit('label-align', (lb) => { lb.align = (e.target as HTMLSelectElement).value as 'left' | 'right'; }),
-          }, h('option', { value: 'left', selected: l.align !== 'right' }, 'left'),
-             h('option', { value: 'right', selected: l.align === 'right' }, 'right'))),
-        h('label', { class: 'inline' },
-          h('input', {
-            type: 'checkbox', 'data-key': `label-vertical-${j}`, checked: !!l.vertical,
-            onchange: (e: Event) => edit('label-vertical', (lb) => { lb.vertical = (e.target as HTMLInputElement).checked; }),
-          }), 'vertical'),
-        h('button', {
-          type: 'button', 'aria-label': 'Remove label', title: 'Remove label',
-          onclick: () => this.editRegion(null, (rg) => { rg.labels!.splice(j, 1); }),
-        }, '×')),
+        h('button', { type: 'button', disabled: locked, onclick: () => duplicateElement(store, i) }, 'Duplicate'),
+        h('button', { type: 'button', class: 'danger', disabled: locked, onclick: () => deleteElement(store, i) }, 'Delete')),
     );
   }
-}
-
-export function deleteSelected(store: Store) {
-  const i = store.selected;
-  if (i === null) return;
-  const next = structuredClone(store.page);
-  next.regions.splice(i, 1);
-  store.selected = null;
-  store.commit(next);
 }

@@ -1,5 +1,6 @@
 import type { Page } from './format/types';
-import { exportSvg, PAGE_H, PAGE_W } from './render';
+import { PAGE_H_MM, PAGE_W_MM } from './format/types';
+import { exportSvg } from './render';
 import { setPngDpi } from './pngdpi';
 import regular from './fonts/CourierPrime-Regular.woff2?inline';
 import bold from './fonts/CourierPrime-Bold.woff2?inline';
@@ -11,9 +12,9 @@ const FONT_CSS =
   `@font-face{font-family:'Courier Prime';font-weight:400;src:url(${regular}) format('woff2')}` +
   `@font-face{font-family:'Courier Prime';font-weight:700;src:url(${bold}) format('woff2')}`;
 
-/** Render the page as printed to a PNG at its final size (81 x 132 mm at 600 DPI). */
+/** Render the page as printed to a PNG at its final size (88.9 x 139.7 mm at 600 DPI). */
 export async function pageToPng(page: Page): Promise<Blob> {
-  const w = mmToPx(PAGE_W), h = mmToPx(PAGE_H);
+  const w = mmToPx(PAGE_W_MM), h = mmToPx(PAGE_H_MM);
   const svg = exportSvg(page, w, h, FONT_CSS);
   const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
   try {

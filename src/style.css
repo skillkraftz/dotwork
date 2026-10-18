@@ -44,7 +44,7 @@ button { cursor: pointer; }
 button:hover:not(:disabled):not([aria-pressed='true']) { background: var(--gray-1); }
 button:disabled { color: var(--gray-3); cursor: default; }
 button[aria-pressed='true'] { background: #000; color: #fff; border-color: #000; }
-button.danger { margin-top: 12px; margin-left: 8px; }
+button.danger { margin-left: 8px; }
 :focus-visible { outline: 2px solid #000; outline-offset: 1px; }
 
 main { flex: 1; display: flex; min-height: 0; }
@@ -63,18 +63,15 @@ main { flex: 1; display: flex; min-height: 0; }
 #notice button { color: #fff; background: transparent; border-color: #888; flex: none; }
 #notice button:hover { background: #333 !important; }
 
-#panel { width: 300px; flex: none; overflow-y: auto; border-left: 1px solid var(--gray-2); padding: 4px 14px 24px; }
+#panel { width: 320px; flex: none; overflow-y: auto; border-left: 1px solid var(--gray-2); padding: 4px 14px 24px; }
 #panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; margin: 16px 0 8px; }
 #panel h3 { font-size: 13px; margin: 14px 0 6px; }
 #panel label { display: block; margin-bottom: 8px; color: var(--gray-4); }
-#panel label input[type='text'], #panel label select { display: block; width: 100%; color: var(--ink); margin-top: 2px; }
+#panel label input[type='text'], #panel label input[type='number'], #panel label select { display: block; width: 100%; color: var(--ink); margin-top: 2px; }
 #panel label.inline { display: flex; align-items: center; gap: 6px; margin: 0; }
 #panel label.inline select { width: auto; margin: 0; flex: 1; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; }
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
-.row input[type='number'] { width: 56px; }
-.label-box { border: 1px solid var(--gray-2); padding: 8px; margin-bottom: 8px; }
-.label-box input[type='text'] { width: 100%; }
 .hint { color: var(--gray-4); font-size: 12px; margin: 4px 0 8px; }
 .warn { font-weight: 700; font-size: 12px; margin: 4px 0 8px; }
 
@@ -85,3 +82,23 @@ main { flex: 1; display: flex; min-height: 0; }
   main { flex-direction: column; }
   #panel { width: auto; border-left: 0; border-top: 1px solid var(--gray-2); max-height: 40%; }
 }
+
+.toggle { display: flex; align-items: center; gap: 4px; margin-left: 6px; cursor: pointer; }
+fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+fieldset:disabled { opacity: 0.5; }
+#panel .field { margin-bottom: 6px; }
+#panel .row { margin-top: 10px; }
+#panel section + section { border-top: 1px solid var(--gray-2); margin-top: 14px; }
+
+.layers { list-style: none; margin: 0; padding: 0; max-height: 150px; overflow-y: auto; border: 1px solid var(--gray-2); }
+.layer { display: flex; align-items: center; gap: 1px; border-bottom: 1px solid var(--gray-1); cursor: grab; }
+.layer:last-child { border-bottom: 0; }
+.layer.selected { background: var(--gray-2); }
+.layer.is-hidden .layer-name { color: var(--gray-3); text-decoration: line-through; }
+.layer.drop { box-shadow: inset 0 2px 0 #000; }
+.layer-name { flex: 1; min-width: 0; text-align: left; border: 0; background: transparent; padding: 3px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+button.icon { border: 0; background: transparent; padding: 3px 4px; line-height: 0; }
+button.icon[aria-pressed='true'] { background: transparent; color: var(--ink); box-shadow: inset 0 -2px 0 #000; }
+.hint.end { margin: 4px 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
+.hint.end + .layers { margin-bottom: 0; }
+[hidden] { display: none !important; }
