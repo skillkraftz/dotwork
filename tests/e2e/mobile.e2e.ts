@@ -313,7 +313,7 @@ describe('book and export on a phone', () => {
     const app = await open(env, 'phone');
     const { page } = app;
     await page.tap('#view-book');
-    await page.waitForSelector('.book-spreads .slot');
+    await page.waitForSelector('.stage-page');
     await shot(app, 'phone-book');
     expect(await smallControls(app)).toEqual([]);
     await page.getByRole('button', { name: /Export print files/ }).tap();

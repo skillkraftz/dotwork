@@ -266,6 +266,7 @@ function ensureArranger() {
   book ??= loadBook();
   arranger = new Arranger($('book'), {
     library,
+    examples,
     changed(b) {
       book = b;
       try { localStorage.setItem(BOOK_KEY, JSON.stringify(b)); } catch {
@@ -528,7 +529,7 @@ const helpDialog = h('dialog', { class: 'library help', 'aria-label': 'Help' },
     helpList(
       'Page edits one page. Spread edits a left and a right page; on a phone you edit one at a time with Left and Right (or swipe sideways over an empty part of the page), and View spread shows the pair side by side as they will look open.',
       'Preview (in the menu) shows the page as it prints, with sample values for tokens. Library saves and reopens pages, spreads and books. Everything is kept in this browser; export JSON to keep a copy.',
-      'Book arranges saved pages into a book and exports the print files.'),
+      'Book builds a book one page at a time: choose a design for each page, copy it to more pages, and export the print files.'),
     h('h3', {}, 'Credits'),
     h('p', {}, 'Courier Prime © The Courier Prime Project Authors, ',
       Object.assign(document.createElement('a'), { href: oflUrl, textContent: 'SIL OFL 1.1' }), '.'))) as HTMLDialogElement;
