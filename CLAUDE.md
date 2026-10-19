@@ -74,6 +74,12 @@ Dotwork's print export follows the same physical rules as journal-system
 
 - Build in stages; each task leaves the app working and deployable.
 - Validate every file the app loads or exports against `docs/page-format.md`.
+- Pre-release: keep it lean. Dotwork isn't public and will move to a database later. Don't add
+  format version bumps, migrations, conversions of old files, or new import/export options; when the format
+  changes, update docs/page-format.md in place and let old drafts break. Spend the effort on what matters
+  now: designing a page and laying out a book on a phone should be easy enough that someone can turn an idea
+  into a finished book in 30-60 minutes. Build what covers 80% of what people want, simply; polish and edge
+  cases come later.
 - Don't add features beyond the task. When a choice is unclear, take the
   simplest version and list the question in the PR.
 - Every new control gets a help entry with touch and desktop text; the help test enforces it.
@@ -101,4 +107,6 @@ Dotwork's print export follows the same physical rules as journal-system
    in a modal (done).
 8. Help mode (tap anything to see what it does; all text in `src/help.ts`) and reliable typing on
    phones: in-place panel, steppers for every number, keyboard-aware layout (done).
-9. Later: dials and other components, color, sharing, a page gallery.
+9. Pattern backgrounds (shading lives in Pattern), the Advanced picker, sequences, icons and saved
+   widgets, with multi-select (done).
+10. Later: dials and other components, color, sharing, a page gallery.

@@ -37,7 +37,7 @@ describe('phone layout (390 x 844, touch)', () => {
     const tools = (await box(app, '#tools'))!;
     expect(tools.y + tools.height).toBeCloseTo(844, 0);
     const labels = await page.locator('#tools button .label').allInnerTexts();
-    expect(labels.map((l) => l.trim())).toEqual(['Select', 'Shade', 'Pattern', 'Box', 'Rule', 'Checks', 'Text', 'Half']);
+    expect(labels.map((l) => l.trim())).toEqual(['Select', 'Advanced', 'Pattern', 'Box', 'Rule', 'Checks', 'Text', 'Half']);
     const wrap = (await box(app, '#canvas-wrap'))!;
     expect(wrap.height / 844).toBeGreaterThan(0.8);
     const pageRect = (await page.locator('#content > rect').first().boundingBox())!;
@@ -77,20 +77,20 @@ describe('phone layout (390 x 844, touch)', () => {
     noErrors(app);
   });
 
-  it('draws a shade, changes its tone, moves it by nudging and dragging, undoes, and saves it to the library', async () => {
+  it('draws a shaded pattern, changes its background, moves it by nudging and dragging, undoes, and saves it to the library', async () => {
     const app = await open(env, 'phone');
     const { page } = app;
-    await page.tap('[data-tool="shade"]');
+    await page.tap('[data-tool="pattern"]');
     await drag(app, await cellToClient(app, 5, 8), await cellToClient(app, 12, 14));
-    expect(await elements(app)).toMatchObject([{ type: 'shade', x: 5, y: 8, w: 7, h: 6 }]);
+    expect(await elements(app)).toMatchObject([{ type: 'pattern', x: 5, y: 8, w: 7, h: 6 }]);
     await shot(app, 'phone-selected');
 
     // change the fill, in the properties window
     await bar(app, 'properties');
     expect(await page.locator('#sheet').getAttribute('data-state')).toBe('open');
     await shot(app, 'phone-properties');
-    await page.locator('#panel select[data-key="prop-tone"]').selectOption('dark');
-    expect(await elements(app)).toMatchObject([{ type: 'shade', tone: 'dark' }]);
+    await page.locator('#panel select[data-key="prop-background"]').selectOption('dark');
+    expect(await elements(app)).toMatchObject([{ type: 'pattern', background: 'dark' }]);
 
     // move it with the nudge buttons
     await page.tap('[data-key="nudge-right"]');
@@ -103,11 +103,11 @@ describe('phone layout (390 x 844, touch)', () => {
     await drag(app, from, to);
     expect(await elements(app)).toMatchObject([{ x: 8, y: 10 }]);
 
-    // undo the drag, then the two quick nudges (one undo step), keeping the tone
+    // undo the drag, then the two quick nudges (one undo step), keeping the background
     await page.tap('#undo');
     expect(await elements(app)).toMatchObject([{ x: 6, y: 9 }]);
     await page.tap('#undo');
-    expect(await elements(app)).toMatchObject([{ x: 5, y: 8, tone: 'dark' }]);
+    expect(await elements(app)).toMatchObject([{ x: 5, y: 8, background: 'dark' }]);
 
     // save it
     await page.tap('#menu-button');
@@ -137,7 +137,7 @@ describe('phone layout (390 x 844, touch)', () => {
     expect(barBox.y).toBeGreaterThanOrEqual(wrap.y);
     expect(barBox.x + barBox.width).toBeLessThanOrEqual(wrap.x + wrap.width);
     const labels = await app.page.locator('#action-bar button').allInnerTexts();
-    expect(labels.map((l) => l.trim())).toEqual(['Properties', 'Duplicate', 'Delete', 'More']);
+    expect(labels.map((l) => l.trim())).toEqual(['Properties', 'Duplicate', 'Select more', 'Save widget', 'Delete', 'More']);
     expect(await smallControls(app)).toEqual([]);
     await shot(app, 'phone-action-bar');
     noErrors(app);
@@ -171,9 +171,9 @@ describe('touch replacements', () => {
     const app = await open(env, 'phone');
     const { page } = app;
     // two shades stacked
-    await page.tap('[data-tool="shade"]');
+    await page.tap('[data-tool="pattern"]');
     await drag(app, await cellToClient(app, 4, 6), await cellToClient(app, 14, 14));
-    await page.tap('[data-tool="shade"]');
+    await page.tap('[data-tool="pattern"]');
     await drag(app, await cellToClient(app, 6, 8), await cellToClient(app, 12, 16));
     expect(await elements(app)).toHaveLength(2);
 
@@ -275,9 +275,9 @@ describe('touch replacements', () => {
 describe('touch gestures', () => {
   /** Two shades side by side; leaves nothing selected. Returns where each is. */
   async function twoShades(app: App) {
-    await app.page.tap('[data-tool="shade"]');
+    await app.page.tap('[data-tool="pattern"]');
     await drag(app, await cellToClient(app, 4, 14), await cellToClient(app, 12, 24));
-    await app.page.tap('[data-tool="shade"]');
+    await app.page.tap('[data-tool="pattern"]');
     await drag(app, await cellToClient(app, 15, 14), await cellToClient(app, 23, 24));
     await tap(app, await cellToClient(app, 2, 40)); // empty space clears the selection
     return { a: await cellToClient(app, 8, 19), b: await cellToClient(app, 19, 19) };

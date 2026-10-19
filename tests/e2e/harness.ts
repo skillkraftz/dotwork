@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { chromium, type Browser, type BrowserContext, type CDPSession, type Page } from 'playwright-core';
 import { createServer, type ViteDevServer } from 'vite';
+import { HELP } from '../../src/help';
 
 export const SIZES = {
   phone: { width: 390, height: 844 },
@@ -137,7 +138,7 @@ export const viewBoxOf = (app: App, selector = '#canvas') =>
   app.page.locator(selector).evaluate((el) => (el.getAttribute('viewBox') ?? '').split(' ').map(Number));
 
 /** Tap a button on the action bar beside the selection. */
-export async function bar(app: App, action: 'properties' | 'duplicate' | 'remove' | 'more') {
+export async function bar(app: App, action: 'properties' | 'duplicate' | 'selectMore' | 'widget' | 'remove' | 'more') {
   await app.page.tap(`#action-bar [data-action="${action}"]`);
 }
 
@@ -163,4 +164,22 @@ export async function doubleTap(app: App, p: Pt) {
   await touch(app, 'touchStart', [p]);
   await touch(app, 'touchEnd', []);
   await settle(app);
+}
+
+/** Every visible control (button, menu item, input, select, summary, link) that has no entry in the help registry. */
+export async function missingHelp(app: App): Promise<string[]> {
+  return app.page.evaluate((known) => {
+    const out: string[] = [];
+    const controls = document.querySelectorAll<HTMLElement>('button, [role="menuitem"], [role="tab"], input, select, textarea, summary, a[href]');
+    for (const el of controls) {
+      if (el instanceof HTMLInputElement && (el.type === 'hidden' || el.type === 'file')) continue;
+      const style = getComputedStyle(el);
+      if (el.getClientRects().length === 0 || style.visibility === 'hidden') continue;
+      const key = el.dataset.help;
+      const name = `${el.tagName.toLowerCase()}${el.id ? '#' + el.id : ''} “${(el.getAttribute('aria-label') || el.textContent || '').trim().slice(0, 24)}”`;
+      if (!key) out.push(`${name}: no data-help`);
+      else if (!known.includes(key)) out.push(`${name}: no help entry for “${key}”`);
+    }
+    return out;
+  }, Object.keys(HELP));
 }

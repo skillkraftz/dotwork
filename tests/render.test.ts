@@ -30,7 +30,7 @@ describe('page rendering', () => {
   });
 
   it('draws elements in array order and hides hidden ones only while editing', () => {
-    const els: PageElement[] = [{ type: 'shade', x: 0, y: 1, w: 1, h: 1, tone: 'dark' }, { type: 'text', x: 0, y: 1, text: 'TOP' }];
+    const els: PageElement[] = [{ type: 'pattern', pattern: 'none', background: 'dark', x: 0, y: 1, w: 1, h: 1 }, { type: 'text', x: 0, y: 1, text: 'TOP' }];
     const out = pageContent(page(els), { mode: 'edit' });
     expect(out.indexOf('#bdbdbd')).toBeLessThan(out.indexOf('TOP'));
     expect(pageContent(page(els), { mode: 'edit', hidden: new Set([0]) })).not.toContain('#bdbdbd');
@@ -40,12 +40,25 @@ describe('page rendering', () => {
 
 describe('elements', () => {
   it('shades in three tones, with optional stripes on every other row or column', () => {
-    const shade = { type: 'shade', x: 0, y: 1, w: 4, h: 5 } as const;
-    expect(elementMarkup({ ...shade, tone: 'light' })).toContain('#efefef');
-    expect(elementMarkup({ ...shade, tone: 'medium' })).toContain('#dcdcdc');
-    expect(count(elementMarkup(shade), /<rect/g)).toBe(1);
-    expect(count(elementMarkup({ ...shade, stripes: 'rows' }), /<rect/g)).toBe(3); // rows 1, 3, 5
-    expect(count(elementMarkup({ ...shade, stripes: 'columns' }), /<rect/g)).toBe(2); // columns 0 and 2
+    const shade = { type: 'pattern', pattern: 'none', x: 0, y: 1, w: 4, h: 5 } as const;
+    expect(elementMarkup({ ...shade, background: 'light' })).toContain('#efefef');
+    expect(elementMarkup({ ...shade, background: 'medium' })).toContain('#dcdcdc');
+    expect(elementMarkup({ ...shade, background: 'dark' })).toContain('#bdbdbd');
+    expect(elementMarkup(shade)).toBe(''); // no background and no pattern: nothing to draw
+    expect(count(elementMarkup({ ...shade, background: 'light' }), /<rect/g)).toBe(1);
+    expect(count(elementMarkup({ ...shade, background: 'light', stripes: 'rows' }), /<rect/g)).toBe(3); // rows 1, 3, 5
+    expect(count(elementMarkup({ ...shade, background: 'light', stripes: 'columns' }), /<rect/g)).toBe(2); // columns 0 and 2
+  });
+
+  it('draws a pattern’s background under its lines, so one element is "writing lines on light gray, every other row"', () => {
+    const el = elementMarkup({ type: 'pattern', pattern: 'lines', background: 'light', stripes: 'rows', x: 0, y: 1, w: 4, h: 5 });
+    expect(count(el, /<rect/g)).toBe(3);
+    expect(count(el, /H/g)).toBe(5);
+    expect(el.lastIndexOf('<rect')).toBeLessThan(el.indexOf('<path')); // every shaded row comes before the lines
+    for (const kind of ['vlines', 'grid', 'dots'] as const) {
+      const out = elementMarkup({ type: 'pattern', pattern: kind, background: 'medium', x: 0, y: 1, w: 4, h: 5 });
+      expect(out.indexOf('<rect')).toBeLessThan(out.indexOf('<path'));
+    }
   });
 
   it('draws a rule under each row band including the bottom edge, and a rule right of each column band', () => {

@@ -1,11 +1,12 @@
-import { GRID_X_MM, GRID_Y_MM, PITCH_MM as P, type PageElement } from './format/types';
+import { GRID_X_MM, GRID_Y_MM, PITCH_MM as P, type Area, type PageElement } from './format/types';
 import { elementArea } from './format/bounds';
 import { validateElement } from './format/validate';
 import {
-  cycleHit, elementFromDrag, HANDLE_CURSOR, hitElement, hitHandle, hitHandlePoint, moveElement, resizeElement, snapPoint, snapStep,
+  cellPoint, cycleHit, elementFromDrag, HANDLE_CURSOR, hitElement, hitHandle, hitHandlePoint, moveGroup, resizeElement, snapPoint, snapStep,
   type Handle, type Pt,
 } from './geometry';
-import { addElement } from './actions';
+import { placeWidget } from './widgets';
+import { addElement, addElements } from './actions';
 import { LongPress } from './longpress';
 import { EDIT_BOX, EDIT_VIEWBOX, FIT_BOX, pageContent } from './render';
 import type { Store } from './store';
@@ -17,7 +18,8 @@ type Drag =
   | { kind: 'draw'; start: Pt; cur: Pt }
   | { kind: 'text'; at: Pt }
   | { kind: 'pan'; last: Pt }
-  | { kind: 'move'; index: number; origin: PageElement; startCells: Pt; last: PageElement; moved: boolean; clickSelect?: number }
+  | { kind: 'move'; indices: number[]; origins: PageElement[]; startCells: Pt; last: PageElement[]; moved: boolean; clickSelect?: number }
+  | { kind: 'marquee'; start: Pt; cur: Pt; add: boolean }
   | { kind: 'resize'; index: number; handle: Handle; origin: PageElement; last: PageElement };
 
 /** Tolerances in screen px. Fingers are fat and imprecise, so touch gets more room than a mouse. */
@@ -121,10 +123,11 @@ export class Canvas {
   /** The selected element's box on screen, in client px (null when nothing is selected). */
   selectionRect(): { x: number; y: number; w: number; h: number } | null {
     const { store } = this;
-    const el = store.selected === null ? undefined : store.page.elements[store.selected];
+    const areas = store.selection.map((i) => elementArea(store.page.elements[i]));
     const m = this.svg.getScreenCTM();
-    if (!el || !m) return null;
-    const a = elementArea(el);
+    if (!areas.length || !m) return null;
+    const x = Math.min(...areas.map((r) => r.x)), y = Math.min(...areas.map((r) => r.y));
+    const a: Area = { x, y, w: Math.max(...areas.map((r) => r.x + r.w)) - x, h: Math.max(...areas.map((r) => r.y + r.h)) - y };
     const p0 = new DOMPoint(GRID_X_MM + a.x * P, GRID_Y_MM + a.y * P).matrixTransform(m);
     const p1 = new DOMPoint(GRID_X_MM + (a.x + a.w) * P, GRID_Y_MM + (a.y + a.h) * P).matrixTransform(m);
     return { x: p0.x, y: p0.y, w: p1.x - p0.x, h: p1.y - p0.y };
@@ -165,23 +168,45 @@ export class Canvas {
     const { store } = this;
     const d = this.drag;
     let page = store.page;
-    let draft: PageElement | null = null;
-    if (d && (d.kind === 'move' || d.kind === 'resize')) {
+    let draft: PageElement | PageElement[] | null = null;
+    let marquee: Area | undefined;
+    if (d?.kind === 'move') {
+      page = { ...page, elements: page.elements.map((e, i) => d.last[d.indices.indexOf(i)] ?? e) };
+    } else if (d?.kind === 'resize') {
       page = { ...page, elements: page.elements.map((e, i) => (i === d.index ? d.last : e)) };
+    } else if (d?.kind === 'marquee') {
+      marquee = { x: Math.min(d.start.x, d.cur.x), y: Math.min(d.start.y, d.cur.y), w: Math.abs(d.cur.x - d.start.x), h: Math.abs(d.cur.y - d.start.y) };
     } else if (d?.kind === 'draw' && store.tool !== 'select' && store.tool !== 'text') {
-      draft = elementFromDrag(store.tool, d.start, d.cur);
+      draft = this.placed(d);
     }
     const preview = store.mode === 'preview' || this.readOnly;
     this.content.innerHTML = pageContent(page, {
       mode: preview ? 'preview' : 'edit',
       selected: store.selected,
+      selection: store.selection,
       hidden: store.hiddenIndexes,
       draft,
+      marquee,
       handleMm: this.handlePx() * this.mmPerPx(),
     });
     if (preview) this.svg.style.cursor = 'default';
     else if (!d) this.svg.style.cursor = store.tool === 'select' ? 'default' : 'crosshair';
     this.hooks.rendered?.();
+  }
+
+  /** Where a drawing tool's press lands: sequences and icons start in the cell under the pointer, the rest at the nearest dot. */
+  private pointFor(p: Pt, e: { shiftKey: boolean }): Pt {
+    const cells = this.store.tool === 'sequence' || this.store.tool === 'icon';
+    return cells ? cellPoint(p, this.half(e)) : snapPoint(p, this.half(e));
+  }
+
+  /** What a press-and-drag with the current drawing tool would add to the page, if anything. */
+  private placed(d: { start: Pt; cur: Pt }): PageElement[] {
+    const { store } = this;
+    if (store.tool === 'widget') return store.widget ? placeWidget(store.widget, d.cur) : [];
+    if (store.tool === 'select' || store.tool === 'text') return [];
+    const el = elementFromDrag(store.tool, d.start, d.cur, store.icon);
+    return el ? [el] : [];
   }
 
   /** Pointer position in grid cells (fractional), plus cells-per-pixel for tolerances. */
@@ -240,22 +265,22 @@ export class Canvas {
       // Placed on release, so a pinch that starts with this finger doesn't leave text behind.
       this.drag = { kind: 'text', at: snapPoint(p, this.half(e)) };
     } else if (store.tool !== 'select') {
-      const at = snapPoint(p, this.half(e));
+      const at = this.pointFor(p, e);
       this.drag = { kind: 'draw', start: at, cur: at };
     } else if (touch) {
       // Nothing happens yet: a tap, a drag (of the selection or the view) or a pinch is told apart by what comes next.
       const sel = store.selected;
-      const canHandle = sel !== null && !store.isLocked(sel) && !store.isHidden(sel);
+      const canHandle = sel !== null && store.selection.length === 1 && !store.isLocked(sel) && !store.isHidden(sel);
       const handle = canHandle ? hitHandlePoint(store.page.elements[sel], p, tol.handle * cellsPerPx) : null;
       const hits = this.hits(p, tol.hit * cellsPerPx);
-      this.pending = { id: e.pointerId, at: Date.now(), px: this.downPx, p, hits, handle, wasSelected: sel !== null && hits.includes(sel) };
+      this.pending = { id: e.pointerId, at: Date.now(), px: this.downPx, p, hits, handle, wasSelected: hits.some((i) => store.isSelected(i)) };
       if (hits.length) {
         const at = { x: e.clientX, y: e.clientY };
         this.press.start(e.clientX, e.clientY, () => this.longPressed(hits[0], hits, at));
       }
     } else {
       const sel = store.selected;
-      const canHandle = sel !== null && !store.isLocked(sel) && !store.isHidden(sel);
+      const canHandle = sel !== null && store.selection.length === 1 && !store.isLocked(sel) && !store.isHidden(sel);
       const handle = canHandle ? hitHandle(store.page.elements[sel], p, tol.handle * cellsPerPx) : null;
       if (handle && sel !== null) {
         const origin = store.page.elements[sel];
@@ -264,21 +289,32 @@ export class Canvas {
         const hits = this.hits(p, tol.hit * cellsPerPx);
         let hit = hits[0];
         let clickSelect: number | undefined;
+        if (e.shiftKey && hit !== undefined) {
+          // Shift-click adds the element to the selection, or takes it out (the touch screen has Select more).
+          store.toggleSelect(hit);
+          return;
+        }
+        const selectedUnder = hits.find((i) => store.isSelected(i));
         if (e.altKey && hits.length > 1) {
           // Alt-click steps down through the stack (long-press offers the same on touch).
           hit = cycleHit(hits, store.selected)!;
-        } else if (store.selected !== null && hits.includes(store.selected) && hit !== store.selected) {
-          // Pressing on the selected element drags it (so an element reached from the menu can be moved);
+        } else if (selectedUnder !== undefined && hit !== selectedUnder) {
+          // Pressing on a selected element drags it (so an element reached from the menu can be moved);
           // letting go without dragging selects the topmost one, as a plain click does.
           clickSelect = hit;
-          hit = store.selected;
+          hit = selectedUnder;
         }
         if (hit === undefined) {
-          store.select(null);
+          if (!e.shiftKey) store.select(null);
+          // A mouse drag from empty space draws a box that selects what it holds.
+          if (!touch) this.drag = { kind: 'marquee', start: p, cur: p, add: e.shiftKey };
         } else {
-          store.select(hit);
-          const origin = store.page.elements[hit];
-          this.drag = { kind: 'move', index: hit, origin, startCells: p, last: origin, moved: false, clickSelect };
+          // Pressing on part of a multiple selection drags all of it; a click without a drag selects just that one.
+          const keep = store.isSelected(hit) && store.selection.length > 1;
+          if (keep) clickSelect ??= hit; else store.select(hit);
+          const indices = keep ? store.selection : [hit];
+          const origins = indices.map((i) => store.page.elements[i]);
+          this.drag = { kind: 'move', indices, origins, startCells: p, last: origins, moved: false, clickSelect };
           if (e.pointerType !== 'mouse') {
             const at = { x: e.clientX, y: e.clientY };
             this.press.start(e.clientX, e.clientY, () => this.longPressed(hit, hits, at));
@@ -328,8 +364,10 @@ export class Canvas {
       const sel = store.selected;
       const origin = sel === null ? undefined : store.page.elements[sel];
       if (sel !== null && origin && pd.handle) this.drag = { kind: 'resize', index: sel, handle: pd.handle, origin, last: origin };
-      else if (sel !== null && origin && pd.wasSelected) this.drag = { kind: 'move', index: sel, origin, startCells: pd.p, last: origin, moved: false };
-      else this.drag = { kind: 'pan', last: pd.px };
+      else if (sel !== null && origin && pd.wasSelected) {
+        const origins = store.selection.map((i) => store.page.elements[i]);
+        this.drag = { kind: 'move', indices: store.selection, origins, startCells: pd.p, last: origins, moved: false };
+      } else this.drag = { kind: 'pan', last: pd.px };
     }
     const tol = e.pointerType === 'touch' ? TOUCH : MOUSE;
     const { p, cellsPerPx } = this.toCells(e);
@@ -345,13 +383,15 @@ export class Canvas {
 
     const step = snapStep(this.half(e));
     if (d.kind === 'draw') {
-      d.cur = snapPoint(p, this.half(e));
+      d.cur = this.pointFor(p, e);
+    } else if (d.kind === 'marquee') {
+      d.cur = p;
     } else if (d.kind === 'move') {
       const slop = (this.downType === 'touch' ? TOUCH : MOUSE).dragStart;
       if (!d.moved && Math.hypot(e.clientX - this.downPx.x, e.clientY - this.downPx.y) < slop) return;
       d.moved = true;
       const dx = Math.round((p.x - d.startCells.x) / step) * step, dy = Math.round((p.y - d.startCells.y) / step) * step;
-      d.last = moveElement(d.origin, dx, dy);
+      d.last = moveGroup(d.origins, dx, dy);
     } else if (d.kind === 'resize') {
       const next = resizeElement(d.origin, d.handle, snapPoint(p, this.half(e)));
       // Hold the last good shape when the drag would leave nothing, and say why.
@@ -419,15 +459,22 @@ export class Canvas {
       addElement(store, { type: 'text', x: d.at.x, y: Math.min(d.at.y, 43), text: 'Text' });
       return;
     } else if (d.kind === 'draw') {
-      if (store.tool !== 'select' && store.tool !== 'text') {
-        const el = elementFromDrag(store.tool, d.start, d.cur);
-        if (el && validateElement(el).length === 0) { addElement(store, el); return; }
-        if (el) this.notify(`Not created: ${validateElement(el)[0].message}`);
-      }
+      const els = this.placed(d);
+      const bad = els.find((el) => validateElement(el).length > 0);
+      if (els.length && !bad) { addElements(store, els); return; }
+      if (bad) this.notify(`Not created: ${validateElement(bad)[0].message}`);
+    } else if (d.kind === 'marquee') {
+      this.finishMarquee(d);
+      return;
     } else if (d.kind === 'move' && !d.moved && d.clickSelect !== undefined) {
       store.select(d.clickSelect);
       return;
-    } else if ((d.kind === 'move' || d.kind === 'resize') && JSON.stringify(d.last) !== JSON.stringify(d.origin)) {
+    } else if (d.kind === 'move' && JSON.stringify(d.last) !== JSON.stringify(d.origins)) {
+      const next = structuredClone(store.page);
+      d.indices.forEach((index, k) => { next.elements[index] = d.last[k]; });
+      store.commit(next);
+      return;
+    } else if (d.kind === 'resize' && JSON.stringify(d.last) !== JSON.stringify(d.origin)) {
       const next = structuredClone(store.page);
       next.elements[d.index] = d.last;
       store.commit(next);
@@ -436,11 +483,31 @@ export class Canvas {
     this.render();
   };
 
+  /** The box dragged on empty space selects the visible, unlocked elements it holds whole. */
+  private finishMarquee(d: Extract<Drag, { kind: 'marquee' }>) {
+    const { store } = this;
+    const box = { x: Math.min(d.start.x, d.cur.x), y: Math.min(d.start.y, d.cur.y), w: Math.abs(d.cur.x - d.start.x), h: Math.abs(d.cur.y - d.start.y) };
+    const inside = store.page.elements.flatMap((el, i) => {
+      const a = elementArea(el);
+      const holds = a.x >= box.x && a.y >= box.y && a.x + a.w <= box.x + box.w && a.y + a.h <= box.y + box.h;
+      return holds && !store.isHidden(i) && !store.isLocked(i) ? [i] : [];
+    });
+    const chosen = d.add ? [...new Set([...store.selection, ...inside])].sort((a, b) => a - b) : inside;
+    if (chosen.length) store.selectMany(chosen); else this.render();
+  }
+
   /** A finger went down and came up without moving: select what is under it, or clear the selection. A second tap on the same element opens its properties. */
   private tapped(pd: NonNullable<Canvas['pending']>) {
     const { store } = this;
     const hit = pd.handle ? undefined : pd.hits[0];
     if (pd.handle) { this.render(); return; }
+    if (store.moreMode) {
+      // Select more: taps add to the selection or take from it; empty space does nothing.
+      this.lastTap = null;
+      if (hit !== undefined) store.toggleSelect(hit);
+      this.render();
+      return;
+    }
     if (hit === undefined) {
       this.lastTap = null;
       store.select(null);
@@ -457,7 +524,7 @@ export class Canvas {
   /** Double-click with a mouse: the same as a double-tap. */
   private onDoubleClick = (e: MouseEvent) => {
     const { store } = this;
-    if (e.detail !== 2 || e.button !== 0 || this.readOnly || store.mode !== 'edit' || store.tool !== 'select') return;
+    if (e.detail !== 2 || e.button !== 0 || e.shiftKey || this.readOnly || store.mode !== 'edit' || store.tool !== 'select') return;
     const { p, cellsPerPx } = this.toCells(e);
     const hit = this.hits(p, MOUSE.hit * cellsPerPx)[0];
     if (hit === undefined) return;

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { HELP } from '../../src/help';
-import { bar, box, cellToClient, draft, drag, open, press, shot, start, stop, tap, type App, type Env } from './harness';
+import { bar, box, cellToClient, draft, drag, missingHelp, open, press, shot, start, stop, tap, type App, type Env } from './harness';
 
 let env: Env;
 beforeAll(async () => { env = await start(); });
@@ -20,7 +20,11 @@ const popupText = async (app: App) => (await popup(app).isVisible()) ? (await po
 const EVERYTHING = {
   format: 'dotwork-page', version: 2, name: 'Everything', grid: { cols: 27, rows: 44, pitch_mm: 3 },
   elements: [
-    { type: 'shade', x: 1, y: 2, w: 5, h: 3 },
+    { type: 'pattern', pattern: 'none', background: 'light', x: 1, y: 2, w: 5, h: 3 },
+    { type: 'sequence', x: 20, y: 2, count: 4 },
+    { type: 'sequence', x: 22, y: 2, count: 3, values: 'letters' },
+    { type: 'sequence', x: 24, y: 2, count: 3, values: 'list', list: ['S', 'M'] },
+    { type: 'sequence', x: 18, y: 2, count: 2, values: 'icons', icons: ['sun', 'heart'] },
     { type: 'pattern', pattern: 'dots', x: 8, y: 2, w: 6, h: 4, every: 1 },
     { type: 'box', x: 1, y: 7, w: 8, h: 4 },
     { type: 'rule', x1: 1, y1: 13, x2: 20, y2: 13 },
@@ -28,24 +32,6 @@ const EVERYTHING = {
     { type: 'text', x: 8, y: 16, text: 'Hello' },
   ],
 };
-
-/** Every visible control (button, menu item, input, select, summary, link) that has no entry in the help registry. */
-async function missingHelp(app: App): Promise<string[]> {
-  return app.page.evaluate((known) => {
-    const out: string[] = [];
-    const controls = document.querySelectorAll<HTMLElement>('button, [role="menuitem"], [role="tab"], input, select, textarea, summary, a[href]');
-    for (const el of controls) {
-      if (el instanceof HTMLInputElement && (el.type === 'hidden' || el.type === 'file')) continue;
-      const style = getComputedStyle(el);
-      if (el.getClientRects().length === 0 || style.visibility === 'hidden') continue;
-      const key = el.dataset.help;
-      const name = `${el.tagName.toLowerCase()}${el.id ? '#' + el.id : ''} “${(el.getAttribute('aria-label') || el.textContent || '').trim().slice(0, 24)}”`;
-      if (!key) out.push(`${name}: no data-help`);
-      else if (!known.includes(key)) out.push(`${name}: no help entry for “${key}”`);
-    }
-    return out;
-  }, Object.keys(HELP));
-}
 
 describe('the help registry', () => {
   it('says what each control is, and how to use it by touch and with a mouse', () => {
@@ -84,7 +70,7 @@ describe('help mode', () => {
     expect(await popupText(app)).toContain('UNDO');
 
     // the page explains its gestures for the current tool, and drawing does nothing
-    await page.tap('[data-tool="shade"]');
+    await page.tap('[data-tool="pattern"]');
     await drag(app, await cellToClient(app, 3, 4), await cellToClient(app, 8, 9));
     expect((await draft(app)).elements).toEqual([]);
     await tap(app, await cellToClient(app, 12, 20));

@@ -19,6 +19,9 @@ import { Arranger } from './book/arranger';
 import { emptyBook, readBook, type Book } from './book/book';
 import { ExportDialog } from './book/export-dialog';
 import { HelpMode } from './helpmode';
+import { AdvancedPicker, type AdvancedChoice } from './advanced';
+import { NameDialog } from './namedialog';
+import { WidgetStore } from './widgets';
 
 const KEYS = { page: 'dotwork.page', left: 'dotwork.spread.left', right: 'dotwork.spread.right' } as const;
 const VIEW_KEY = 'dotwork.view';
@@ -65,6 +68,9 @@ let arranger: Arranger | null = null;
 let spreadName = stored(SPREAD_NAME_KEY) || blank.name;
 /** The store that undo, the panel and the keyboard act on. */
 const cur = () => (view === 'page' ? stores.page : stores[active]);
+
+const widgets = new WidgetStore((() => { try { return localStorage; } catch { return null; } })());
+const nameDialog = new NameDialog();
 
 const library = new Library(typeof indexedDB === 'undefined' ? new MemoryBackend() : idbBackend);
 const exportDialog = new ExportDialog((blob, name) => download(blob, name));
@@ -171,9 +177,12 @@ function refresh() {
   for (const b of document.querySelectorAll<HTMLButtonElement>('[data-tool]')) {
     b.setAttribute('aria-pressed', String(b.dataset.tool === store.tool));
   }
+  $('advanced').setAttribute('aria-pressed', String(ADVANCED_TOOLS.includes(store.tool)));
   $('half-cells').setAttribute('aria-pressed', String(store.halfCells));
   updateBar();
 }
+
+const ADVANCED_TOOLS: Tool[] = ['sequence', 'icon', 'widget'];
 
 const sheet = new Sheet($('sheet'), $('sheet-backdrop'), () => { if (sheet.state === 'closed') panel.flush(); updateBar(); });
 panel.onTab = () => sheet.open();
@@ -192,6 +201,8 @@ const bar = new ActionBar($('action-bar'), document.querySelector('main')!, {
   properties: showProperties,
   duplicate() { const s = cur(); if (s.selected !== null) duplicateElement(s, s.selected); },
   remove() { const s = cur(); if (s.selected !== null) deleteElement(s, s.selected); },
+  selectMore() { const s = cur(); s.setMoreMode(!s.moreMode); },
+  widget: () => void saveWidget(),
   more(at) { const s = cur(); if (s.selected !== null) showContextMenu(at, contextActions(s, s.selected, [s.selected])); },
 });
 const canvasOf = (store: Store) => (store === stores.page ? canvases.page : store === stores.left ? canvases.left : canvases.right);
@@ -203,7 +214,33 @@ function updateBar() {
   const wanted = (isCompact() || matchMedia('(pointer: coarse)').matches) && view !== 'book' && store.mode === 'edit' && store.tool === 'select'
     && store.selected !== null && !store.isLocked(store.selected) && !canvas.readOnly && !canvas.busy && sheet.state === 'closed';
   bar.place(wanted ? canvas.selectionRect() : null);
+  bar.setMore(store.moreMode);
 }
+
+/** Ask for a name and keep the selected elements, positions relative to each other, as a widget. */
+async function saveWidget() {
+  const s = cur();
+  const chosen = s.selection.map((i) => s.page.elements[i]);
+  if (!chosen.length) return;
+  const name = await nameDialog.ask('Save as widget', `Widget ${widgets.list().length + 1}`);
+  if (!name) return;
+  widgets.add(name, chosen);
+  notify(`Saved “${name}”. Find it under Advanced.`);
+}
+
+// ---- Advanced: sequence, icon and saved widgets ----
+
+const picker = new AdvancedPicker(widgets, nameDialog, (choice: AdvancedChoice) => {
+  if (choice.kind === 'icon') all.forEach((s) => s.setIcon(choice.icon));
+  if (choice.kind === 'widget') all.forEach((s) => s.setWidget(choice.widget));
+  all.forEach((s) => s.setTool(choice.kind));
+  notify(choice.kind === 'sequence' ? 'Drag along a run of cells on the page, or tap to put seven numbers down the page.'
+    : choice.kind === 'icon' ? 'Tap a cell to place the icon, or drag along a run of cells to repeat it.'
+      : `Tap the page to put “${choice.widget.name}” there; drag to choose the spot.`);
+});
+$('advanced').onclick = () => { closeContextMenu(); notify(null); picker.show(); };
+panel.saveWidget = () => void saveWidget();
+panel.pickIcon = (pick) => picker.pickIcon(pick);
 
 for (const key of ['page', 'left', 'right'] as const) {
   let last = stores[key].page;
@@ -526,7 +563,7 @@ $('help').onclick = () => { closeContextMenu(); helpMode.start(); };
 
 // ---- keyboard ------------------------------------------------------------
 
-const TOOL_KEYS: Record<string, Tool> = { v: 'select', s: 'shade', p: 'pattern', b: 'box', r: 'rule', c: 'checkboxes', t: 'text' };
+const TOOL_KEYS: Record<string, Tool> = { v: 'select', p: 'pattern', b: 'box', r: 'rule', c: 'checkboxes', t: 'text' };
 const ARROWS: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
 
 addEventListener('keydown', (e) => {
@@ -557,6 +594,8 @@ addEventListener('keydown', (e) => {
     e.preventDefault();
     const step = e.shiftKey ? 0.5 : 1;
     nudgeElement(store, sel, ARROWS[e.key][0] * step, ARROWS[e.key][1] * step);
+  } else if (e.key.toLowerCase() === 'a' && !e.shiftKey) {
+    picker.show();
   } else if (e.key.toLowerCase() in TOOL_KEYS && !e.shiftKey) {
     all.forEach((s) => s.setTool(TOOL_KEYS[e.key.toLowerCase()]));
   }

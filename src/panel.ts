@@ -1,10 +1,11 @@
 import {
-  ALIGNS, DEFAULTS, DIRECTIONS, PAGE_SIDES, PATTERNS, RULE_WEIGHTS, SIDES, STRIPES, TEXT_SIZES, TEXT_STYLES,
-  TEXT_TONES, TONES, WEIGHTS, type BoxSide, type Page, type PageElement,
+  ALIGNS, BACKGROUNDS, DEFAULTS, DIRECTIONS, ICON_SIZES, PAGE_SIDES, PATTERNS, RULE_WEIGHTS, SEQUENCE_VALUES, SIDES, STRIPES, TEXT_SIZES, TEXT_STYLES,
+  TEXT_TONES, WEIGHTS, type BoxSide, type Page, type PageElement, type Sequence, type SequenceValues,
 } from './format/types';
+import { iconGlyph } from './icons/glyph';
 import { findUnknownTokens, TOKENS } from './format/tokens';
 import { validateElement } from './format/validate';
-import { canNudge, deleteElement, duplicateElement, nudgeButton, nudgeStep, reorderElement } from './actions';
+import { canNudge, deleteElement, deleteElements, duplicateElement, nudgeButton, nudgeStep, reorderElement } from './actions';
 import type { Store } from './store';
 import type { ValidationIssue } from './format/validate';
 
@@ -59,11 +60,23 @@ function icon(name: keyof typeof ICONS, label: string, onclick: () => void, opts
 
 const fmt = (v: number) => String(+v.toFixed(2));
 
+/** Change what a sequence is made of, giving the new kind what it needs and dropping what it doesn't use. */
+function switchValues(x: Sequence, to: SequenceValues) {
+  x.values = to;
+  delete x.start; delete x.step;
+  if (to === 'list') x.list ??= ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+  if (to === 'icons') x.icons ??= ['star'];
+  if (to !== 'icons') { delete x.size; if (x.every !== undefined && x.every < 1) x.every = 1; }
+}
+
 /** A one-line description of an element for the layers list. */
 export function describe(el: PageElement): string {
   switch (el.type) {
-    case 'shade': return `shade ${el.tone ?? DEFAULTS.tone}${el.stripes && el.stripes !== 'none' ? ` ${el.stripes}` : ''} · ${fmt(el.x)},${fmt(el.y)} ${fmt(el.w)}×${fmt(el.h)}`;
-    case 'pattern': return `${el.pattern} · ${fmt(el.x)},${fmt(el.y)} ${fmt(el.w)}×${fmt(el.h)}`;
+    case 'pattern': {
+      const bg = el.background && el.background !== 'none' ? ` on ${el.background}${el.stripes && el.stripes !== 'none' ? ` ${el.stripes}` : ''}` : '';
+      return `${el.pattern === 'none' ? 'shading' : el.pattern}${bg} · ${fmt(el.x)},${fmt(el.y)} ${fmt(el.w)}×${fmt(el.h)}`;
+    }
+    case 'sequence': return `${el.values === 'icons' ? 'icons' : `sequence ${el.values ?? DEFAULTS.values}`} · ${fmt(el.x)},${fmt(el.y)} ×${el.count}`;
     case 'box': return `box · ${fmt(el.x)},${fmt(el.y)} ${fmt(el.w)}×${fmt(el.h)}`;
     case 'rule': return `rule · ${fmt(el.x1)},${fmt(el.y1)} → ${fmt(el.x2)},${fmt(el.y2)}`;
     case 'checkboxes': return `checkboxes · ${fmt(el.x)},${fmt(el.y)} ×${el.count}`;
@@ -88,6 +101,7 @@ export function shortProblem(issue: ValidationIssue): string {
     case 'bounds':
     case 'header-row': return 'That doesn’t fit on the grid, below the header row.';
     case 'diagonal': return 'A rule must be horizontal or vertical.';
+    case 'sequence': return issue.message;
     default: return issue.message;
   }
 }
@@ -121,6 +135,10 @@ export class Panel {
   tab: PanelTab = 'properties';
   /** Called when a tab is picked, so the sheet can open or grow. */
   onTab: ((tab: PanelTab) => void) | null = null;
+  /** Save the selected elements as a widget. */
+  saveWidget: (() => void) | null = null;
+  /** Open the icon grid and call back with the icon picked. */
+  pickIcon: ((pick: (name: string) => void) => void) | null = null;
 
   /** In a spread the side belongs to the slot the page is in, so the field is replaced by a note. */
   lockedSide: 'left' | 'right' | null = null;
@@ -234,7 +252,7 @@ export class Panel {
     const read = (): number | undefined => {
       if (store.idAt(i) !== id) return undefined;
       const rec = store.page.elements[i] as unknown as Record<string, number | undefined>;
-      return rec[key] ?? (key === 'size' ? DEFAULTS.checkSize : key === 'every' ? DEFAULTS.every : undefined);
+      return rec[key] ?? (key === 'size' ? DEFAULTS.checkSize : key === 'every' ? DEFAULTS.every : key === 'start' ? DEFAULTS.start : key === 'step' ? DEFAULTS.step : undefined);
     };
     const stepSize = () => (o.by === 'cell' ? nudgeStep(store) : o.by);
     const apply = (v: number, group: string | null): string | null => this.edit(store, i, id, group ?? key, (x) => { (x as unknown as Record<string, number>)[key] = v; });
@@ -333,10 +351,10 @@ export class Panel {
     };
   }
 
-  private choice<T extends string | number>(store: Store, i: number, id: number, el: PageElement, o: { key: string; label: string; help: string; options: readonly T[]; dflt: T }): Built {
+  private choice<T extends string | number>(store: Store, i: number, id: number, el: PageElement, o: { key: string; label: string; help: string; options: readonly T[]; dflt: T; also?: (x: PageElement) => void }): Built {
     const rec = (e: PageElement) => e as unknown as Record<string, T | undefined>;
     const select = this.select(`prop-${o.key}`, o.help, o.options, rec(el)[o.key] ?? o.dflt, (v) => {
-      const problem = this.edit(store, i, id, null, (x) => { (x as unknown as Record<string, T>)[o.key] = (typeof o.dflt === 'number' ? Number(v) : v) as T; });
+      const problem = this.edit(store, i, id, null, (x) => { (x as unknown as Record<string, T>)[o.key] = (typeof o.dflt === 'number' ? Number(v) : v) as T; o.also?.(x); });
       if (problem) sync();
     });
     const sync = () => {
@@ -398,7 +416,7 @@ export class Panel {
     const { store } = this;
     const els = store.page.elements;
     const rows = els.map((el, i) => [describe(el), store.isHidden(i), store.isLocked(i)]);
-    const sig = JSON.stringify([rows, store.selected]);
+    const sig = JSON.stringify([rows, store.selection]);
     const same = this.layersFor?.store === store;
     if (same && sig === this.layersSig) return;
     this.layersSig = sig;
@@ -411,7 +429,7 @@ export class Panel {
     const list = els.map((el, i) => {
       const hidden = store.isHidden(i), locked = store.isLocked(i);
       const row = h('li', {
-        class: `layer${store.selected === i ? ' selected' : ''}${hidden ? ' is-hidden' : ''}`,
+        class: `layer${store.isSelected(i) ? ' selected' : ''}${hidden ? ' is-hidden' : ''}`,
         draggable: matchMedia('(pointer: fine)').matches ? 'true' : null, // drag and drop is a desktop shortcut; the arrows work everywhere
         ondragstart: (e: DragEvent) => { e.dataTransfer?.setData('text/plain', String(i)); e.dataTransfer!.effectAllowed = 'move'; },
         ondragover: (e: DragEvent) => { e.preventDefault(); row.classList.add('drop'); },
@@ -422,12 +440,12 @@ export class Panel {
           if (Number.isInteger(from)) reorderElement(store, from, i);
         },
       },
-        h('button', { type: 'button', class: 'layer-name', 'data-key': `layer-${i}-name`, 'data-help': 'layer-select', 'aria-current': store.selected === i, onclick: () => store.select(i) }, describe(el)),
+        h('button', { type: 'button', class: 'layer-name', 'data-key': `layer-${i}-name`, 'data-help': 'layer-select', 'aria-current': store.isSelected(i), onclick: () => store.select(i) }, describe(el)),
         icon(hidden ? 'hide' : 'show', hidden ? 'Show' : 'Hide', () => store.toggleHidden(i), { pressed: hidden, key: `layer-${i}-hide`, help: 'layer-hide' }),
         icon(locked ? 'lock' : 'unlock', locked ? 'Unlock' : 'Lock', () => store.toggleLocked(i), { pressed: locked, key: `layer-${i}-lock`, help: 'layer-lock' }),
         icon('up', 'Move up (toward the front)', () => reorderElement(store, i, i + 1), { disabled: i === els.length - 1, key: `layer-${i}-up`, help: 'layer-up' }),
         icon('down', 'Move down (toward the back)', () => reorderElement(store, i, i - 1), { disabled: i === 0, key: `layer-${i}-down`, help: 'layer-down' }),
-        icon('trash', 'Delete', () => deleteElement(store, i), { disabled: locked, key: `layer-${i}-delete`, help: 'layer-delete' }),
+        icon('trash', 'Delete', () => deleteElements(store, [i]), { disabled: locked, key: `layer-${i}-delete`, help: 'layer-delete' }),
       );
       return row;
     });
@@ -460,7 +478,11 @@ export class Panel {
   private syncProps() {
     const { store } = this;
     const i = store.selected;
-    const key = i === null ? 'none' : `${i}:${store.idAt(i)}:${store.page.elements[i].type}:${this.storeNo(store)}`;
+    const many = store.selection.length > 1;
+    const kind = i === null ? '' : (store.page.elements[i] as Partial<Sequence>).values ?? '';
+    const key = i === null ? 'none'
+      : many ? `many:${store.selection.map((k) => store.idAt(k)).join(',')}:${this.storeNo(store)}`
+        : `${i}:${store.idAt(i)}:${store.page.elements[i].type}:${kind}:${this.storeNo(store)}`;
     if (key !== this.propsKey) {
       // A different element: whatever was typed for the last one goes in first, then the section is built anew.
       const old = this.propCtls;
@@ -495,24 +517,26 @@ export class Panel {
         h('p', { class: 'hint' }, 'Tap or click an element to select it. Long-press it (or Alt-click) to reach the ones underneath.'));
       return;
     }
+    if (store.selection.length > 1) { this.buildMany(); return; }
     const el = store.page.elements[i];
     const id = store.idAt(i);
     const locked = store.isLocked(i);
     const ctls: Ctl[] = [];
     const add = (b: Built) => { ctls.push(b.ctl); return b.node; };
     const num = (key: string, label: string, by: StepBy = 'cell', help = `prop-${key}`) => add(this.numberField(store, i, id, { key, label, help, by }));
-    const choice = <T extends string | number>(key: string, label: string, options: readonly T[], dflt: T, help = `prop-${key}`) =>
-      add(this.choice(store, i, id, el, { key, label, help, options, dflt }));
+    const choice = <T extends string | number>(key: string, label: string, options: readonly T[], dflt: T, help = `prop-${key}`, also?: (x: PageElement) => void) =>
+      add(this.choice(store, i, id, el, { key, label, help, options, dflt, also }));
 
     const area = () => [num('x', 'x'), num('y', 'y'), num('w', 'w'), num('h', 'h')];
     let fields: Child[];
     switch (el.type) {
-      case 'shade':
-        fields = [h('div', { class: 'grid2' }, ...area()), choice('tone', 'Tone', TONES, DEFAULTS.tone), choice('stripes', 'Stripes', STRIPES, DEFAULTS.stripes)];
-        break;
       case 'pattern':
         fields = [h('div', { class: 'grid2' }, ...area()), choice('pattern', 'Pattern', PATTERNS, el.pattern),
+          choice('background', 'Background', BACKGROUNDS, DEFAULTS.background), choice('stripes', 'Stripes', STRIPES, DEFAULTS.stripes),
           h('div', { class: 'grid2' }, num('every', 'Every (cells)'))];
+        break;
+      case 'sequence':
+        fields = this.sequenceFields(store, i, id, el, { num, choice, add, ctls });
         break;
       case 'box': {
         const side = (s: BoxSide) => {
@@ -581,10 +605,102 @@ export class Panel {
       h('div', { class: 'row' },
         h('button', { type: 'button', 'data-lock-aware': true, 'data-help': 'prop-duplicate', disabled: locked, onclick: () => duplicateElement(store, i) }, 'Duplicate'),
         h('button', { type: 'button', class: 'danger', 'data-lock-aware': true, 'data-help': 'prop-delete', disabled: locked, onclick: () => deleteElement(store, i) }, 'Delete')),
+      this.widgetButton(),
     );
     this.lockedHint.hidden = !locked;
     this.propCtls = ctls;
     for (const c of ctls) c.sync();
+  }
+
+  private widgetButton() {
+    return h('div', { class: 'row' }, h('button', { type: 'button', 'data-key': 'prop-widget', 'data-help': 'prop-widget', onclick: () => this.saveWidget?.() }, 'Save as widget'));
+  }
+
+  /** What the properties show when several elements are selected: they can be moved, copied, deleted or saved together. */
+  private buildMany() {
+    const { store } = this;
+    const i = store.selected!;
+    const count = store.selection.length;
+    const pad = this.nudgePad(i);
+    this.propCtls = [pad];
+    this.propsEl.replaceChildren(
+      h('h2', {}, `Properties · ${count} elements`),
+      h('p', { class: 'hint' }, 'Drag any of them to move them all, or use the arrows. Tap one in the layers list to select just that one.'),
+      pad.node,
+      h('div', { class: 'row' },
+        h('button', { type: 'button', 'data-help': 'prop-duplicate', onclick: () => duplicateElement(store, i) }, 'Duplicate'),
+        h('button', { type: 'button', class: 'danger', 'data-help': 'prop-delete', onclick: () => deleteElement(store, i) }, 'Delete')),
+      this.widgetButton(),
+    );
+    this.fieldset = null;
+    this.lockedHint.hidden = true;
+    pad.sync();
+  }
+
+  /** The fields of a sequence: where it runs, what it says, and how it looks. */
+  private sequenceFields(
+    store: Store, i: number, id: number, el: Sequence,
+    f: {
+      num: (key: string, label: string, by?: StepBy, help?: string) => HTMLElement;
+      choice: <T extends string | number>(key: string, label: string, options: readonly T[], dflt: T, help?: string, also?: (x: PageElement) => void) => HTMLElement;
+      add: (b: Built) => HTMLElement;
+      ctls: Ctl[];
+    },
+  ): Child[] {
+    const kind = el.values ?? DEFAULTS.values;
+    const current = () => (store.idAt(i) === id ? (store.page.elements[i] as Sequence) : el);
+    const values = this.select('prop-values', 'prop-values', SEQUENCE_VALUES, kind, (v) => {
+      const problem = this.edit(store, i, id, null, (x) => switchValues(x as Sequence, v as SequenceValues));
+      if (problem) values.value = kind;
+    });
+    const out: Child[] = [
+      h('div', { class: 'grid2' }, f.num('x', 'x'), f.num('y', 'y'), f.num('count', 'Count', 1), f.num('every', 'Spacing (cells)')),
+      f.choice('direction', 'Direction', DIRECTIONS, DEFAULTS.direction),
+      h('label', { class: 'field' }, 'Values', values),
+    ];
+    if (kind === 'numbers') out.push(h('div', { class: 'grid2' }, f.num('start', 'Start', 1), f.num('step', 'Step', 1)));
+    if (kind === 'letters') {
+      out.push(f.add(this.textField({
+        label: 'Start letter', key: 'prop-letter', help: 'prop-letter',
+        read: () => (typeof current().start === 'string' ? (current().start as string) : DEFAULTS.letter),
+        write: (v) => this.edit(store, i, id, 'start', (x) => { (x as Sequence).start = v; }),
+      })));
+    }
+    if (kind === 'list') {
+      out.push(f.add(this.textField({
+        label: 'Items (separated by spaces, up to 2 characters each)', key: 'prop-list', help: 'prop-list',
+        read: () => (current().list ?? []).join(' '),
+        write: (v) => this.edit(store, i, id, 'list', (x) => { (x as Sequence).list = v.split(/\s+/).filter(Boolean); }),
+      })));
+    }
+    if (kind === 'icons') {
+      const chips = h('div', { class: 'icon-chips' });
+      const drawChips = () => {
+        chips.replaceChildren(...(current().icons ?? []).map((name, at) => {
+          const b = h('button', {
+            type: 'button', class: 'chip', title: `Remove ${name}`, 'aria-label': `Remove ${name}`, 'data-key': `prop-icon-remove-${at}`, 'data-help': 'prop-icon-remove',
+            onclick: () => this.edit(store, i, id, null, (x) => { (x as Sequence).icons = (x as Sequence).icons!.filter((_, k) => k !== at); }),
+          });
+          b.innerHTML = iconGlyph(name);
+          return b;
+        }));
+      };
+      let shown = '';
+      const sync = () => { const now = JSON.stringify(current().icons); if (now !== shown) { shown = now; drawChips(); } };
+      f.ctls.push({ sync, flush() {} });
+      out.push(h('div', { class: 'field' }, h('label', {}, 'Icons (repeat in this order)'), chips,
+        h('button', {
+          type: 'button', 'data-key': 'prop-icon-add', 'data-help': 'prop-icon-add',
+          onclick: () => this.pickIcon?.((name) => { this.edit(store, i, id, null, (x) => { (x as Sequence).icons = [...((x as Sequence).icons ?? []), name]; }); }),
+        }, 'Add an icon…')));
+      // Bigger icons need more room between them, or they overlap.
+      out.push(f.choice('size', 'Icon size (cells)', ICON_SIZES, DEFAULTS.iconSize, 'prop-icon-size', (x) => {
+        const q = x as Sequence;
+        if ((q.every ?? DEFAULTS.every) < (q.size ?? DEFAULTS.iconSize)) q.every = q.size;
+      }));
+    }
+    out.push(f.choice('tone', 'Tone', TEXT_TONES, DEFAULTS.sequenceTone, 'prop-text-tone'));
+    return out;
   }
 
   /** Arrow buttons that move the selection by a cell, or half a cell with the half-cell toggle on. */

@@ -1,4 +1,4 @@
-import { COLS, DEFAULTS, ROWS, type Area, type PageElement, type Rule } from './format/types';
+import { COLS, DEFAULTS, ROWS, type Area, type IconSize, type PageElement, type Rule, type TextTone } from './format/types';
 import { elementArea, insideGrid, limitsArea } from './format/bounds';
 
 export interface Pt { x: number; y: number }
@@ -13,6 +13,13 @@ export function snapPoint(p: Pt, half: boolean): Pt {
 
 export const snapStep = (half: boolean) => (half ? 0.5 : 1);
 
+/** The corner of the whole or half cell holding a point in cells, kept on the grid below the header: where an icon or a sequence starts. */
+export function cellPoint(p: Pt, half: boolean): Pt {
+  const u = snapStep(half);
+  const snap = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, Math.floor(v / u) * u));
+  return { x: snap(p.x, 0, COLS - 1), y: snap(p.y, 1, ROWS - 1) };
+}
+
 export function areaFromPoints(a: Pt, b: Pt): Area {
   return { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(a.x - b.x), h: Math.abs(a.y - b.y) };
 }
@@ -23,7 +30,6 @@ const within = (a: Area, p: Pt, tol: number) =>
 /** Whether a point (in cells) is on an element, within `tol` cells. Boxes are hit on their drawn sides, not their inside. */
 export function hitElement(el: PageElement, p: Pt, tol: number): boolean {
   switch (el.type) {
-    case 'shade':
     case 'pattern':
       return within(elementArea(el), p, 0);
     case 'box': {
@@ -37,6 +43,7 @@ export function hitElement(el: PageElement, p: Pt, tol: number): boolean {
     }
     case 'rule':
     case 'text':
+    case 'sequence':
       return within(elementArea(el), p, tol);
     case 'checkboxes': {
       const every = el.every ?? DEFAULTS.every;
@@ -50,26 +57,44 @@ export function hitElement(el: PageElement, p: Pt, tol: number): boolean {
   }
 }
 
-/** Move an element by (dx, dy) cells, stopping at the edge of the grid and the header row. */
-export function moveElement<T extends PageElement>(el: T, dx: number, dy: number): T {
-  const a = limitsArea(el);
-  dx = Math.max(-a.x, Math.min(COLS - (a.x + a.w), dx));
-  dy = Math.max(1 - a.y, Math.min(ROWS - (a.y + a.h), dy));
+/** The element shifted by (dx, dy) cells, wherever that puts it. */
+export function translate<T extends PageElement>(el: T, dx: number, dy: number): T {
   const out = { ...el } as PageElement;
   if (out.type === 'rule') { out.x1 += dx; out.x2 += dx; out.y1 += dy; out.y2 += dy; } else { out.x += dx; out.y += dy; }
   return out as T;
 }
 
+/** The smallest area holding every element (cells). */
+export function groupArea(els: readonly PageElement[]): Area {
+  const areas = els.map(limitsArea);
+  const x = Math.min(...areas.map((a) => a.x)), y = Math.min(...areas.map((a) => a.y));
+  return { x, y, w: Math.max(...areas.map((a) => a.x + a.w)) - x, h: Math.max(...areas.map((a) => a.y + a.h)) - y };
+}
+
+/** Move elements together by (dx, dy) cells, keeping their positions relative to each other: the group stops at the grid edge and the header row as one. */
+export function moveGroup<T extends PageElement>(els: readonly T[], dx: number, dy: number): T[] {
+  if (!els.length) return [];
+  const a = groupArea(els);
+  dx = Math.max(-a.x, Math.min(COLS - (a.x + a.w), dx));
+  dy = Math.max(1 - a.y, Math.min(ROWS - (a.y + a.h), dy));
+  return els.map((el) => translate(el, dx, dy));
+}
+
+/** Move an element by (dx, dy) cells, stopping at the edge of the grid and the header row. */
+export function moveElement<T extends PageElement>(el: T, dx: number, dy: number): T {
+  return moveGroup([el], dx, dy)[0];
+}
+
 /** True when `el` can be moved by (dx, dy) without being pushed back by the grid edge. */
-export function canMove(el: PageElement, dx: number, dy: number): boolean {
-  const a = limitsArea(el);
+export function canMove(els: PageElement | readonly PageElement[], dx: number, dy: number): boolean {
+  const a = groupArea([els].flat());
   return insideGrid({ ...a, x: a.x + dx, y: a.y + dy });
 }
 
 /** Handles an element offers for resizing. Checkboxes and text are resized in the properties panel. */
 export function handlesFor(el: PageElement): { handle: Handle; at: Pt }[] {
   if (el.type === 'rule') return [{ handle: 'p1', at: { x: el.x1, y: el.y1 } }, { handle: 'p2', at: { x: el.x2, y: el.y2 } }];
-  if (el.type !== 'shade' && el.type !== 'pattern' && el.type !== 'box') return [];
+  if (el.type !== 'pattern' && el.type !== 'box') return [];
   const { x, y, w, h } = el;
   const xm = x + w / 2, ym = y + h / 2, r = x + w, b = y + h;
   return [
@@ -120,7 +145,7 @@ export function resizeElement<T extends PageElement>(el: T, handle: Handle, dot:
     if (el.y1 === el.y2) { if (handle === 'p1') out.x1 = dot.x; else out.x2 = dot.x; } else if (handle === 'p1') out.y1 = dot.y; else out.y2 = dot.y;
     return out.x1 === out.x2 && out.y1 === out.y2 ? null : (out as unknown as T);
   }
-  if (el.type !== 'shade' && el.type !== 'pattern' && el.type !== 'box') return null;
+  if (el.type !== 'pattern' && el.type !== 'box') return null;
   let { x, y, w, h } = el;
   const right = x + w, bottom = y + h;
   if (handle.includes('n')) { y = dot.y; h = bottom - dot.y; }
@@ -136,11 +161,19 @@ export const HANDLE_CURSOR: Record<Handle, string> = {
   p1: 'move', p2: 'move',
 };
 
-/** A new element of `type` from a drag between two snapped points, or null if the drag is too small to make one. */
-export function elementFromDrag(type: 'shade' | 'pattern' | 'box' | 'rule' | 'checkboxes', a: Pt, b: Pt): PageElement | null {
+/** A tap with a sequence tool places this many items down the page (fewer near the bottom). */
+export const TAP_SEQUENCE_COUNT = 7;
+
+/** The icon the Advanced picker last chose, for the icon tool to place. */
+export interface IconChoice { name: string; size: IconSize; tone: TextTone }
+
+/**
+ * A new element of `type` from a drag between two snapped points, or null if the drag is too small to make one.
+ * The sequence and icon tools also make something from a tap: seven numbers down the page, or one icon.
+ */
+export function elementFromDrag(type: 'pattern' | 'box' | 'rule' | 'checkboxes' | 'sequence' | 'icon', a: Pt, b: Pt, icon?: IconChoice): PageElement | null {
   const r = areaFromPoints(a, b);
   switch (type) {
-    case 'shade': return r.w > 0 && r.h > 0 ? { type, ...r, tone: 'light' } : null;
     case 'pattern': return r.w > 0 && r.h > 0 ? { type, ...r, pattern: 'lines' } : null;
     case 'box': return r.w > 0 && r.h > 0 ? { type, ...r } : null;
     case 'rule': {
@@ -153,6 +186,30 @@ export function elementFromDrag(type: 'shade' | 'pattern' | 'box' | 'rule' | 'ch
       const across = r.w > r.h;
       const count = Math.max(1, Math.round(across ? r.w : r.h));
       const el: PageElement = { type, x: r.x, y: r.y, count };
+      if (across) el.direction = 'across';
+      return el;
+    }
+    case 'sequence':
+    case 'icon': {
+      // These two take the cell under each end of the drag (see `cellPoint`), and cover both end cells.
+      if (type === 'icon' && !icon) return null;
+      const size = type === 'icon' ? icon!.size : 1;
+      const dx = Math.abs(b.x - a.x), dy = Math.abs(b.y - a.y);
+      const across = dx > dy, tap = dx === 0 && dy === 0;
+      const x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
+      const el: PageElement = {
+        type: 'sequence',
+        x: Math.min(across ? x : a.x, COLS - size), y: Math.min(across ? a.y : y, ROWS - size),
+        count: Math.max(1, Math.floor((across ? dx : dy) / size) + 1),
+      };
+      if (type === 'icon') {
+        el.values = 'icons';
+        el.icons = [icon!.name];
+        if (size !== DEFAULTS.iconSize) { el.size = icon!.size; el.every = size; }
+        if (icon!.tone !== DEFAULTS.sequenceTone) el.tone = icon!.tone;
+      } else if (tap) {
+        el.count = Math.min(TAP_SEQUENCE_COUNT, Math.floor(ROWS - el.y));
+      }
       if (across) el.direction = 'across';
       return el;
     }

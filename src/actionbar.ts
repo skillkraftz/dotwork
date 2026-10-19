@@ -4,6 +4,10 @@ export interface BarHandlers {
   properties(): void;
   duplicate(): void;
   remove(): void;
+  /** Turn Select more on or off: while on, tapping elements adds them to the selection. */
+  selectMore(): void;
+  /** Save the selected elements as a widget. */
+  widget(): void;
   /** The long-press menu, opened from the point given (client px). */
   more(at: { x: number; y: number }): void;
 }
@@ -11,6 +15,8 @@ export interface BarHandlers {
 const ACTIONS = [
   { id: 'properties', label: 'Properties', icon: '<path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>' },
   { id: 'duplicate', label: 'Duplicate', icon: '<rect x="8" y="8" width="12" height="12"/><path d="M16 8V4H4v12h4"/>' },
+  { id: 'selectMore', label: 'Select more', icon: '<rect x="3" y="3" width="9" height="9"/><rect x="12" y="12" width="9" height="9"/><path d="M16.5 3v6M13.5 6h6"/>' },
+  { id: 'widget', label: 'Save widget', icon: '<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/>' },
   { id: 'remove', label: 'Delete', icon: '<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>' },
   { id: 'more', label: 'More', icon: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>' },
 ] as const;
@@ -38,6 +44,11 @@ export class ActionBar {
       b.innerHTML = `<svg class="ico" viewBox="0 0 24 24" aria-hidden="true">${a.icon}</svg><span>${a.label}</span>`;
       root.append(b);
     }
+  }
+
+  /** Show Select more as on or off. */
+  setMore(on: boolean) {
+    this.root.querySelector('[data-action="selectMore"]')?.setAttribute('aria-pressed', String(on));
   }
 
   /** Show the bar beside `target` (a box in client px), below it if there is room, else above, else inside the page; null hides it. */

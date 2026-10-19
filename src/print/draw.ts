@@ -6,12 +6,14 @@ import {
 } from 'pdf-lib';
 import {
   DEFAULTS, GRID_X_MM, GRID_Y_MM, PAGE_H_MM, PAGE_W_MM, PITCH_MM as P,
-  type Box, type Checkboxes, type Page, type PageElement, type Pattern, type Rule, type Shade, type Text,
+  type Box, type Checkboxes, type Page, type PageElement, type Pattern, type Rule, type Sequence, type Text,
 } from '../format/types';
 import { TEXT_INSET_MM, TEXT_SIZE_MM } from '../format/bounds';
 import {
-  BASELINE_MM, GRAY_DOT, HEADER_BASELINE_MM, HEADER_COLOR, LINE, SHADE_TONES, TEXT_COLORS, headerItems, ticks,
+  BACKGROUND_TONES, BASELINE_MM, GRAY_DOT, HEADER_BASELINE_MM, HEADER_COLOR, LINE, TEXT_COLORS, headerItems, iconPlacement, ticks,
 } from '../render';
+import { isIcons, itemOrigin, sequenceItems } from '../format/sequence';
+import { ICONS } from '../icons/icons';
 
 export const MM_TO_PT = 72 / 25.4;
 export const mmToPt = (mm: number) => mm * MM_TO_PT;
@@ -61,8 +63,10 @@ export function drawPage(pdf: PDFPage, page: Page, o: PageDrawOptions): void {
     });
   };
 
-  const shade = (e: Shade) => {
-    const fill = SHADE_TONES[e.tone ?? DEFAULTS.tone];
+  const background = (e: Pattern) => {
+    const tone = e.background ?? DEFAULTS.background;
+    if (tone === 'none') return;
+    const fill = BACKGROUND_TONES[tone];
     const stripes = e.stripes ?? DEFAULTS.stripes;
     const cell = (x: number, y: number, w: number, h: number) => fillRect(x * P, y * P, w * P, h * P, fill);
     if (stripes === 'none') cell(e.x, e.y, e.w, e.h);
@@ -71,6 +75,7 @@ export function drawPage(pdf: PDFPage, page: Page, o: PageDrawOptions): void {
   };
 
   const pattern = (e: Pattern) => {
+    background(e); // under the lines
     const step = e.every ?? DEFAULTS.every;
     const x0 = e.x * P, x1 = (e.x + e.w) * P, y0 = e.y * P, y1 = (e.y + e.h) * P;
     const rows = (start: boolean) => ticks(e.y, e.h, step, start).map((y) => y * P);
@@ -78,6 +83,7 @@ export function drawPage(pdf: PDFPage, page: Page, o: PageDrawOptions): void {
     const hs = (start: boolean) => rows(start).forEach((y) => line(x0, y, x1, y, LINE.hair.w, LINE.hair.c));
     const vs = (start: boolean) => cols(start).forEach((x) => line(x, y0, x, y1, LINE.hair.w, LINE.hair.c));
     switch (e.pattern) {
+      case 'none': break;
       case 'lines': hs(false); break;
       case 'vlines': vs(false); break;
       case 'grid': hs(true); vs(true); break;
@@ -123,9 +129,26 @@ export function drawPage(pdf: PDFPage, page: Page, o: PageDrawOptions): void {
     text(o.expand(e.text), size, font, TEXT_COLORS[e.tone ?? DEFAULTS.textTone], at, align === 'left' ? 'start' : align === 'center' ? 'middle' : 'end', rotate);
   };
 
+  const sequence = (e: Sequence) => {
+    const c = TEXT_COLORS[e.tone ?? DEFAULTS.sequenceTone];
+    sequenceItems(e).forEach((item, i) => {
+      if (isIcons(e)) {
+        const shape = ICONS[item];
+        if (!shape) return;
+        const { x, y, scale, stroke } = iconPlacement(e, i);
+        const at = { x: X(x), y: Y(y), scale: len(scale) };
+        if (shape.fill) pdf.drawSvgPath(shape.fill, { ...at, color: color(c) });
+        pdf.drawSvgPath(shape.stroke, { ...at, borderColor: color(c), borderWidth: len(stroke), borderLineCap: LineCapStyle.Round });
+        return;
+      }
+      const cell = itemOrigin(e, i);
+      text(item, TEXT_SIZE_MM.label, o.fonts.regular, c, { x: cell.x * P + P / 2, y: cell.y * P + P - BASELINE_MM }, 'middle', 0);
+    });
+  };
+
   const element = (e: PageElement) => {
     switch (e.type) {
-      case 'shade': return shade(e);
+      case 'sequence': return sequence(e);
       case 'pattern': return pattern(e);
       case 'box': return box(e);
       case 'rule': return rule(e);

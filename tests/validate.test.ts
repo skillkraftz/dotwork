@@ -104,7 +104,7 @@ describe('element rules', () => {
   it('size: area elements must have w and h above 0', () => {
     expect(elRules({ ...box, w: 0 })).toEqual(['size']);
     expect(elRules({ ...box, h: -1 })).toEqual(['size']);
-    expect(elRules({ type: 'shade', x: 0, y: 1, w: 0.5, h: 0.5 })).toEqual([]);
+    expect(elRules({ type: 'pattern', pattern: 'none', x: 0, y: 1, w: 0.5, h: 0.5 })).toEqual([]);
   });
 
   it('bounds: inside the grid', () => {
@@ -129,12 +129,17 @@ describe('element rules', () => {
     expect(validatePage(page)).toEqual([]);
   });
 
-  it('shade: tone and stripes', () => {
-    const shade = { type: 'shade', x: 0, y: 1, w: 3, h: 2 };
-    for (const tone of ['light', 'medium', 'dark']) expect(elRules({ ...shade, tone })).toEqual([]);
+  it('pattern: background and stripes, and "none" for plain shading', () => {
+    const shade = { type: 'pattern', pattern: 'none', x: 0, y: 1, w: 3, h: 2 };
+    for (const background of ['none', 'light', 'medium', 'dark']) expect(elRules({ ...shade, background })).toEqual([]);
     for (const stripes of ['none', 'rows', 'columns']) expect(elRules({ ...shade, stripes })).toEqual([]);
-    expect(elRules({ ...shade, tone: 'black' })).toEqual(['value']);
+    expect(elRules({ ...shade, background: 'black' })).toEqual(['value']);
     expect(elRules({ ...shade, stripes: 'diagonal' })).toEqual(['value']);
+    expect(elRules({ ...shade, pattern: 'lines', background: 'light', stripes: 'rows' })).toEqual([]);
+  });
+
+  it('the shade element is gone', () => {
+    expect(elRules({ type: 'shade', x: 0, y: 1, w: 3, h: 2 })).toEqual(['element-type']);
   });
 
   it('pattern: kind is required; every is a positive multiple of 0.5', () => {

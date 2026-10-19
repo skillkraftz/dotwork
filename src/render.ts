@@ -1,7 +1,9 @@
 import {
   COLS, DEFAULTS, GRID_X_MM, GRID_Y_MM, PAGE_H_MM, PAGE_W_MM, PITCH_MM as P, ROWS,
-  type Page, type PageElement, type PageSide, type Shade, type Pattern, type Box, type Rule, type Checkboxes, type Text,
+  type Page, type PageElement, type PageSide, type Pattern, type Box, type Rule, type Checkboxes, type Text, type Sequence,
 } from './format/types';
+import { isIcons, itemOrigin, itemSize, sequenceItems } from './format/sequence';
+import { ICON_GRID, ICONS } from './icons/icons';
 import { elementArea, TEXT_INSET_MM, TEXT_SIZE_MM } from './format/bounds';
 import { expandTokens } from './format/tokens';
 import { handlesFor, type Pt } from './geometry';
@@ -17,7 +19,7 @@ export const FONT_FAMILY = `font-family="'Courier Prime', 'Courier New', monospa
 export const PT = 25.4 / 72;
 export const LINE = { hair: { w: 0.12, c: '#c4c4c4' }, thin: { w: 0.5 * PT, c: '#000' }, thick: { w: 1.5 * PT, c: '#000' } } as const;
 export const GRAY_DOT = '#b0b0b0';
-export const SHADE_TONES = { light: '#efefef', medium: '#dcdcdc', dark: '#bdbdbd' } as const;
+export const BACKGROUND_TONES = { light: '#efefef', medium: '#dcdcdc', dark: '#bdbdbd' } as const;
 export const TEXT_COLORS = { gray: '#808080', black: '#000' } as const;
 export const BASELINE_MM = 0.6; // text sits this far above the bottom of its cell band
 
@@ -25,9 +27,14 @@ export interface RenderOptions {
   /** edit: grid dots, header shading and selection; preview: as printed, on screen; export: as printed, page only. */
   mode: 'edit' | 'preview' | 'export';
   selected?: number | null;
+  /** Every selected element (edit mode); `selected` is the main one, the only one that shows resize handles. */
+  selection?: readonly number[];
   /** Indexes of elements the editor is hiding (edit mode only). */
   hidden?: ReadonlySet<number>;
-  draft?: PageElement | null;
+  /** The box being dragged to select things (cells, edit mode). */
+  marquee?: { x: number; y: number; w: number; h: number };
+  /** What is about to be placed, drawn faintly (edit mode). */
+  draft?: PageElement | readonly PageElement[] | null;
   /** Side of the selection's resize handles in mm (edit mode); the editor sizes them to stay finger-sized on screen. */
   handleMm?: number;
   /** The number in the header's outer corner. Defaults to a sample; null leaves it out. */
@@ -51,8 +58,11 @@ export function ticks(from: number, len: number, step: number, includeStart: boo
 const stroke = (d: string, w: number, c: string, cap = 'butt') =>
   d ? `<path d="${d}" fill="none" stroke="${c}" stroke-width="${n(w)}" stroke-linecap="${cap}"/>` : '';
 
-function shadeMarkup(e: Shade): string {
-  const fill = SHADE_TONES[e.tone ?? DEFAULTS.tone];
+/** The shaded background of a pattern: the whole area, or every other row or column of it. */
+function backgroundMarkup(e: Pattern): string {
+  const background = e.background ?? DEFAULTS.background;
+  if (background === 'none') return '';
+  const fill = BACKGROUND_TONES[background];
   const stripes = e.stripes ?? DEFAULTS.stripes;
   const rect = (x: number, y: number, w: number, h: number) =>
     `<rect x="${n(x * P)}" y="${n(y * P)}" width="${n(w * P)}" height="${n(h * P)}" fill="${fill}"/>`;
@@ -70,14 +80,16 @@ function patternMarkup(e: Pattern): string {
   const cols = (start: boolean) => ticks(e.x, e.w, step, start).map((x) => x * P);
   const h = (start: boolean) => rows(start).map((y) => `M${n(x0)} ${n(y)}H${n(x1)}`).join('');
   const v = (start: boolean) => cols(start).map((x) => `M${n(x)} ${n(y0)}V${n(y1)}`).join('');
+  const shading = backgroundMarkup(e); // under the lines
   switch (e.pattern) {
-    case 'lines': return stroke(h(false), LINE.hair.w, LINE.hair.c);
-    case 'vlines': return stroke(v(false), LINE.hair.w, LINE.hair.c);
-    case 'grid': return stroke(h(true) + v(true), LINE.hair.w, LINE.hair.c);
+    case 'none': return shading;
+    case 'lines': return shading + stroke(h(false), LINE.hair.w, LINE.hair.c);
+    case 'vlines': return shading + stroke(v(false), LINE.hair.w, LINE.hair.c);
+    case 'grid': return shading + stroke(h(true) + v(true), LINE.hair.w, LINE.hair.c);
     case 'dots': {
       let d = '';
       for (const x of cols(true)) for (const y of rows(true)) d += `M${n(x)} ${n(y)}h0`;
-      return stroke(d, 0.5, GRAY_DOT, 'round');
+      return shading + stroke(d, 0.5, GRAY_DOT, 'round');
     }
   }
 }
@@ -122,14 +134,43 @@ function textMarkup(e: Text, expand: (t: string) => string): string {
   return `<text transform="${frame}" x="${n(dx)}" y="${n(P - BASELINE_MM)}" font-size="${size}"${weight} text-anchor="${anchor}" fill="${TEXT_COLORS[e.tone ?? DEFAULTS.textTone]}" xml:space="preserve">${esc(expand(e.text))}</text>`;
 }
 
+/** How thick an icon's lines are, in mm, by icon size: a 2-cell icon is drawn with a little more line, not twice as much. */
+export const ICON_STROKE_MM = { 1: 0.26, 2: 0.36 } as const;
+/** Where an icon is drawn: its top-left corner (cells), and mm per icon grid unit. */
+export function iconPlacement(e: Sequence, i: number) {
+  const o = itemOrigin(e, i), size = itemSize(e);
+  return { x: o.x * P, y: o.y * P, scale: (size * P) / ICON_GRID, stroke: ICON_STROKE_MM[size as 1 | 2] };
+}
+
+function sequenceMarkup(e: Sequence): string {
+  const color = TEXT_COLORS[e.tone ?? DEFAULTS.sequenceTone];
+  const items = sequenceItems(e);
+  if (isIcons(e)) {
+    return items.map((name, i) => {
+      const shape = ICONS[name];
+      if (!shape) return '';
+      const { x, y, scale, stroke: sw } = iconPlacement(e, i);
+      const fill = shape.fill ? `<path d="${shape.fill}" fill="${color}" stroke="none"/>` : '';
+      return `<g transform="translate(${n(x)} ${n(y)}) scale(${n(scale)})" fill="none" stroke="${color}" stroke-width="${n(sw / scale)}" stroke-linecap="round" stroke-linejoin="round">${fill}<path d="${shape.stroke}"/></g>`;
+    }).join('');
+  }
+  // Each item is centered in its cell by its own width (the font is monospaced), with no inset.
+  const size = TEXT_SIZE_MM.label;
+  const texts = items.map((text, i) => {
+    const o = itemOrigin(e, i);
+    return `<text x="${n(o.x * P + P / 2)}" y="${n(o.y * P + P - BASELINE_MM)}">${esc(text)}</text>`;
+  }).join('');
+  return `<g font-size="${size}" text-anchor="middle" fill="${color}" xml:space="preserve">${texts}</g>`;
+}
+
 export function elementMarkup(e: PageElement, expand: (t: string) => string = sample): string {
   switch (e.type) {
-    case 'shade': return shadeMarkup(e);
     case 'pattern': return patternMarkup(e);
     case 'box': return boxMarkup(e);
     case 'rule': return ruleMarkup(e);
     case 'checkboxes': return checkboxesMarkup(e);
     case 'text': return textMarkup(e, expand);
+    case 'sequence': return sequenceMarkup(e);
   }
 }
 
@@ -195,9 +236,19 @@ export function pageContent(page: Page, opts: RenderOptions): string {
   });
   out += headerMarkup(page, opts.pageNumber === undefined ? SAMPLE_PAGE_NUMBER : opts.pageNumber, expand);
   if (edit) {
-    const sel = opts.selected != null ? page.elements[opts.selected] : undefined;
-    if (sel && !opts.hidden?.has(opts.selected!)) out += selectionMarkup(sel, true, opts.handleMm);
-    if (opts.draft) out += `<g opacity="0.55">${elementMarkup(opts.draft, expand)}</g>${selectionMarkup(opts.draft, false)}`;
+    const chosen = opts.selection ?? (opts.selected != null ? [opts.selected] : []);
+    for (const i of chosen) {
+      const sel = page.elements[i];
+      // Only a lone selection can be resized, so only it shows handles.
+      if (sel && !opts.hidden?.has(i)) out += selectionMarkup(sel, chosen.length === 1, opts.handleMm);
+    }
+    const m = opts.marquee;
+    if (m) out += `<rect x="${n(m.x * P)}" y="${n(m.y * P)}" width="${n(m.w * P)}" height="${n(m.h * P)}" fill="rgba(0,0,0,0.04)" stroke="#000" stroke-width="0.3" stroke-dasharray="1 0.8"/>`;
+    const draft = opts.draft ? [opts.draft].flat() : [];
+    if (draft.length) {
+      out += `<g opacity="0.55">${draft.map((d) => elementMarkup(d, expand)).join('')}</g>`;
+      out += draft.map((d) => selectionMarkup(d, false)).join('');
+    }
   }
   out += '</g>';
   if (!exporting) out += spineLabel(page.side);

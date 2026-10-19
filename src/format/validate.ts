@@ -1,8 +1,9 @@
 import {
-  ALIGNS, COLS, DIRECTIONS, ELEMENT_TYPES, PAGE_SIDES, PATTERNS, PITCH_MM, ROTATIONS, ROWS, RULE_WEIGHTS,
-  SIDES, STRIPES, TEXT_SIZES, TEXT_STYLES, TEXT_TONES, TONES, WEIGHTS,
+  ALIGNS, BACKGROUNDS, COLS, DIRECTIONS, ELEMENT_TYPES, ICON_SIZES, PAGE_SIDES, PATTERNS, PITCH_MM, ROTATIONS, ROWS, RULE_WEIGHTS,
+  SEQUENCE_VALUES, SIDES, STRIPES, TEXT_SIZES, TEXT_STYLES, TEXT_TONES, WEIGHTS, type Sequence,
 } from './types';
 import { checkboxSpan, insideGrid, limitsArea } from './bounds';
+import { sequenceProblem, sequenceSpan } from './sequence';
 import { findUnknownTokens, TOKENS } from './tokens';
 import type { PageElement } from './types';
 
@@ -108,7 +109,6 @@ function validateElementInto(el: unknown, at: string, fail: Fail) {
   };
 
   switch (el.type) {
-    case 'shade':
     case 'pattern':
     case 'box': {
       for (const k of ['x', 'y', 'w', 'h']) half(k);
@@ -116,8 +116,8 @@ function validateElementInto(el: unknown, at: string, fail: Fail) {
         fail('size', at, `"w" and "h" must be greater than 0 (got w=${el.w}, h=${el.h}).`);
         usable = false;
       }
-      if (el.type === 'shade') { choice('tone', TONES); choice('stripes', STRIPES); }
       if (el.type === 'pattern') {
+        choice('background', BACKGROUNDS); choice('stripes', STRIPES);
         if (!oneOf(PATTERNS, el.pattern)) {
           fail('value', `${at}.pattern`, `"pattern" is required and must be one of ${list(PATTERNS)}, got ${JSON.stringify(el.pattern)}.`);
         }
@@ -159,6 +159,18 @@ function validateElementInto(el: unknown, at: string, fail: Fail) {
       }
       break;
     }
+    case 'sequence': {
+      half('x'); half('y');
+      if (!Number.isInteger(el.count) || (el.count as number) < 1) {
+        fail('count', `${at}.count`, `"count" is required and must be a whole number of at least 1 (got ${JSON.stringify(el.count)}).`);
+        usable = false;
+      }
+      every();
+      choice('direction', DIRECTIONS); choice('values', SEQUENCE_VALUES); choice('tone', TEXT_TONES); choice('size', ICON_SIZES);
+      const problem = sequenceProblem(el as unknown as Sequence);
+      if (problem) { fail('sequence', at, problem); usable = false; }
+      break;
+    }
     case 'text': {
       half('x'); half('y');
       if (typeof el.text !== 'string') fail('text', `${at}.text`, '"text" is required and must be a string.');
@@ -174,7 +186,9 @@ function validateElementInto(el: unknown, at: string, fail: Fail) {
     if (!insideGrid(area)) {
       const extra = el.type === 'checkboxes'
         ? ` The ${el.count} boxes (every ${el.every ?? 1}, ${el.direction ?? 'down'}) cover ${checkboxSpan(el.count as number, (el.every as number) ?? 1)} cells.`
-        : '';
+        : el.type === 'sequence'
+          ? ` The ${el.count} items (every ${el.every ?? 1}, ${el.direction ?? 'down'}) cover ${sequenceSpan(el as unknown as Sequence)} cells.`
+          : '';
       const onlyHeader = area.y >= 0 && area.y < 1 && area.x >= 0 && area.x + area.w <= COLS && area.y + area.h <= ROWS;
       fail(onlyHeader ? 'header-row' : 'bounds', at,
         `Does not fit below the header in the ${COLS} x ${ROWS} grid: need x >= 0, y >= 1, x + w <= ${COLS}, y + h <= ${ROWS}; this one spans x ${area.x} to ${area.x + area.w}, y ${area.y} to ${area.y + area.h}.${extra}`);

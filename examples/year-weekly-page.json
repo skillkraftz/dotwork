@@ -6,8 +6,8 @@
   "side": "right",
   "grid": { "cols": 27, "rows": 44, "pitch_mm": 3 },
   "elements": [
-    { "type": "shade", "x": 25, "y": 9, "w": 2, "h": 4 },
-    { "type": "shade", "x": 25, "y": 33, "w": 2, "h": 4 },
+    { "type": "pattern", "pattern": "none", "x": 25, "y": 9, "w": 2, "h": 4, "background": "light" },
+    { "type": "pattern", "pattern": "none", "x": 25, "y": 33, "w": 2, "h": 4, "background": "light" },
     { "type": "pattern", "pattern": "lines", "x": 0, "y": 1, "w": 25, "h": 43 },
     { "type": "rule", "x1": 0, "y1": 1, "x2": 27, "y2": 1 },
     { "type": "rule", "x1": 0, "y1": 9, "x2": 27, "y2": 9 },
