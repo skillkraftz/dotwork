@@ -23,7 +23,7 @@ describe('examples', () => {
   const files = readdirSync(dir).filter((f) => f.endsWith('.json'));
 
   it('includes the recreated journal-system pages', () => {
-    for (const f of ['monthly-tracker', 'daily-good-time', 'idea-page', 'year-weekly-page']) expect(files).toContain(`${f}.json`);
+    for (const f of ['daily-good-time', 'idea-page', 'lined-page', 'dot-grid-page']) expect(files).toContain(`${f}.json`);
   });
 
   for (const f of files) {

@@ -11,7 +11,8 @@ import { contactSheet } from '../src/print/contact';
 import { exportBookFiles } from '../src/print/export';
 import { pageContent } from '../src/render';
 import { readPdf } from './pdf-text';
-import weekly from '../examples/year-weekly-dated.json';
+import { weeklyPage } from '../src/builtin/pages';
+const weekly = weeklyPage('right', true);
 
 const fonts = { regular: readFileSync('src/fonts/CourierPrime-Regular.ttf'), bold: readFileSync('src/fonts/CourierPrime-Bold.ttf') };
 
@@ -72,7 +73,7 @@ describe('tokens with day offsets', () => {
   });
 });
 
-const dated = (): Page => ({ ...(weekly as unknown as Page), side: 'right' });
+const dated = (): Page => ({ ...weekly, side: 'right' });
 const digits = (strings: string[]) => strings.filter((s) => /\d/.test(s));
 
 describe('book dates', () => {
@@ -159,9 +160,9 @@ describe('book dates', () => {
 describe('the dated weekly example', () => {
   it('is a valid page whose labels run from the week’s Sunday', () => {
     expect(validatePage(weekly)).toEqual([]);
-    const text = (weekly as unknown as Page).elements.flatMap((e) => (e.type === 'text' ? [e.text] : []));
+    const text = weekly.elements.flatMap((e) => (e.type === 'text' ? [e.text] : []));
     expect(text).toEqual(expect.arrayContaining(['{weekday}', '{weekday+6}', '{day}', '{day+6}']));
-    expect((weekly as { identity: string }).identity).toBe('{months}');
+    expect(weekly.identity).toBe('{months}');
   });
 });
 

@@ -114,4 +114,6 @@ Dotwork's print export follows the same physical rules as journal-system
 11. Navigation overhaul: Page, Edit and Export menus, a settings window, a library browser with search, tabs and favorites, one import/export window, drawable header row when the identity is empty (done).
 12. Rotated sequence items, date tokens with day offsets and {months}, dates on book pages, and one Download for
     pages.pdf, cover.pdf and the print files (done).
-13. Later: dials and other components, color, sharing, a page gallery.
+13. Built-in library: every reference page, paired spreads, starter widgets, and book templates (year planner,
+    monthly journal, blank, lined, dot grid and idea books); built-ins can't be overwritten (done).
+14. Later: dials and other components, color, sharing, a page gallery.

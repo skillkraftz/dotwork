@@ -7,9 +7,13 @@ import { h } from '../panel';
 import { pageContent, thumbnailSvg } from '../render';
 import { placeWidget, widgetSize, type Widget, type WidgetStore } from '../widgets';
 import oflUrl from '../fonts/OFL.txt?url';
+import type { BookTemplate } from '../builtin/templates';
 import type { Library, LibraryItem } from './library';
 import type { Favorites } from './favorites';
-import { TABS, TAB_LABEL, exampleId, visibleEntries, widgetId, type Entry, type LibraryTab } from './browse';
+import { TABS, TAB_LABEL, exampleId, spreadId, templateId, visibleEntries, widgetId, type Entry, type LibraryTab } from './browse';
+import { TemplateDialog } from './templatedialog';
+import { TEMPLATES } from '../builtin/templates';
+import { BUILTIN_SPREADS, BUILTIN_WIDGETS, asCopy } from '../builtin/library';
 
 /** What can be saved from the editor right now. */
 export type SaveWhat = 'page' | 'spread' | 'left' | 'right' | 'book';
@@ -21,7 +25,7 @@ export interface LibraryHost {
   view(): 'page' | 'spread' | 'book';
   saveOptions(): SaveOption[];
   data(what: SaveWhat): Page | Spread | Book;
-  /** The built-in example pages, listed with the saved pages. */
+  /** The built-in example pages, listed with the saved pages. Opening or placing one makes a copy. */
   examples: readonly Page[];
   widgets: WidgetStore;
   favorites: Favorites;
@@ -42,7 +46,20 @@ const itemThumb = (e: Entry): string =>
   e.kind === 'page' ? thumbnailSvg([e.data])
     : e.kind === 'spread' ? thumbnailSvg([e.data.left, e.data.right])
       : e.kind === 'book' ? thumbnailSvg([bookPage(e.data, 0), bookPage(e.data, 1)]) // a book shows as its first spread
-        : widgetThumbnail(e.data);
+        : e.kind === 'template' ? templateThumb(e.data)
+          : widgetThumbnail(e.data);
+
+const templateThumbs = new Map<string, string>();
+/** A template shows the first spread of the book it builds with its default answers. */
+function templateThumb(t: BookTemplate): string {
+  let svg = templateThumbs.get(t.id);
+  if (!svg) {
+    const book = t.build();
+    svg = thumbnailSvg([bookPage(book, 0), bookPage(book, 1)]);
+    templateThumbs.set(t.id, svg);
+  }
+  return svg;
+}
 
 /** A widget drawn on its own, cropped to the cells it covers. */
 function widgetThumbnail(widget: Widget): string {
@@ -53,7 +70,7 @@ function widgetThumbnail(widget: Widget): string {
 }
 
 const when = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
-const KIND_LABEL = { page: 'Page', spread: 'Spread', book: 'Book', widget: 'Widget' } as const;
+const KIND_LABEL = { page: 'Page', spread: 'Spread', book: 'Book', widget: 'Widget', template: 'Book template' } as const;
 /** Where the library opens: on pages (in a spread they are what you place), or on books when arranging one. */
 const VIEW_TAB = { page: 'pages', spread: 'pages', book: 'books' } as const;
 const KIND_TAB = { page: 'pages', spread: 'spreads', book: 'books' } as const;
@@ -71,6 +88,7 @@ export class LibraryDialog {
   private search = h('input', { type: 'text', 'aria-label': 'Search by name', placeholder: 'Search by name', 'data-help': 'library-search', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', enterkeyhint: 'search' });
   private tabsEl = h('div', { class: 'lib-tabs', role: 'tablist', 'aria-label': 'Library sections' });
   private tab: LibraryTab = 'pages';
+  private templates = new TemplateDialog();
   private renaming: string | null = null;
   private menuFor: string | null = null;
 
@@ -155,9 +173,15 @@ export class LibraryDialog {
       this.say(['Not saved: it breaks the page format.', ...check.issues.slice(0, 8).map(formatIssue)]);
       return;
     }
-    const item = kind === 'spread' ? await this.library.save('spread', name, data as Spread)
-      : kind === 'book' ? await this.library.save('book', name, data as Book)
-        : await this.library.save('page', name, data as Page);
+    let item: LibraryItem;
+    try {
+      item = kind === 'spread' ? await this.library.save('spread', name, data as Spread)
+        : kind === 'book' ? await this.library.save('book', name, data as Book)
+          : await this.library.save('page', name, data as Page);
+    } catch (err) {
+      this.say(`Not saved: ${(err as Error).message}`); // the name is a built-in's
+      return;
+    }
     this.say(`Saved ${kind} “${item.name}” to the library.`);
     this.tab = KIND_TAB[kind];
     this.renderTabs();
@@ -169,8 +193,11 @@ export class LibraryDialog {
   private async entries(): Promise<Entry[]> {
     const saved = (await this.library.list()).map((i): Entry => ({ ...i, updated: i.updated, example: false }) as Entry);
     const examples = this.host.examples.map((data): Entry => ({ kind: 'page', id: exampleId(data), name: data.name, updated: null, example: true, data }));
+    const spreads = BUILTIN_SPREADS.map((data): Entry => ({ kind: 'spread', id: spreadId(data), name: data.name, updated: null, example: true, data }));
+    const templates = TEMPLATES.map((data): Entry => ({ kind: 'template', id: templateId(data), name: data.name, updated: null, example: true, data }));
     const widgets = this.host.widgets.list().map((data): Entry => ({ kind: 'widget', id: widgetId(data), name: data.name, updated: null, example: false, data }));
-    return [...saved, ...examples, ...widgets];
+    const builtinWidgets = BUILTIN_WIDGETS.map((data): Entry => ({ kind: 'widget', id: widgetId(data), name: data.name, updated: null, example: true, data }));
+    return [...saved, ...examples, ...spreads, ...templates, ...widgets, ...builtinWidgets];
   }
 
   private async renderList() {
@@ -192,10 +219,16 @@ export class LibraryDialog {
 
   /** Tapping the item: open it, put it on the spread page being edited, or arm the widget tool. */
   private use(e: Entry) {
+    if (e.kind === 'template') {
+      this.close();
+      this.templates.open(e.data, (book) => this.host.openBook(book));
+      return;
+    }
+    // A built-in can't be changed, so what opens or is placed is a copy under its own name plus “copy”.
     if (e.kind === 'page') {
-      const side = this.host.pageTarget();
-      if (side) this.host.placePage(e.data, side); else this.host.openPage(e.data);
-    } else if (e.kind === 'spread') this.host.openSpread(e.data);
+      const page = e.example ? asCopy(e.data) : e.data, side = this.host.pageTarget();
+      if (side) this.host.placePage(page, side); else this.host.openPage(page);
+    } else if (e.kind === 'spread') this.host.openSpread(e.example ? asCopy(e.data) : e.data);
     else if (e.kind === 'book') this.host.openBook(e.data);
     else this.host.useWidget(e.data);
     this.close();
@@ -206,7 +239,7 @@ export class LibraryDialog {
     thumb.innerHTML = itemThumb(e);
     const starred = this.host.favorites.has(e.id);
     const title = this.renaming === e.id ? this.renameField(e) : h('strong', { class: 'lib-name', title: e.name }, e.name);
-    const meta = [KIND_LABEL[e.kind], e.example ? 'example' : e.updated ? when(e.updated) : e.kind === 'widget' ? `${e.data.elements.length} element${e.data.elements.length === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ');
+    const meta = [KIND_LABEL[e.kind], e.example && e.kind !== 'template' ? 'example' : e.updated ? when(e.updated) : e.kind === 'widget' ? `${e.data.elements.length} element${e.data.elements.length === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ');
     const open = h('button', {
       type: 'button', class: 'lib-open', 'data-key': 'library-item', 'data-help': 'library-item', 'data-kind': e.kind, 'aria-label': `${this.openVerb(e)} ${e.name}`,
       onclick: () => this.use(e),
@@ -222,12 +255,12 @@ export class LibraryDialog {
     return h('article', { class: `lib-card${this.menuFor === e.id ? ' menu-open' : ''}`, 'data-name': e.name },
       open,
       h('div', { class: 'lib-meta' }, title, h('span', { class: 'hint' }, meta)),
-      h('div', { class: 'lib-tools' }, star, more),
+      h('div', { class: 'lib-tools' }, star, e.kind === 'template' ? null : more),
       this.menuFor === e.id ? this.menu(e) : null);
   }
 
   private openVerb(e: Entry) {
-    return e.kind === 'widget' ? 'Use widget' : e.kind === 'page' && this.host.pageTarget() ? `Place on the ${this.host.pageTarget()} page:` : 'Open';
+    return e.kind === 'widget' ? 'Use widget' : e.kind === 'template' ? 'Build a book from' : e.kind === 'page' && this.host.pageTarget() ? `Place on the ${this.host.pageTarget()} page:` : 'Open';
   }
 
   /** Rename, duplicate and delete; the built-in examples can only be copied. */
@@ -248,9 +281,15 @@ export class LibraryDialog {
   }
 
   private async duplicate(e: Entry) {
+    if (e.kind === 'template') return;
     if (e.kind === 'widget') this.host.widgets.add(`${e.name} copy`, e.data.elements);
-    else if (e.example) { await this.library.save('page', `${e.name} copy`, e.data); this.tab = 'pages'; this.renderTabs(); this.say(`Saved a copy of “${e.name}” to your pages.`); }
-    else await this.library.duplicate(e.id);
+    else if (e.example) {
+      const copy = asCopy(e.data as Page | Spread);
+      const saved = e.kind === 'spread' ? await this.library.save('spread', copy.name, copy as Spread) : await this.library.save('page', copy.name, copy as Page);
+      this.tab = e.kind === 'spread' ? 'spreads' : 'pages';
+      this.renderTabs();
+      this.say(`Saved a copy of “${e.name}” to your ${e.kind}s as “${saved.name}”.`);
+    } else await this.library.duplicate(e.id);
     await this.renderList();
   }
 
@@ -262,7 +301,9 @@ export class LibraryDialog {
       done = true;
       this.renaming = null;
       if (commit) {
-        if (e.kind === 'widget') this.host.widgets.rename(e.data.id, input.value); else await this.library.rename(e.id, input.value);
+        try {
+          if (e.kind === 'widget') this.host.widgets.rename(e.data.id, input.value); else await this.library.rename(e.id, input.value);
+        } catch (err) { this.say(`Not renamed: ${(err as Error).message}`); }
       }
       await this.renderList();
     };

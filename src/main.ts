@@ -24,18 +24,14 @@ import { HelpMode } from './helpmode';
 import { AdvancedPicker, type AdvancedChoice } from './advanced';
 import { NameDialog } from './namedialog';
 import { WidgetStore } from './widgets';
+import { BUILTIN_PAGES, isBuiltinName } from './builtin/library';
 
 const KEYS = { page: 'dotwork.page', left: 'dotwork.spread.left', right: 'dotwork.spread.right' } as const;
 const VIEW_KEY = 'dotwork.view';
 const BOOK_KEY = 'dotwork.book';
 const SPREAD_NAME_KEY = 'dotwork.spread.name';
 
-const examples = Object.entries(import.meta.glob<unknown>('../examples/*.json', { eager: true, import: 'default' }))
-  .sort(([a], [b]) => a.localeCompare(b))
-  .flatMap(([, raw]) => {
-    const r = readPage(raw);
-    return r.ok ? [r.page] : [];
-  });
+const examples = BUILTIN_PAGES;
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -74,7 +70,7 @@ const cur = () => (view === 'page' ? stores.page : stores[active]);
 const widgets = new WidgetStore((() => { try { return localStorage; } catch { return null; } })());
 const nameDialog = new NameDialog();
 
-const library = new Library(typeof indexedDB === 'undefined' ? new MemoryBackend() : idbBackend);
+const library = new Library(typeof indexedDB === 'undefined' ? new MemoryBackend() : idbBackend, undefined, undefined, isBuiltinName);
 
 // ---- notices -------------------------------------------------------------
 
