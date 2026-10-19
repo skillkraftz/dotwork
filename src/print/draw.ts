@@ -6,12 +6,13 @@ import {
 } from 'pdf-lib';
 import {
   DEFAULTS, GRID_X_MM, GRID_Y_MM, PAGE_H_MM, PAGE_W_MM, PITCH_MM as P,
-  type Box, type Checkboxes, type Page, type PageElement, type Pattern, type Rule, type Sequence, type Text,
+  type Box, type Checkboxes, type Page, type PageElement, type Pattern, type Rule, type Shade, type Sequence, type Text,
 } from '../format/types';
 import { TEXT_INSET_MM, TEXT_SIZE_MM } from '../format/bounds';
 import {
-  BACKGROUND_TONES, BASELINE_MM, GRAY_DOT, HEADER_BASELINE_MM, HEADER_COLOR, LINE, TEXT_COLORS, headerItems, iconPlacement, ticks,
+  BASELINE_MM, DOT_MM, GRAY_DOT, SHADE_TONES, HEADER_BASELINE_MM, HEADER_COLOR, LINE, TEXT_COLORS, headerItems, iconPlacement, ticks,
 } from '../render';
+import { shadeRects } from '../format/shade';
 import { isIcons, itemOrigin, sequenceItems } from '../format/sequence';
 import { ICONS } from '../icons/icons';
 
@@ -48,7 +49,7 @@ export function drawPage(pdf: PDFPage, page: Page, o: PageDrawOptions): void {
     pdf.drawLine({ start: { x: X(x1), y: Y(y1) }, end: { x: X(x2), y: Y(y2) }, thickness: len(w), color: color(c), lineCap: cap });
   const fillRect = (x: number, y: number, w: number, h: number, c: string) =>
     pdf.drawRectangle({ x: X(x), y: Y(y + h), width: len(w), height: len(h), color: color(c) });
-  const dot = (x: number, y: number) => pdf.drawCircle({ x: X(x), y: Y(y), size: len(0.25), color: color(GRAY_DOT) });
+  const dot = (x: number, y: number, radius: number) => pdf.drawCircle({ x: X(x), y: Y(y), size: len(radius), color: color(GRAY_DOT) });
 
   const text = (str: string, size: number, font: PDFFont, c: string, at: { x: number; y: number }, align: 'start' | 'middle' | 'end', rotate: 0 | 90 | 270) => {
     const safe = printable(str, font);
@@ -63,31 +64,24 @@ export function drawPage(pdf: PDFPage, page: Page, o: PageDrawOptions): void {
     });
   };
 
-  const background = (e: Pattern) => {
-    const tone = e.background ?? DEFAULTS.background;
-    if (tone === 'none') return;
-    const fill = BACKGROUND_TONES[tone];
-    const stripes = e.stripes ?? DEFAULTS.stripes;
-    const cell = (x: number, y: number, w: number, h: number) => fillRect(x * P, y * P, w * P, h * P, fill);
-    if (stripes === 'none') cell(e.x, e.y, e.w, e.h);
-    else if (stripes === 'rows') for (let t = 0; t < e.h; t += 2) cell(e.x, e.y + t, e.w, Math.min(1, e.h - t));
-    else for (let t = 0; t < e.w; t += 2) cell(e.x + t, e.y, Math.min(1, e.w - t), e.h);
+  const shade = (e: Shade) => {
+    for (const r of shadeRects(e)) fillRect(r.x * P, r.y * P, r.w * P, r.h * P, SHADE_TONES[r.tone]);
   };
 
   const pattern = (e: Pattern) => {
-    background(e); // under the lines
     const step = e.every ?? DEFAULTS.every;
     const x0 = e.x * P, x1 = (e.x + e.w) * P, y0 = e.y * P, y1 = (e.y + e.h) * P;
+    const first = e.first === true;
     const rows = (start: boolean) => ticks(e.y, e.h, step, start).map((y) => y * P);
     const cols = (start: boolean) => ticks(e.x, e.w, step, start).map((x) => x * P);
-    const hs = (start: boolean) => rows(start).forEach((y) => line(x0, y, x1, y, LINE.hair.w, LINE.hair.c));
-    const vs = (start: boolean) => cols(start).forEach((x) => line(x, y0, x, y1, LINE.hair.w, LINE.hair.c));
+    const l = LINE[e.weight ?? DEFAULTS.patternWeight];
+    const hs = (start: boolean) => rows(start).forEach((y) => line(x0, y, x1, y, l.w, l.c));
+    const vs = (start: boolean) => cols(start).forEach((x) => line(x, y0, x, y1, l.w, l.c));
     switch (e.pattern) {
-      case 'none': break;
-      case 'lines': hs(false); break;
-      case 'vlines': vs(false); break;
+      case 'lines': hs(first); break;
+      case 'vlines': vs(first); break;
       case 'grid': hs(true); vs(true); break;
-      case 'dots': for (const x of cols(true)) for (const y of rows(true)) dot(x, y); break;
+      case 'dots': for (const x of cols(true)) for (const y of rows(true)) dot(x, y, DOT_MM[e.dots ?? DEFAULTS.dots] / 2); break;
     }
   };
 
@@ -150,6 +144,7 @@ export function drawPage(pdf: PDFPage, page: Page, o: PageDrawOptions): void {
     switch (e.type) {
       case 'sequence': return sequence(e);
       case 'pattern': return pattern(e);
+      case 'shade': return shade(e);
       case 'box': return box(e);
       case 'rule': return rule(e);
       case 'checkboxes': return checkboxes(e);

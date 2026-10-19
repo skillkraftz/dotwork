@@ -144,7 +144,7 @@ describe('editing actions (each one undoable)', () => {
     duplicateElement(s, 0);
     expect(s.page.elements[1]).toMatchObject({ x: 24, y: 41 });
     const full = new Store();
-    addElement(full, { type: 'pattern', pattern: 'none', background: 'light', x: 0, y: 1, w: 27, h: 43 });
+    addElement(full, { type: 'shade', tones: 'L', x: 0, y: 1, w: 27, h: 43 });
     duplicateElement(full, 0);
     expect(full.page.elements[1]).toMatchObject({ x: 0, y: 1 });
   });

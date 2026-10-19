@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
-  bar, box, cellToClient, doubleTap, draft, drag, open, pinch, press, shot, stagger, start, stop, tap, twoFingerDrag, viewBoxOf, type App, type Env,
+  bar, box, cellToClient, doubleTap, draft, drag, open, pinch, press, shot, stagger, start, stop, tap, twoFingerDrag, viewBoxOf, type App, type Env, tool,
 } from './harness';
 
 let env: Env;
@@ -37,7 +37,7 @@ describe('phone layout (390 x 844, touch)', () => {
     const tools = (await box(app, '#tools'))!;
     expect(tools.y + tools.height).toBeCloseTo(844, 0);
     const labels = await page.locator('#tools button .label').allInnerTexts();
-    expect(labels.map((l) => l.trim())).toEqual(['Select', 'Advanced', 'Pattern', 'Box', 'Rule', 'Checks', 'Text', 'Half']);
+    expect(labels.map((l) => l.trim())).toEqual(['Select', 'Draw', 'Advanced', 'Select all', 'Half']);
     const wrap = (await box(app, '#canvas-wrap'))!;
     expect(wrap.height / 844).toBeGreaterThan(0.8);
     const pageRect = (await page.locator('#content > rect').first().boundingBox())!;
@@ -67,20 +67,22 @@ describe('phone layout (390 x 844, touch)', () => {
 
   it('draws a box with a finger', async () => {
     const app = await open(env, 'phone');
-    await app.page.tap('[data-tool="box"]');
+    await tool(app, 'box');
     await drag(app, await cellToClient(app, 3, 4), await cellToClient(app, 10, 9));
     const els = await elements(app);
     expect(els).toMatchObject([{ type: 'box', x: 3, y: 4, w: 7, h: 5 }]);
-    // drawing selects it, and offers an action bar; nothing opens by itself
+    // drawing selects it and the bar goes back to Select with the selection's buttons; nothing opens by itself
     expect(await app.page.locator('#sheet').getAttribute('data-state')).toBe('closed');
-    expect(await app.page.locator('#action-bar').isVisible()).toBe(true);
+    expect(await app.page.locator('#bar-select').getAttribute('aria-pressed')).toBe('true');
+    expect(await app.page.locator('#bar-context [data-action="properties"]').isVisible()).toBe(true);
+    expect(await app.page.locator('#action-bar').count()).toBe(0); // nothing floats over the page
     noErrors(app);
   });
 
-  it('draws a shaded pattern, changes its background, moves it by nudging and dragging, undoes, and saves it to the library', async () => {
+  it('draws a pattern, changes its line weight, moves it by nudging and dragging, undoes, and saves it to the library', async () => {
     const app = await open(env, 'phone');
     const { page } = app;
-    await page.tap('[data-tool="pattern"]');
+    await tool(app, 'pattern');
     await drag(app, await cellToClient(app, 5, 8), await cellToClient(app, 12, 14));
     expect(await elements(app)).toMatchObject([{ type: 'pattern', x: 5, y: 8, w: 7, h: 6 }]);
     await shot(app, 'phone-selected');
@@ -89,8 +91,8 @@ describe('phone layout (390 x 844, touch)', () => {
     await bar(app, 'properties');
     expect(await page.locator('#sheet').getAttribute('data-state')).toBe('open');
     await shot(app, 'phone-properties');
-    await page.locator('#panel select[data-key="prop-background"]').selectOption('dark');
-    expect(await elements(app)).toMatchObject([{ type: 'pattern', background: 'dark' }]);
+    await page.locator('#panel select[data-key="prop-weight"]').selectOption('thick');
+    expect(await elements(app)).toMatchObject([{ type: 'pattern', weight: 'thick' }]);
 
     // move it with the nudge buttons
     await page.tap('[data-key="nudge-right"]');
@@ -107,7 +109,7 @@ describe('phone layout (390 x 844, touch)', () => {
     await page.tap('#undo');
     expect(await elements(app)).toMatchObject([{ x: 6, y: 9 }]);
     await page.tap('#undo');
-    expect(await elements(app)).toMatchObject([{ x: 5, y: 8, background: 'dark' }]);
+    expect(await elements(app)).toMatchObject([{ x: 5, y: 8, weight: 'thick' }]);
 
     // save it
     await page.tap('#menu-button');
@@ -126,29 +128,36 @@ describe('phone layout (390 x 844, touch)', () => {
     noErrors(app);
   });
 
-  it('puts the action bar beside the selection, never over it', async () => {
+  it('has three modes and five buttons that follow the mode and the selection, all finger-sized', async () => {
     const app = await open(env, 'phone');
-    await app.page.tap('[data-tool="box"]');
+    const { page } = app;
+    const labels = async () => (await page.locator('#bar-context button .label').allInnerTexts()).map((l) => l.trim());
+    const modes = async () => (await page.locator('#bar-modes button .label').allInnerTexts()).map((l) => l.trim());
+    expect(await modes()).toEqual(['Select', 'Draw', 'Advanced']);
+    expect(await labels()).toEqual(['Select all', 'Half']); // Select, nothing selected
+    await page.tap('#bar-draw');
+    expect(await labels()).toEqual(['Pattern', 'Shade', 'Box', 'Rule', 'Text']);
+    await page.tap('#advanced');
+    expect(await labels()).toEqual(['Sequence', 'Icon', 'Checks', 'Widgets']);
+    await tool(app, 'box');
     await drag(app, await cellToClient(app, 4, 34), await cellToClient(app, 14, 40)); // low on the page
-    const barBox = (await box(app, '#action-bar'))!;
-    const sel = (await app.page.locator('#content rect[stroke-dasharray]').boundingBox())!;
-    const wrap = (await box(app, '#canvas-wrap'))!;
-    expect(barBox.y >= sel.y + sel.height || barBox.y + barBox.height <= sel.y).toBe(true); // clear of the element
-    expect(barBox.y).toBeGreaterThanOrEqual(wrap.y);
-    expect(barBox.x + barBox.width).toBeLessThanOrEqual(wrap.x + wrap.width);
-    const labels = await app.page.locator('#action-bar button').allInnerTexts();
-    expect(labels.map((l) => l.trim())).toEqual(['Properties', 'Duplicate', 'Select more', 'Save widget', 'Delete', 'More']);
+    expect(await labels()).toEqual(['Props', 'Copy', 'Delete', 'Group', 'More']); // Select, something selected
+    const names = await page.locator('#bar-context button').evaluateAll((bs) => bs.map((b) => b.getAttribute('aria-label')));
+    expect(names).toEqual(['Properties', 'Duplicate', 'Delete', 'Group', 'More']);
+    expect(await page.locator('#bar-context [data-action="group"]').isDisabled()).toBe(true); // one element has nothing to group
+    // five buttons, the same width, all inside the screen: the bar never grows or shifts as the buttons change
+    const boxes = await page.locator('#bar-context button').evaluateAll((bs) => bs.map((b) => b.getBoundingClientRect().toJSON()));
+    expect(boxes.every((r) => r.width >= 44 && r.x + r.width <= 390)).toBe(true);
     expect(await smallControls(app)).toEqual([]);
-    await shot(app, 'phone-action-bar');
     noErrors(app);
   });
 
   it('opens from the Layers button, reorders layers with the arrows, and closes with its Close button', async () => {
     const app = await open(env, 'phone');
     const { page } = app;
-    await page.tap('[data-tool="box"]');
+    await tool(app, 'box');
     await drag(app, await cellToClient(app, 3, 4), await cellToClient(app, 8, 8));
-    await page.tap('[data-tool="rule"]');
+    await tool(app, 'rule');
     await drag(app, await cellToClient(app, 3, 12), await cellToClient(app, 12, 12));
     expect(await page.locator('#sheet').getAttribute('data-state')).toBe('closed'); // nothing slid up unasked
     await page.tap('#layers-button');
@@ -171,9 +180,9 @@ describe('touch replacements', () => {
     const app = await open(env, 'phone');
     const { page } = app;
     // two shades stacked
-    await page.tap('[data-tool="pattern"]');
+    await tool(app, 'pattern');
     await drag(app, await cellToClient(app, 4, 6), await cellToClient(app, 14, 14));
-    await page.tap('[data-tool="pattern"]');
+    await tool(app, 'pattern');
     await drag(app, await cellToClient(app, 6, 8), await cellToClient(app, 12, 16));
     expect(await elements(app)).toHaveLength(2);
 
@@ -219,13 +228,13 @@ describe('touch replacements', () => {
     expect(await page.locator('#half-cells').getAttribute('aria-pressed')).toBe('false');
     await page.tap('#half-cells');
     expect(await page.locator('#half-cells').getAttribute('aria-pressed')).toBe('true');
-    await page.tap('[data-tool="box"]');
+    await tool(app, 'box');
     await drag(app, await cellToClient(app, 2.5, 2.5), await cellToClient(app, 6.5, 6.5));
     expect(await elements(app)).toMatchObject([{ type: 'box', x: 2.5, y: 2.5, w: 4, h: 4 }]);
     await bar(app, 'properties');
     await page.tap('[data-key="nudge-right"]');
     expect(await elements(app)).toMatchObject([{ x: 3 }]);
-    await page.tap('#half-cells');
+    await page.tap('[data-key="nudge-half"]');
     await page.tap('[data-key="nudge-down"]');
     expect(await elements(app)).toMatchObject([{ x: 3, y: 3.5 }]);
     noErrors(app);
@@ -252,7 +261,7 @@ describe('touch replacements', () => {
 
   it('resize handles can be grabbed with a finger', async () => {
     const app = await open(env, 'phone');
-    await app.page.tap('[data-tool="box"]');
+    await tool(app, 'box');
     await drag(app, await cellToClient(app, 4, 6), await cellToClient(app, 10, 12));
     // a few px off the bottom-right handle, as a fingertip would land
     const h = await cellToClient(app, 10, 12);
@@ -263,7 +272,7 @@ describe('touch replacements', () => {
 
   it('text is placed where the finger lifts, not where a pinch starts', async () => {
     const app = await open(env, 'phone');
-    await app.page.tap('[data-tool="text"]');
+    await tool(app, 'text');
     await pinch(app, await cellToClient(app, 13, 20), 80, 160);
     expect(await elements(app)).toHaveLength(0);
     await tap(app, await cellToClient(app, 6, 10));
@@ -275,9 +284,9 @@ describe('touch replacements', () => {
 describe('touch gestures', () => {
   /** Two shades side by side; leaves nothing selected. Returns where each is. */
   async function twoShades(app: App) {
-    await app.page.tap('[data-tool="pattern"]');
+    await tool(app, 'pattern');
     await drag(app, await cellToClient(app, 4, 14), await cellToClient(app, 12, 24));
-    await app.page.tap('[data-tool="pattern"]');
+    await tool(app, 'pattern');
     await drag(app, await cellToClient(app, 15, 14), await cellToClient(app, 23, 24));
     await tap(app, await cellToClient(app, 2, 40)); // empty space clears the selection
     return { a: await cellToClient(app, 8, 19), b: await cellToClient(app, 19, 19) };
@@ -286,7 +295,7 @@ describe('touch gestures', () => {
     elements: await elements(app),
     sheet: await app.page.locator('#sheet').getAttribute('data-state'),
     selected: await app.page.locator('#panel .layer.selected').allInnerTexts(),
-    bar: await app.page.locator('#action-bar').isVisible(),
+    bar: await app.page.locator('#bar-context [data-action="properties"]').isVisible(),
   });
 
   it('a pinch that starts on an element changes nothing but the view', async () => {
@@ -319,26 +328,33 @@ describe('touch gestures', () => {
     const { a } = await twoShades(app);
     await tap(app, a);
     expect(await app.page.locator('#panel .layer.selected').count()).toBe(1);
-    expect(await app.page.locator('#action-bar').isVisible()).toBe(true);
+    expect(await app.page.locator('#bar-context [data-action="properties"]').isVisible()).toBe(true);
     expect(await app.page.locator('#sheet').getAttribute('data-state')).toBe('closed');
     await tap(app, await cellToClient(app, 2, 40));
     expect(await app.page.locator('#panel .layer.selected').count()).toBe(0);
-    expect(await app.page.locator('#action-bar').isVisible()).toBe(false);
+    expect(await app.page.locator('#bar-context [data-action="properties"]').count()).toBe(0);
+    expect(await app.page.locator('#bar-context [data-action="selectAll"]').isVisible()).toBe(true);
     noErrors(app);
   });
 
-  it('dragging an unselected element pans; dragging the selected one moves it', async () => {
+  it('dragging an unselected element draws a selection box; dragging the selected one moves it; two fingers pan', async () => {
     const app = await open(env, 'phone');
     const { a } = await twoShades(app);
     await pinch(app, await cellToClient(app, 13, 19), 80, 160);
     const zoomed = await viewBoxOf(app);
     const before = await elements(app);
+    // one finger on an unselected shade and a drag: a box that selects what it touches, and nothing moves or pans
     await drag(app, a, { x: a.x - 40, y: a.y + 30 });
-    expect(await elements(app)).toEqual(before); // nothing moved
+    expect(await elements(app)).toEqual(before);
+    expect(await viewBoxOf(app)).toEqual(zoomed);
+    expect(await app.page.locator('#panel .layer.selected').count()).toBe(1);
+
+    // two fingers pan
+    await twoFingerDrag(app, a, -50, 30);
     const panned = await viewBoxOf(app);
     expect(panned[0]).toBeGreaterThan(zoomed[0]);
     expect(panned[2]).toBeCloseTo(zoomed[2], 3);
-    expect(await app.page.locator('#panel .layer.selected').count()).toBe(0);
+    expect(await elements(app)).toEqual(before);
 
     const at = await cellToClient(app, 8, 19);
     await tap(app, at);
@@ -350,7 +366,7 @@ describe('touch gestures', () => {
     noErrors(app);
   });
 
-  it('double-tap opens properties; the action bar buttons work', async () => {
+  it('double-tap opens properties; the bar buttons work', async () => {
     const app = await open(env, 'phone');
     const { page } = app;
     const { a } = await twoShades(app);
@@ -359,12 +375,12 @@ describe('touch gestures', () => {
     expect(await elements(app)).toHaveLength(3);
     await bar(app, 'remove');
     expect(await elements(app)).toHaveLength(2);
-    expect(await page.locator('#action-bar').isVisible()).toBe(false);
+    expect(await page.locator('#bar-context [data-action="selectAll"]').isVisible()).toBe(true);
 
     await tap(app, a);
     await bar(app, 'more');
     await page.waitForSelector('.ctx-menu');
-    expect(await page.locator('.ctx-menu [data-action="delete"]').count()).toBe(1);
+    expect((await page.locator('.ctx-menu button').allInnerTexts()).map((t) => t.trim())).toEqual(['Bring forward', 'Send backward', 'Select underneath', 'Save as widget', 'Half cells: off']);
     await page.keyboard.press('Escape');
     expect(await page.locator('.ctx-menu').count()).toBe(0);
 
@@ -386,7 +402,7 @@ describe('touch gestures', () => {
 
   it('a second finger cancels a drawing', async () => {
     const app = await open(env, 'phone');
-    await app.page.tap('[data-tool="box"]');
+    await tool(app, 'box');
     const from = await cellToClient(app, 4, 6);
     await stagger(app, from, { x: from.x + 80, y: from.y }, 100);
     expect(await elements(app)).toHaveLength(0);
@@ -424,7 +440,7 @@ describe('spreads on a phone', () => {
     expect(await page.locator('#canvas-right').isVisible()).toBe(false);
 
     // drawing on a page of the spread
-    await page.tap('[data-tool="box"]');
+    await tool(app, 'box');
     await drag(app, await cellToClient(app, 3, 4, '#canvas-left'), await cellToClient(app, 8, 9, '#canvas-left'));
     expect(await page.evaluate(() => JSON.parse(localStorage.getItem('dotwork.spread.left')!).elements.length)).toBe(1);
     noErrors(app);
@@ -475,7 +491,7 @@ describe('tablet', () => {
     const app = await open(env, 'tablet');
     const { page } = app;
     expect(await page.locator('#menu-button').isVisible()).toBe(true);
-    await page.tap('[data-tool="box"]');
+    await tool(app, 'box');
     await drag(app, await cellToClient(app, 3, 4), await cellToClient(app, 12, 12));
     expect(await elements(app)).toHaveLength(1);
     expect(await smallControls(app)).toEqual([]);
@@ -488,7 +504,7 @@ describe('tablet', () => {
     const { page } = app;
     expect(await page.locator('#menu-button').isVisible()).toBe(false);
     expect((await box(app, '#sheet'))!.width).toBeGreaterThan(300);
-    await page.tap('[data-tool="box"]');
+    await tool(app, 'box');
     await drag(app, await cellToClient(app, 3, 4), await cellToClient(app, 12, 12));
     expect(await elements(app)).toHaveLength(1);
     expect(await smallControls(app)).toEqual([]);

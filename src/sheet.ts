@@ -5,16 +5,15 @@ export const isCompact = () => !!compactQuery?.matches;
 export type SheetState = 'closed' | 'open';
 
 /**
- * Properties and layers on a narrow screen: a modal over the page with a Close button, opened only by a person
- * asking for it (the action bar's Properties button, a double-tap, or the Layers button). On a wide screen the same
- * element is the side panel and this does nothing.
+ * Properties and layers on a narrow screen: a drawer that slides up from the bottom bar, over the lower part of the page,
+ * opened only by a person asking for it (the Properties button, a double-tap, or the Layers button) and closed with its
+ * Close button. The page stays usable above it. On a wide screen the same element is the side panel and this does nothing.
  */
 export class Sheet {
   state: SheetState = 'closed';
 
-  constructor(private root: HTMLElement, private backdrop: HTMLElement, private changed: () => void) {
+  constructor(private root: HTMLElement, private changed: () => void) {
     root.querySelector('.sheet-close')?.addEventListener('click', () => this.set('closed'));
-    backdrop.addEventListener('click', () => this.set('closed'));
     addEventListener('keydown', (e) => { if (e.key === 'Escape' && this.state !== 'closed' && isCompact()) this.set('closed'); });
     compactQuery?.addEventListener('change', () => { this.apply(); this.changed(); });
     this.apply();
@@ -29,9 +28,13 @@ export class Sheet {
 
   open() { this.set('open'); }
 
+  /** The height of the drawer on screen in px (0 when closed or when it is the side panel). */
+  get height(): number {
+    return this.state === 'open' && isCompact() ? this.root.offsetHeight : 0;
+  }
+
   private apply() {
     this.root.dataset.state = this.state;
-    this.backdrop.dataset.state = this.state;
     if (this.state === 'open' && isCompact()) this.root.querySelector<HTMLElement>('.sheet-close')?.focus({ preventScroll: true });
   }
 }

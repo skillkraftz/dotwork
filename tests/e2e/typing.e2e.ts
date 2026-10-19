@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { bar, box, cellToClient, draft, drag, open, shot, start, stop, tap, touch, viewBoxOf, type App, type Env } from './harness';
+import { bar, box, cellToClient, draft, drag, open, shot, start, stop, tap, touch, viewBoxOf, type App, type Env, tool,
+} from './harness';
 
 let env: Env;
 beforeAll(async () => { env = await start(); });
@@ -9,11 +10,12 @@ const elements = async (app: App) => (await draft(app)).elements;
 const field = (app: App, key: string) => app.page.locator(`#panel [data-key="${key}"]`);
 
 /** Draw with a tool on the phone and open the properties window for what was drawn. */
-async function drawAndOpen(app: App, tool: string, from: [number, number], to: [number, number]) {
-  await app.page.tap(`[data-tool="${tool}"]`);
+async function drawAndOpen(app: App, which: string, from: [number, number], to: [number, number]) {
+  await tool(app, which);
   await drag(app, await cellToClient(app, ...from), await cellToClient(app, ...to));
   await bar(app, 'properties');
   await app.page.waitForSelector('#sheet[data-state="open"]');
+  await app.page.waitForTimeout(300); // the drawer finishes sliding up
 }
 
 /** Type into a field the way a person does: tap it, replace what is there, one key at a time. */
@@ -46,7 +48,7 @@ describe('typing in the properties window (phone, touch)', () => {
   it('keeps focus on a label the whole time it is typed, and undoes it in one step', async () => {
     const app = await open(env, 'phone');
     const { page } = app;
-    await page.tap('[data-tool="text"]');
+    await tool(app, 'text');
     await tap(app, await cellToClient(app, 4, 6));
     await bar(app, 'properties');
     await page.waitForSelector('#sheet[data-state="open"]');
@@ -147,6 +149,7 @@ describe('typing in the properties window (phone, touch)', () => {
     const app = await open(env, 'phone');
     const { page } = app;
     await drawAndOpen(app, 'box', [4, 6], [8, 9]);
+    await page.locator('[data-key="step-inc-x"]').scrollIntoViewIfNeeded(); // the drawer is short: bring the stepper into it
     const b = (await box(app, '[data-key="step-inc-x"]'))!;
     const at = { x: b.x + b.width / 2, y: b.y + b.height / 2 };
     await touch(app, 'touchStart', [at]);

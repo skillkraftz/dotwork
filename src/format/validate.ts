@@ -1,7 +1,8 @@
 import {
-  ALIGNS, BACKGROUNDS, COLS, DIRECTIONS, ELEMENT_TYPES, ICON_SIZES, PAGE_SIDES, PATTERNS, PITCH_MM, ROTATIONS, ROWS, RULE_WEIGHTS,
-  SEQUENCE_VALUES, SIDES, STRIPES, TEXT_SIZES, TEXT_STYLES, TEXT_TONES, WEIGHTS, type Sequence,
+  ALIGNS, ALONGS, COLS, DIRECTIONS, DOT_SIZES, ELEMENT_TYPES, ICON_SIZES, PAGE_SIDES, PATTERNS, PITCH_MM, ROTATIONS, ROWS, RULE_WEIGHTS,
+  SEQUENCE_VALUES, SIDES, TEXT_SIZES, TEXT_STYLES, TEXT_TONES, WEIGHTS, type Sequence,
 } from './types';
+import { tonesProblem } from './shade';
 import { checkboxSpan, insideGrid, limitsArea } from './bounds';
 import { sequenceProblem, sequenceSpan } from './sequence';
 import { findUnknownTokens, TOKENS } from './tokens';
@@ -108,8 +109,13 @@ function validateElementInto(el: unknown, at: string, fail: Fail) {
     }
   };
 
+  if (el.group !== undefined && (typeof el.group !== 'string' || el.group === '')) {
+    fail('group', `${at}.group`, `"group" must be a non-empty string when present, got ${JSON.stringify(el.group)}.`);
+  }
+
   switch (el.type) {
     case 'pattern':
+    case 'shade':
     case 'box': {
       for (const k of ['x', 'y', 'w', 'h']) half(k);
       if (usable && ((el.w as number) <= 0 || (el.h as number) <= 0)) {
@@ -117,10 +123,17 @@ function validateElementInto(el: unknown, at: string, fail: Fail) {
         usable = false;
       }
       if (el.type === 'pattern') {
-        choice('background', BACKGROUNDS); choice('stripes', STRIPES);
         if (!oneOf(PATTERNS, el.pattern)) {
           fail('value', `${at}.pattern`, `"pattern" is required and must be one of ${list(PATTERNS)}, got ${JSON.stringify(el.pattern)}.`);
         }
+        choice('weight', RULE_WEIGHTS); choice('dots', DOT_SIZES);
+        if (el.first !== undefined && typeof el.first !== 'boolean') fail('value', `${at}.first`, `"first" must be true or false, got ${JSON.stringify(el.first)}.`);
+        every();
+      }
+      if (el.type === 'shade') {
+        const problem = tonesProblem(el.tones);
+        if (problem) fail('tones', `${at}.tones`, problem);
+        choice('along', ALONGS);
         every();
       }
       if (el.type === 'box') {

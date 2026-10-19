@@ -107,6 +107,8 @@ Dotwork's print export follows the same physical rules as journal-system
    in a modal (done).
 8. Help mode (tap anything to see what it does; all text in `src/help.ts`) and reliable typing on
    phones: in-place panel, steppers for every number, keyboard-aware layout (done).
-9. Pattern backgrounds (shading lives in Pattern), the Advanced picker, sequences, icons and saved
+9. Pattern backgrounds (replaced in 10 by the Shade element), the Advanced picker, sequences, icons and saved
    widgets, with multi-select (done).
-10. Later: dials and other components, color, sharing, a page gallery.
+10. Editing overhaul: three-mode bottom bar, drag-select, forgiving taps, groups, properties drawer, Shade tones, pattern
+    line weights (done).
+11. Later: dials and other components, color, sharing, a page gallery.

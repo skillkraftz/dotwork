@@ -5,11 +5,11 @@ import { buildSpread, emptySpread, readSpread, withSide, type Spread, type Sprea
 import { formatIssue, validatePage } from './format/validate';
 import { readPage } from './format/read';
 import { Canvas, type CanvasHooks } from './canvas';
-import { contextActions, deleteElement, duplicateElement, nudgeElement } from './actions';
+import { contextActions, deleteElement, duplicateElement, groupAction, moreActions, nudgeElement, selectAll, toggleGroup } from './actions';
 import { Panel } from './panel';
 import { closeContextMenu, showContextMenu } from './ctxmenu';
 import { isCompact, Sheet } from './sheet';
-import { ActionBar } from './actionbar';
+import { Toolbar, modeOfTool, type BarMode } from './toolbar';
 import { pageToPng } from './png';
 import { Store, type Tool } from './store';
 import { Library, MemoryBackend } from './library/library';
@@ -106,7 +106,6 @@ function hooksFor(store: () => Store): CanvasHooks {
   return {
     contextMenu: (index, hits, at) => showContextMenu(at, contextActions(store(), index, hits)),
     openProperties: (index) => { store().select(index); showProperties(); },
-    rendered: () => { if (store() === cur()) updateBar(); },
   };
 }
 const canvases = {
@@ -174,18 +173,20 @@ function refresh() {
   ($('undo') as HTMLButtonElement).disabled = !store.canUndo;
   ($('redo') as HTMLButtonElement).disabled = !store.canRedo;
   $('sheet').hidden = preview;
-  for (const b of document.querySelectorAll<HTMLButtonElement>('[data-tool]')) {
-    b.setAttribute('aria-pressed', String(b.dataset.tool === store.tool));
-  }
-  $('advanced').setAttribute('aria-pressed', String(ADVANCED_TOOLS.includes(store.tool)));
-  $('half-cells').setAttribute('aria-pressed', String(store.halfCells));
   updateBar();
 }
 
-const ADVANCED_TOOLS: Tool[] = ['sequence', 'icon', 'widget'];
-
-const sheet = new Sheet($('sheet'), $('sheet-backdrop'), () => { if (sheet.state === 'closed') panel.flush(); updateBar(); });
+const sheet = new Sheet($('sheet'), () => {
+  if (sheet.state === 'closed') { panel.flush(); canvasOf(cur()).restoreView(); } else revealSelection();
+  updateBar();
+});
 panel.onTab = () => sheet.open();
+
+/** The drawer covers the bottom of the page: slide the page so the selection stays in view above it. */
+function revealSelection() {
+  const inset = sheet.height;
+  if (inset > 0) canvasOf(cur()).revealSelection(inset);
+}
 
 /** Properties for the selection: the modal on a narrow screen, the side panel's fields on a wide one. */
 function showProperties() {
@@ -195,27 +196,74 @@ function showProperties() {
   if (!matchMedia('(pointer: coarse)').matches) $('panel').querySelector<HTMLElement>('section[data-tab="properties"] input, section[data-tab="properties"] select')?.focus();
 }
 
-// ---- the bar beside the selection ----
+// ---- the bottom bar: three modes, five buttons that follow the mode and the selection ----
 
-const bar = new ActionBar($('action-bar'), document.querySelector('main')!, {
+/** Which of the three modes the bar shows. It follows the armed tool, and Select takes over again once something is drawn. */
+let barMode: BarMode = 'select';
+let lastTool: Tool = 'select';
+const setTools = (tool: Tool) => all.forEach((s) => s.setTool(tool));
+
+/** Show a mode's buttons. Leaving a mode drops its tool; the new mode waits for a choice (Select needs none). */
+function setBarMode(mode: BarMode) {
+  barMode = mode;
+  lastTool = 'select'; // the tool dropping to Select here is not a finished drawing
+  if (modeOfTool(cur().tool) !== mode) setTools('select');
+  notify(null);
+  refresh();
+}
+
+const toolbar = new Toolbar($('tools'), {
+  mode: setBarMode,
+  tool(tool) {
+    notify(null);
+    setTools(tool);
+    if (tool === 'sequence') notify('Drag along a run of cells on the page, or tap to put seven numbers down the page.');
+  },
+  selectAll: () => selectAll(cur()),
+  half() { const on = !cur().halfCells; all.forEach((s) => s.setHalfCells(on)); },
   properties: showProperties,
   duplicate() { const s = cur(); if (s.selected !== null) duplicateElement(s, s.selected); },
   remove() { const s = cur(); if (s.selected !== null) deleteElement(s, s.selected); },
-  selectMore() { const s = cur(); s.setMoreMode(!s.moreMode); },
-  widget: () => void saveWidget(),
-  more(at) { const s = cur(); if (s.selected !== null) showContextMenu(at, contextActions(s, s.selected, [s.selected])); },
+  group: () => toggleGroup(cur()),
+  more(at) {
+    const s = cur();
+    if (s.selected === null) return;
+    const hits = canvasOf(s).lastHits.includes(s.selected) ? canvasOf(s).lastHits : [s.selected];
+    showContextMenu(at, moreActions(s, s.selected, hits, () => void saveWidget()));
+  },
+  widgets() { closeContextMenu(); notify(null); picker.showWidgets(); },
+  icons() { closeContextMenu(); notify(null); picker.showIconTool(); },
 });
 const canvasOf = (store: Store) => (store === stores.page ? canvases.page : store === stores.left ? canvases.left : canvases.right);
 
-/** Show the bar when something is selected on a touch-sized screen and no gesture, modal or menu is in the way. */
+/** Bring the bottom bar, the group banner and the properties drawer up to date with the page. */
 function updateBar() {
   const store = cur();
-  const canvas = canvasOf(store);
-  const wanted = (isCompact() || matchMedia('(pointer: coarse)').matches) && view !== 'book' && store.mode === 'edit' && store.tool === 'select'
-    && store.selected !== null && !store.isLocked(store.selected) && !canvas.readOnly && !canvas.busy && sheet.state === 'closed';
-  bar.place(wanted ? canvas.selectionRect() : null);
-  bar.setMore(store.moreMode);
+  if (store.tool !== lastTool) {
+    // Arming a tool puts the bar in its mode; finishing one (the element is drawn, the tool is spent) returns to Select.
+    barMode = store.tool === 'select' ? 'select' : modeOfTool(store.tool);
+    lastTool = store.tool;
+  }
+  const book = view === 'book';
+  const preview = store.mode === 'preview';
+  $('tools').hidden = book || preview;
+  toolbar.render({
+    mode: barMode, tool: store.tool, count: store.selection.length, half: store.halfCells,
+    locked: store.selection.some((i) => store.isLocked(i)), group: groupAction(store),
+  });
+  $('group-banner').hidden = book || preview || store.editingGroup === null;
 }
+
+// The drawer keeps the selection in view when what is selected changes.
+let revealedFor = '';
+function followSelection() {
+  const store = cur();
+  const key = `${view}:${active}:${store.selection.join(',')}`;
+  if (key === revealedFor) return;
+  revealedFor = key;
+  if (sheet.state === 'open') revealSelection();
+}
+$('group-done').onclick = () => cur().leaveGroup();
 
 /** Ask for a name and keep the selected elements, positions relative to each other, as a widget. */
 async function saveWidget() {
@@ -233,12 +281,10 @@ async function saveWidget() {
 const picker = new AdvancedPicker(widgets, nameDialog, (choice: AdvancedChoice) => {
   if (choice.kind === 'icon') all.forEach((s) => s.setIcon(choice.icon));
   if (choice.kind === 'widget') all.forEach((s) => s.setWidget(choice.widget));
-  all.forEach((s) => s.setTool(choice.kind));
-  notify(choice.kind === 'sequence' ? 'Drag along a run of cells on the page, or tap to put seven numbers down the page.'
-    : choice.kind === 'icon' ? 'Tap a cell to place the icon, or drag along a run of cells to repeat it.'
-      : `Tap the page to put “${choice.widget.name}” there; drag to choose the spot.`);
+  setTools(choice.kind);
+  notify(choice.kind === 'icon' ? 'Tap a cell to place the icon, or drag along a run of cells to repeat it.'
+    : `Tap the page to put “${choice.widget.name}” there; drag to choose the spot.`);
 });
-$('advanced').onclick = () => { closeContextMenu(); notify(null); picker.show(); };
 panel.saveWidget = () => void saveWidget();
 panel.pickIcon = (pick) => picker.pickIcon(pick);
 
@@ -257,6 +303,7 @@ for (const key of ['page', 'left', 'right'] as const) {
       if (store === cur() && store.selected === null && panel.tab === 'properties' && sheet.state !== 'closed') sheet.set('closed');
     }
     refresh();
+    followSelection();
   });
 }
 refresh();
@@ -414,10 +461,6 @@ $('mode-preview').onclick = () => { notify(null); setMode('preview'); };
 $('undo').onclick = () => cur().undo();
 $('redo').onclick = () => cur().redo();
 
-for (const b of document.querySelectorAll<HTMLButtonElement>('[data-tool]')) {
-  b.onclick = () => all.forEach((s) => s.setTool(b.dataset.tool as Tool));
-}
-$('half-cells').onclick = () => { const on = !cur().halfCells; all.forEach((s) => s.setHalfCells(on)); };
 
 $('new').onclick = () => {
   notify(null);
@@ -557,13 +600,14 @@ $('library').onclick = () => { notify(null); void libraryDialog.show(); };
 // ---- help ------------------------------------------------------------------
 
 /** The help entry for the page itself: its gestures depend on the tool, and on whether it can be changed at all. */
-const pageHelpKey = () => (view === 'spread' && isCompact() && showBoth ? 'page-both' : cur().mode === 'preview' ? 'page-preview' : `page-${cur().tool}`);
+const pageHelpKey = () => (view === 'spread' && isCompact() && showBoth ? 'page-both' : cur().mode === 'preview' ? 'page-preview'
+  : cur().tool === 'select' && barMode !== 'select' ? `page-${barMode}` : `page-${cur().tool}`);
 const helpMode = new HelpMode({ pageKey: pageHelpKey, after: document.querySelector<HTMLElement>('.topbar')! });
 $('help').onclick = () => { closeContextMenu(); helpMode.start(); };
 
 // ---- keyboard ------------------------------------------------------------
 
-const TOOL_KEYS: Record<string, Tool> = { v: 'select', p: 'pattern', b: 'box', r: 'rule', c: 'checkboxes', t: 'text' };
+const TOOL_KEYS: Record<string, Tool> = { p: 'pattern', s: 'shade', b: 'box', r: 'rule', c: 'checkboxes', t: 'text' };
 const ARROWS: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
 
 addEventListener('keydown', (e) => {
@@ -594,14 +638,17 @@ addEventListener('keydown', (e) => {
     e.preventDefault();
     const step = e.shiftKey ? 0.5 : 1;
     nudgeElement(store, sel, ARROWS[e.key][0] * step, ARROWS[e.key][1] * step);
+  } else if (e.key.toLowerCase() === 'v' && !e.shiftKey) {
+    setBarMode('select');
   } else if (e.key.toLowerCase() === 'a' && !e.shiftKey) {
-    picker.show();
+    setBarMode('advanced');
   } else if (e.key.toLowerCase() in TOOL_KEYS && !e.shiftKey) {
-    all.forEach((s) => s.setTool(TOOL_KEYS[e.key.toLowerCase()]));
+    setTools(TOOL_KEYS[e.key.toLowerCase()]);
   }
   if (e.key === 'Escape') {
     Object.values(canvases).forEach((c) => c.cancel());
-    all.forEach((s) => s.setTool('select'));
+    setTools('select');
     store.select(null);
+    store.leaveGroup();
   }
 });

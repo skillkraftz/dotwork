@@ -14,6 +14,7 @@ export const checkboxSpan = (count: number, every: number) => (count - 1) * ever
 export function elementArea(el: PageElement, text = el.type === 'text' ? el.text : ''): Area {
   switch (el.type) {
     case 'pattern':
+    case 'shade':
     case 'box':
       return { x: el.x, y: el.y, w: el.w, h: el.h };
     case 'rule':

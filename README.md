@@ -3,7 +3,7 @@
 Dotwork is a small browser editor for designing the pages of a pocket
 notebook. A page is 3.5" x 5.5" (88.9 x 139.7 mm) with a 27 x 44 grid of 3 mm
 cells centered on it; the space around the grid is the margin and nothing prints
-there. You build a page from layered elements (pattern, box, rule,
+there. You build a page from layered elements (pattern, shade, box, rule,
 checkboxes, text, sequence) placed on whole or half cells, and save it as a JSON page
 file, described in [docs/page-format.md](docs/page-format.md) (version 2).
 Row 0 is reserved for the page header: the page number at the outer corner and
@@ -13,23 +13,24 @@ the identity by the spine. Version 1 files are converted when imported.
 
 ## Using the editor
 
-- **Tools** (bottom bar on a phone, toolbar on a desktop, or the keys V P B R C T A): select, advanced, pattern, box,
-  rule, checkboxes, text. Drawing snaps to whole cells; hold **Shift** or tick
-  **Half cells** to snap to half cells.
-- **Select** by clicking (the topmost element under the pointer); **Alt-click**
-  again to step down to the ones beneath. Drag to move, drag the handles to
-  resize, use the arrow keys to nudge one cell (Shift: half a cell).
-  **Ctrl/Cmd+D** duplicates; Delete removes; Ctrl/Cmd+Z and Shift+Ctrl/Cmd+Z
-  undo and redo everything.
-- **Pattern** is also how you shade: it has a background (none, light, medium or dark, optionally every other
-  row or column) under its lines, grid or dots, and a pattern of "none" gives a plain shaded area.
-- **Advanced** (the tool next to Select, or the key A) opens a list of widgets: **Sequence** (numbers, letters, a
-  repeating list or icons, one per cell, down or across), **Icon** (about 60 line icons from a big tappable grid,
-  placed at 1 or 2 cells), and your **saved widgets**.
-- **Several at once**: on a touch screen tap **Select more** in the bar beside the selection, then tap the others;
-  with a mouse Shift-click, or drag a box around them. A selection moves, copies and deletes together, and
-  **Save widget** keeps it (with a name) under Advanced to place on any page. Placing adds ordinary copies, with
-  no link back. Widgets are kept in the browser, beside the library.
+- **The bottom bar** has three fixed modes, **Select**, **Draw** and **Advanced**, and five buttons beside them that
+  follow the mode and the selection. Draw: Pattern, Shade, Box, Rule, Text. Advanced: Sequence, Icon, Checks, Widgets.
+  Select with nothing selected: Select all and Half; with something selected: Props, Copy, Delete, Group/Ungroup and More
+  (bring forward, send backward, select underneath, save as widget, half cells). Keys: V, A, P, S, B, R, C, T.
+- **Select** by tapping: the nearest element within about 6 mm is picked, so thin rules and small text are easy. Drag on
+  empty space to draw a box that selects everything it touches; two fingers pan and pinch zooms. With a mouse, click, drag
+  a box, Shift-click to add, Alt-click to step down, arrow keys nudge, Ctrl/Cmd+D duplicates, Ctrl/Cmd+Z undoes.
+- **Properties** slide up from the bottom bar (the Props button, or a double-tap) and the page scrolls so the selection
+  stays above them. A value that would break the format is refused, with the reason.
+- **Groups**: an element can have a `group`. Tapping any part of a group selects all of it, and it moves as one. Group and
+  Ungroup are in the bar. A placed widget is a group. Double-tap a group to edit inside it (the rest dims and a banner says
+  so); tap outside, or Done, to leave.
+- **Shade** tints an area with tones that repeat: letters L, M, D, B (light, medium, dark, blank) along rows, columns or as
+  a checker, each step covering `every` cells; the properties show a strip that previews it as you type.
+- **Pattern** draws writing lines, vertical lines, a grid or dots; lines come in hair (default), thin or thick, dots in
+  small or large, and "include the first edge" adds the top (or left) line.
+- **Advanced** places a **Sequence**, an **Icon** (about 60 line icons from a big tappable grid), **Checks**, or one of your
+  **Widgets**. Save a selection from More; widgets are kept in the browser, beside the library.
 - **Layers** lists every element from top (drawn last) to bottom. Select, hide,
   lock, delete, and reorder with the arrows or by dragging a row. Hiding and
   locking are for editing only; they are not saved in the file.

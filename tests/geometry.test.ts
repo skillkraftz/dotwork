@@ -96,7 +96,7 @@ describe('resizing', () => {
 
 describe('hit testing', () => {
   it('hits shades and patterns anywhere inside, boxes only on their drawn sides', () => {
-    const shade: PageElement = { type: 'pattern', pattern: 'none', background: 'light', x: 2, y: 2, w: 4, h: 4 };
+    const shade: PageElement = { type: 'shade', tones: 'L', x: 2, y: 2, w: 4, h: 4 };
     expect(hitElement(shade, { x: 3, y: 3 }, 0.1)).toBe(true);
     expect(hitElement(shade, { x: 6.5, y: 3 }, 0.1)).toBe(false);
     expect(hitElement(box, { x: 4, y: 4 }, 0.2)).toBe(false);

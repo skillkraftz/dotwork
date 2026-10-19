@@ -24,6 +24,7 @@ export function areaFromPoints(a: Pt, b: Pt): Area {
   return { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(a.x - b.x), h: Math.abs(a.y - b.y) };
 }
 
+const overlap = (a: Area, b: Area) => a.x <= b.x + b.w && b.x <= a.x + a.w && a.y <= b.y + b.h && b.y <= a.y + a.h;
 const within = (a: Area, p: Pt, tol: number) =>
   p.x >= a.x - tol && p.x <= a.x + a.w + tol && p.y >= a.y - tol && p.y <= a.y + a.h + tol;
 
@@ -31,6 +32,7 @@ const within = (a: Area, p: Pt, tol: number) =>
 export function hitElement(el: PageElement, p: Pt, tol: number): boolean {
   switch (el.type) {
     case 'pattern':
+    case 'shade':
       return within(elementArea(el), p, 0);
     case 'box': {
       const a = elementArea(el);
@@ -71,6 +73,13 @@ export function groupArea(els: readonly PageElement[]): Area {
   return { x, y, w: Math.max(...areas.map((a) => a.x + a.w)) - x, h: Math.max(...areas.map((a) => a.y + a.h)) - y };
 }
 
+/** The smallest area holding everything drawn of the elements (cells), text included at its full length. */
+export function boundsOf(els: readonly PageElement[]): Area {
+  const areas = els.map((e) => elementArea(e));
+  const x = Math.min(...areas.map((a) => a.x)), y = Math.min(...areas.map((a) => a.y));
+  return { x, y, w: Math.max(...areas.map((a) => a.x + a.w)) - x, h: Math.max(...areas.map((a) => a.y + a.h)) - y };
+}
+
 /** Move elements together by (dx, dy) cells, keeping their positions relative to each other: the group stops at the grid edge and the header row as one. */
 export function moveGroup<T extends PageElement>(els: readonly T[], dx: number, dy: number): T[] {
   if (!els.length) return [];
@@ -94,7 +103,7 @@ export function canMove(els: PageElement | readonly PageElement[], dx: number, d
 /** Handles an element offers for resizing. Checkboxes and text are resized in the properties panel. */
 export function handlesFor(el: PageElement): { handle: Handle; at: Pt }[] {
   if (el.type === 'rule') return [{ handle: 'p1', at: { x: el.x1, y: el.y1 } }, { handle: 'p2', at: { x: el.x2, y: el.y2 } }];
-  if (el.type !== 'pattern' && el.type !== 'box') return [];
+  if (el.type !== 'pattern' && el.type !== 'shade' && el.type !== 'box') return [];
   const { x, y, w, h } = el;
   const xm = x + w / 2, ym = y + h / 2, r = x + w, b = y + h;
   return [
@@ -145,7 +154,7 @@ export function resizeElement<T extends PageElement>(el: T, handle: Handle, dot:
     if (el.y1 === el.y2) { if (handle === 'p1') out.x1 = dot.x; else out.x2 = dot.x; } else if (handle === 'p1') out.y1 = dot.y; else out.y2 = dot.y;
     return out.x1 === out.x2 && out.y1 === out.y2 ? null : (out as unknown as T);
   }
-  if (el.type !== 'pattern' && el.type !== 'box') return null;
+  if (el.type !== 'pattern' && el.type !== 'shade' && el.type !== 'box') return null;
   let { x, y, w, h } = el;
   const right = x + w, bottom = y + h;
   if (handle.includes('n')) { y = dot.y; h = bottom - dot.y; }
@@ -171,10 +180,11 @@ export interface IconChoice { name: string; size: IconSize; tone: TextTone }
  * A new element of `type` from a drag between two snapped points, or null if the drag is too small to make one.
  * The sequence and icon tools also make something from a tap: seven numbers down the page, or one icon.
  */
-export function elementFromDrag(type: 'pattern' | 'box' | 'rule' | 'checkboxes' | 'sequence' | 'icon', a: Pt, b: Pt, icon?: IconChoice): PageElement | null {
+export function elementFromDrag(type: 'pattern' | 'shade' | 'box' | 'rule' | 'checkboxes' | 'sequence' | 'icon', a: Pt, b: Pt, icon?: IconChoice): PageElement | null {
   const r = areaFromPoints(a, b);
   switch (type) {
     case 'pattern': return r.w > 0 && r.h > 0 ? { type, ...r, pattern: 'lines' } : null;
+    case 'shade': return r.w > 0 && r.h > 0 ? { type, ...r, tones: DEFAULTS.shadeTones } : null;
     case 'box': return r.w > 0 && r.h > 0 ? { type, ...r } : null;
     case 'rule': {
       if (r.w === 0 && r.h === 0) return null;
@@ -213,5 +223,77 @@ export function elementFromDrag(type: 'pattern' | 'box' | 'rule' | 'checkboxes' 
       if (across) el.direction = 'across';
       return el;
     }
+  }
+}
+
+// ---- finding what a finger meant ------------------------------------------------
+
+/** How far a finger can miss and still select something, in mm: about the width of a fingertip's slop. */
+export const TAP_REACH_MM = 6;
+
+const rectDistance = (a: Area, p: Pt) => Math.hypot(Math.max(a.x - p.x, 0, p.x - (a.x + a.w)), Math.max(a.y - p.y, 0, p.y - (a.y + a.h)));
+function segmentDistance(a: Pt, b: Pt, p: Pt): number {
+  const dx = b.x - a.x, dy = b.y - a.y, len2 = dx * dx + dy * dy;
+  const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2));
+  return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+}
+
+/** The sides a box draws, as segments. */
+function boxSides(el: Extract<PageElement, { type: 'box' }>): [Pt, Pt][] {
+  const { x, y, w, h } = el;
+  const seg = {
+    top: [{ x, y }, { x: x + w, y }], bottom: [{ x, y: y + h }, { x: x + w, y: y + h }],
+    left: [{ x, y }, { x, y: y + h }], right: [{ x: x + w, y }, { x: x + w, y: y + h }],
+  } as const;
+  return (el.sides ?? ['top', 'bottom', 'left', 'right']).map((s) => [seg[s][0], seg[s][1]]);
+}
+
+/** The cells a strip of checkboxes occupies. */
+function checkboxCells(el: Extract<PageElement, { type: 'checkboxes' }>): Area[] {
+  const every = el.every ?? DEFAULTS.every;
+  const across = (el.direction ?? DEFAULTS.direction) === 'across';
+  return Array.from({ length: el.count }, (_, i) => (across ? { x: el.x + i * every, y: el.y, w: 1, h: 1 } : { x: el.x, y: el.y + i * every, w: 1, h: 1 }));
+}
+
+/** Shading and patterns cover an area; everything else is a mark drawn on top of such areas. */
+export const isFill = (el: PageElement) => el.type === 'pattern' || el.type === 'shade';
+
+/** How far a point (cells) is from the drawn part of an element: 0 on it. A box is only its drawn sides. */
+export function distanceTo(el: PageElement, p: Pt): number {
+  switch (el.type) {
+    case 'box': {
+      const sides = boxSides(el);
+      return sides.length ? Math.min(...sides.map(([a, b]) => segmentDistance(a, b, p))) : rectDistance(elementArea(el), p);
+    }
+    case 'rule': return segmentDistance({ x: el.x1, y: el.y1 }, { x: el.x2, y: el.y2 }, p);
+    case 'checkboxes': return Math.min(...checkboxCells(el).map((c) => rectDistance(c, p)));
+    default: return rectDistance(elementArea(el), p);
+  }
+}
+
+/**
+ * The elements a tap at `p` could mean, best first, for a finger that can miss by `reach` cells. Marks (text, rules,
+ * boxes, checkboxes, sequences) within reach come first, nearest first, so a thin rule over a shaded area is still
+ * the one picked; then areas under the finger, then areas just beside it. Ties go to the one drawn on top.
+ * `usable` leaves out hidden and locked elements.
+ */
+export function tapCandidates(els: readonly PageElement[], p: Pt, reach: number, usable: (index: number) => boolean = () => true): number[] {
+  const scored = els.flatMap((el, index) => {
+    if (!usable(index)) return [];
+    const d = distanceTo(el, p);
+    if (d > reach) return [];
+    const tier = isFill(el) ? (d === 0 ? 1 : 2) : 0;
+    return [{ index, d, tier }];
+  });
+  scored.sort((a, b) => a.tier - b.tier || (a.tier === 1 ? 0 : a.d - b.d) || b.index - a.index);
+  return scored.map((s) => s.index);
+}
+
+/** Whether a box dragged on the page (cells) touches the element: any part of what is drawn lies inside or crosses it. */
+export function touchedBy(el: PageElement, area: Area): boolean {
+  switch (el.type) {
+    case 'box': return boxSides(el).some(([a, b]) => overlap({ x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(b.x - a.x), h: Math.abs(b.y - a.y) }, area));
+    case 'checkboxes': return checkboxCells(el).some((c) => overlap(c, area));
+    default: return overlap(elementArea(el), area);
   }
 }
