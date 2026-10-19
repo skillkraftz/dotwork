@@ -10,26 +10,29 @@ import { LongPress } from './longpress';
 import { EDIT_BOX, EDIT_VIEWBOX, FIT_BOX, pageContent } from './render';
 import type { Store } from './store';
 import { compactQuery } from './sheet';
-import { fitView, panBy, pinchOf, revealRect, scaleOf, viewRect, zoomAt, type Rect, type View } from './viewport';
+import { fitView, panBy, pinchOf, scaleOf, viewRect, zoomAt, type View } from './viewport';
 
 type Drag =
   | { kind: 'draw'; start: Pt; cur: Pt }
   | { kind: 'text'; at: Pt }
-  | { kind: 'swipe'; x: number; y: number }
+  | { kind: 'pan'; last: Pt }
   | { kind: 'move'; index: number; origin: PageElement; startCells: Pt; last: PageElement; moved: boolean; clickSelect?: number }
   | { kind: 'resize'; index: number; handle: Handle; origin: PageElement; last: PageElement };
 
 /** Tolerances in screen px. Fingers are fat and imprecise, so touch gets more room than a mouse. */
 const MOUSE = { handle: 8, hit: 5, dragStart: 3, handleDraw: 8 };
 const TOUCH = { handle: 20, hit: 14, dragStart: 8, handleDraw: 16 };
-const SWIPE_PX = 70;
+const DOUBLE_TAP_MS = 350;
+const DOUBLE_TAP_PX = 30;
 
 /** What the screen around the canvas does with touch gestures the canvas recognises. */
 export interface CanvasHooks {
   /** An element was long-pressed (or right-clicked); `hits` are all the elements under that point, topmost first. */
   contextMenu?(index: number, hits: number[], at: { x: number; y: number }): void;
-  /** A swipe sideways over empty page: -1 for rightwards (previous page), 1 for leftwards (next page). */
-  swipe?(direction: -1 | 1): void;
+  /** An element was double-tapped (or double-clicked): show its properties. */
+  openProperties?(index: number): void;
+  /** The page was drawn again: the view, the selection or the element may have moved. */
+  rendered?(): void;
 }
 
 /** Draws the page into the SVG and turns pointer input into element edits, pinch-zoom and pan. */
@@ -42,10 +45,9 @@ export class Canvas {
   /** Zoom and pan. While `fitted` the page is kept fitted to the element as it resizes. */
   view: View = { zoom: 1, cx: EDIT_BOX.x + EDIT_BOX.w / 2, cy: EDIT_BOX.y + EDIT_BOX.h / 2 };
   fitted = true;
-  /** The view was only moved by `revealSelection`, to clear the sheet; `restore` puts it back. */
-  private autoPanned = false;
-  /** Pixels at the bottom of the canvas covered by the bottom sheet. */
-  inset: () => number = () => 0;
+  /** A finger is down on the page and it is not yet clear what it means: a tap, a drag, or the start of a pinch. */
+  private pending: { id: number; at: number; px: Pt; p: Pt; hits: number[]; handle: Handle | null; wasSelected: boolean } | null = null;
+  private lastTap: { at: number; px: Pt; index: number } | null = null;
   /** Draw as printed and ignore input (the view of both pages of a spread). */
   readOnly = false;
 
@@ -70,6 +72,8 @@ export class Canvas {
     svg.addEventListener('pointercancel', (e) => this.onCancel(e));
     svg.addEventListener('wheel', this.onWheel, { passive: false });
     svg.addEventListener('contextmenu', this.onContextMenu);
+    // `detail` counts the clicks; the dblclick event itself is lost when the first click redraws what was under the mouse.
+    svg.addEventListener('mousedown', this.onDoubleClick);
     if (typeof ResizeObserver !== 'undefined') {
       this.observer = new ResizeObserver(() => { if (this.fitted) this.fit(); else this.applyView(); });
       this.observer.observe(svg);
@@ -96,22 +100,12 @@ export class Canvas {
     const size = this.size();
     if (size.w < 1 || size.h < 1) return;
     // On a narrow screen every pixel counts, so the page nearly fills the width; on a wide one it sits in its margin.
-    this.view = fitView(EDIT_BOX, size, this.inset(), compactQuery?.matches ? FIT_BOX : EDIT_BOX);
+    this.view = fitView(EDIT_BOX, size, 0, compactQuery?.matches ? FIT_BOX : EDIT_BOX);
     this.fitted = true;
-    this.autoPanned = false;
     this.applyView();
   }
 
-  /** After the sheet closes: if the view was moved only to clear it, fit the page again. */
-  restore() {
-    if (this.autoPanned) this.fit();
-  }
-
-  /** Whether the user has zoomed or panned away from the fitted view. */
-  get userMoved() { return !this.fitted && !this.autoPanned; }
-
-  private setView(view: View, automatic = false) {
-    this.autoPanned = automatic && (this.fitted || this.autoPanned);
+  private setView(view: View) {
     this.view = view;
     this.fitted = false;
     this.applyView();
@@ -123,18 +117,21 @@ export class Canvas {
     return size.w < 1 || size.h < 1 ? 0.27 : scaleOf(this.view, EDIT_BOX, size);
   }
 
-  /** Scroll (and if need be shrink) the page so the selected element is fully visible above the bottom sheet. */
-  revealSelection() {
+  /** The selected element's box on screen, in client px (null when nothing is selected). */
+  selectionRect(): { x: number; y: number; w: number; h: number } | null {
     const { store } = this;
-    const size = this.size();
-    if (store.selected === null || size.w < 1 || size.h < 1) return;
-    const el = store.page.elements[store.selected];
-    if (!el) return;
+    const el = store.selected === null ? undefined : store.page.elements[store.selected];
+    const m = this.svg.getScreenCTM();
+    if (!el || !m) return null;
     const a = elementArea(el);
-    const pad = (this.handlePx() / 2) * this.mmPerPx();
-    const target: Rect = { x: GRID_X_MM + a.x * P - pad, y: GRID_Y_MM + a.y * P - pad, w: a.w * P + 2 * pad, h: a.h * P + 2 * pad };
-    const next = revealRect(this.view, target, EDIT_BOX, size, this.inset());
-    if (next !== this.view) this.setView(next, true);
+    const p0 = new DOMPoint(GRID_X_MM + a.x * P, GRID_Y_MM + a.y * P).matrixTransform(m);
+    const p1 = new DOMPoint(GRID_X_MM + (a.x + a.w) * P, GRID_Y_MM + (a.y + a.h) * P).matrixTransform(m);
+    return { x: p0.x, y: p0.y, w: p1.x - p0.x, h: p1.y - p0.y };
+  }
+
+  /** Whether a finger or the mouse is in the middle of moving something or the view (so the action bar steps aside). */
+  get busy() {
+    return this.pinch !== null || (this.drag !== null && this.drag.kind !== 'text' && this.drag.kind !== 'draw');
   }
 
   private onWheel = (e: WheelEvent) => {
@@ -158,6 +155,7 @@ export class Canvas {
 
   cancel() {
     this.drag = null;
+    this.pending = null;
     this.press.cancel();
     this.render();
   }
@@ -182,6 +180,7 @@ export class Canvas {
     });
     if (preview) this.svg.style.cursor = 'default';
     else if (!d) this.svg.style.cursor = store.tool === 'select' ? 'default' : 'crosshair';
+    this.hooks.rendered?.();
   }
 
   /** Pointer position in grid cells (fractional), plus cells-per-pixel for tolerances. */
@@ -222,6 +221,7 @@ export class Canvas {
     if (this.pointers.size >= 2) {
       // A second finger turns whatever the first one started into a pinch and pan.
       this.drag = null;
+      this.pending = null;
       this.press.cancel();
       this.render();
       if (this.pointers.size === 2) this.startPinch();
@@ -241,12 +241,21 @@ export class Canvas {
     } else if (store.tool !== 'select') {
       const at = snapPoint(p, this.half(e));
       this.drag = { kind: 'draw', start: at, cur: at };
+    } else if (touch) {
+      // Nothing happens yet: a tap, a drag (of the selection or the view) or a pinch is told apart by what comes next.
+      const sel = store.selected;
+      const canHandle = sel !== null && !store.isLocked(sel) && !store.isHidden(sel);
+      const handle = canHandle ? hitHandlePoint(store.page.elements[sel], p, tol.handle * cellsPerPx) : null;
+      const hits = this.hits(p, tol.hit * cellsPerPx);
+      this.pending = { id: e.pointerId, at: Date.now(), px: this.downPx, p, hits, handle, wasSelected: sel !== null && hits.includes(sel) };
+      if (hits.length) {
+        const at = { x: e.clientX, y: e.clientY };
+        this.press.start(e.clientX, e.clientY, () => this.longPressed(hits[0], hits, at));
+      }
     } else {
       const sel = store.selected;
       const canHandle = sel !== null && !store.isLocked(sel) && !store.isHidden(sel);
-      const handle = !canHandle ? null : touch
-        ? hitHandlePoint(store.page.elements[sel], p, tol.handle * cellsPerPx)
-        : hitHandle(store.page.elements[sel], p, tol.handle * cellsPerPx);
+      const handle = canHandle ? hitHandle(store.page.elements[sel], p, tol.handle * cellsPerPx) : null;
       if (handle && sel !== null) {
         const origin = store.page.elements[sel];
         this.drag = { kind: 'resize', index: sel, handle, origin, last: origin };
@@ -265,7 +274,6 @@ export class Canvas {
         }
         if (hit === undefined) {
           store.select(null);
-          if (touch) this.drag = { kind: 'swipe', x: e.clientX, y: e.clientY };
         } else {
           store.select(hit);
           const origin = store.page.elements[hit];
@@ -283,8 +291,10 @@ export class Canvas {
 
   private longPressed(index: number, hits: number[], at: { x: number; y: number }) {
     const d = this.drag;
-    if (!d || d.kind !== 'move' || d.moved) return;
-    this.drag = null;
+    if (this.pending) this.pending = null;
+    else if (d?.kind === 'move' && !d.moved) this.drag = null;
+    else return;
+    this.store.select(index);
     this.render();
     this.hooks.contextMenu?.(index, hits.includes(index) ? hits : [index, ...hits], at);
   }
@@ -307,6 +317,18 @@ export class Canvas {
     if (this.pinch) {
       if (this.pointers.size >= 2) this.pinchMove();
       return;
+    }
+    const pd = this.pending;
+    if (pd && pd.id === e.pointerId) {
+      // Far enough to be a drag. Only what is already selected can be moved or resized; anything else pans the view.
+      if (Math.hypot(e.clientX - pd.px.x, e.clientY - pd.px.y) < TOUCH.dragStart) return;
+      this.pending = null;
+      this.press.cancel();
+      const sel = store.selected;
+      const origin = sel === null ? undefined : store.page.elements[sel];
+      if (sel !== null && origin && pd.handle) this.drag = { kind: 'resize', index: sel, handle: pd.handle, origin, last: origin };
+      else if (sel !== null && origin && pd.wasSelected) this.drag = { kind: 'move', index: sel, origin, startCells: pd.p, last: origin, moved: false };
+      else this.drag = { kind: 'pan', last: pd.px };
     }
     const tol = e.pointerType === 'touch' ? TOUCH : MOUSE;
     const { p, cellsPerPx } = this.toCells(e);
@@ -335,6 +357,11 @@ export class Canvas {
       if (!next) this.notify('An element can’t be resized down to nothing.');
       else if (validateElement(next).length) this.notify(validateElement(next)[0].message);
       else { this.notify(null); d.last = next; }
+    } else if (d.kind === 'pan') {
+      const size = this.size();
+      if (size.w >= 1) this.setView(panBy(this.view, e.clientX - d.last.x, e.clientY - d.last.y, EDIT_BOX, size));
+      d.last = { x: e.clientX, y: e.clientY };
+      return;
     } else {
       return;
     }
@@ -359,6 +386,7 @@ export class Canvas {
   private onCancel(e: PointerEvent) {
     this.forget(e);
     this.drag = null;
+    this.pending = null;
     this.press.cancel();
     this.render();
   }
@@ -366,7 +394,7 @@ export class Canvas {
   /** Stop tracking a finger; the pinch ends when fewer than two remain. */
   private forget(e: PointerEvent) {
     this.pointers.delete(e.pointerId);
-    if (this.pointers.size < 2) this.pinch = null;
+    if (this.pinch && this.pointers.size < 2) { this.pinch = null; this.render(); }
   }
 
   private onUp = (e: PointerEvent) => {
@@ -374,15 +402,18 @@ export class Canvas {
     this.forget(e);
     this.press.cancel();
     if (wasPinching) return;
+    const pd = this.pending;
     const d = this.drag;
+    if (pd && pd.id === e.pointerId) this.pending = null;
+    else if (!d) return;
+    if (this.svg.hasPointerCapture(e.pointerId)) this.svg.releasePointerCapture(e.pointerId);
+    if (pd && pd.id === e.pointerId) { this.tapped(pd); return; }
     if (!d) return;
     this.drag = null;
-    if (this.svg.hasPointerCapture(e.pointerId)) this.svg.releasePointerCapture(e.pointerId);
     const { store } = this;
 
-    if (d.kind === 'swipe') {
-      const dx = e.clientX - d.x, dy = e.clientY - d.y;
-      if (!this.userMoved && Math.abs(dx) >= SWIPE_PX && Math.abs(dx) > 2 * Math.abs(dy)) this.hooks.swipe?.(dx < 0 ? 1 : -1);
+    if (d.kind === 'pan') {
+      // the view already moved
     } else if (d.kind === 'text') {
       addElement(store, { type: 'text', x: d.at.x, y: Math.min(d.at.y, 43), text: 'Text' });
       return;
@@ -402,5 +433,35 @@ export class Canvas {
       return;
     }
     this.render();
+  };
+
+  /** A finger went down and came up without moving: select what is under it, or clear the selection. A second tap on the same element opens its properties. */
+  private tapped(pd: NonNullable<Canvas['pending']>) {
+    const { store } = this;
+    const hit = pd.handle ? undefined : pd.hits[0];
+    if (pd.handle) { this.render(); return; }
+    if (hit === undefined) {
+      this.lastTap = null;
+      store.select(null);
+    } else {
+      const last = this.lastTap;
+      const again = last && last.index === hit && Date.now() - last.at < DOUBLE_TAP_MS && Math.hypot(pd.px.x - last.px.x, pd.px.y - last.px.y) < DOUBLE_TAP_PX;
+      store.select(hit);
+      this.lastTap = again ? null : { at: Date.now(), px: pd.px, index: hit };
+      if (again) this.hooks.openProperties?.(hit);
+    }
+    this.render();
+  }
+
+  /** Double-click with a mouse: the same as a double-tap. */
+  private onDoubleClick = (e: MouseEvent) => {
+    const { store } = this;
+    if (e.detail !== 2 || e.button !== 0 || this.readOnly || store.mode !== 'edit' || store.tool !== 'select') return;
+    const { p, cellsPerPx } = this.toCells(e);
+    const hit = this.hits(p, MOUSE.hit * cellsPerPx)[0];
+    if (hit === undefined) return;
+    e.preventDefault(); // or the press would take the focus back from the field that is about to get it
+    store.select(hit);
+    this.hooks.openProperties?.(hit);
   };
 }

@@ -8,13 +8,25 @@ afterAll(async () => { await stop(env); });
 const elements = async (app: Awaited<ReturnType<typeof open>>) => (await draft(app)).elements;
 
 describe('desktop (1280 x 800, mouse and keyboard)', () => {
+  it('double-click focuses the element’s properties and shows no action bar', async () => {
+    const app = await open(env, 'desktop');
+    const { page } = app;
+    await page.keyboard.press('s');
+    await drag(app, await cellToClient(app, 3, 4), await cellToClient(app, 9, 8));
+    expect(await page.locator('#action-bar').isVisible()).toBe(false);
+    const at = await cellToClient(app, 6, 6);
+    await page.mouse.dblclick(at.x, at.y);
+    expect(await page.evaluate(() => document.activeElement?.closest('section')?.getAttribute('data-tab'))).toBe('properties');
+    expect(app.errors).toEqual([]);
+  });
+
   it('keeps the side panel, the inline controls and no menu button', async () => {
     const app = await open(env, 'desktop');
     const { page } = app;
     expect(await page.locator('#menu-button').isVisible()).toBe(false);
     for (const id of ['#library', '#export-json', '#export-png', '#mode-preview', '#help', '#undo', '#redo']) expect(await page.locator(id).isVisible(), id).toBe(true);
     expect((await box(app, '#sheet'))!.width).toBeCloseTo(320, 0);
-    expect(await page.locator('.grip').isVisible()).toBe(false);
+    expect(await page.locator('.sheet-head').isVisible()).toBe(false);
     expect(await page.locator('#panel .tabs').isVisible()).toBe(false);
     for (const h of ['Page', 'Layers', 'Properties']) expect(await page.locator('#panel h2', { hasText: h }).first().isVisible()).toBe(true);
     await shot(app, 'desktop-page');

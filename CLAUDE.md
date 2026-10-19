@@ -95,4 +95,7 @@ Dotwork's print export follows the same physical rules as journal-system
    (done).
 5. Mobile-first editor: phone and tablet layout, touch controls, home-screen
    install (done).
-6. Later: dials and other components, color, sharing, a page gallery.
+7. Touch gestures: nothing happens on touch-down, tap selects, one finger pans unless
+   it drags the selection, action bar beside the selection, properties and layers
+   in a modal (done).
+8. Later: dials and other components, color, sharing, a page gallery.

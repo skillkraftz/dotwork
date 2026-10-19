@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
-  box, cellToClient, draft, drag, open, pinch, press, shot, start, stop, tap, twoFingerDrag, viewBoxOf, type App, type Env,
+  bar, box, cellToClient, doubleTap, draft, drag, open, pinch, press, shot, stagger, start, stop, tap, twoFingerDrag, viewBoxOf, type App, type Env,
 } from './harness';
 
 let env: Env;
@@ -71,7 +71,9 @@ describe('phone layout (390 x 844, touch)', () => {
     await drag(app, await cellToClient(app, 3, 4), await cellToClient(app, 10, 9));
     const els = await elements(app);
     expect(els).toMatchObject([{ type: 'box', x: 3, y: 4, w: 7, h: 5 }]);
-    expect(await app.page.locator('#sheet').getAttribute('data-state')).toBe('peek');
+    // drawing selects it, and offers an action bar; nothing opens by itself
+    expect(await app.page.locator('#sheet').getAttribute('data-state')).toBe('closed');
+    expect(await app.page.locator('#action-bar').isVisible()).toBe(true);
     noErrors(app);
   });
 
@@ -83,7 +85,10 @@ describe('phone layout (390 x 844, touch)', () => {
     expect(await elements(app)).toMatchObject([{ type: 'shade', x: 5, y: 8, w: 7, h: 6 }]);
     await shot(app, 'phone-selected');
 
-    // change the fill
+    // change the fill, in the properties window
+    await bar(app, 'properties');
+    expect(await page.locator('#sheet').getAttribute('data-state')).toBe('open');
+    await shot(app, 'phone-properties');
     await page.locator('#panel select[data-key="prop-tone"]').selectOption('dark');
     expect(await elements(app)).toMatchObject([{ type: 'shade', tone: 'dark' }]);
 
@@ -92,7 +97,8 @@ describe('phone layout (390 x 844, touch)', () => {
     await page.tap('[data-key="nudge-down"]');
     expect(await elements(app)).toMatchObject([{ x: 6, y: 9 }]);
 
-    // and with a finger
+    // and with a finger (the selected element moves)
+    await page.tap('#sheet .sheet-close');
     const from = await cellToClient(app, 8, 11), to = await cellToClient(app, 10, 12);
     await drag(app, from, to);
     expect(await elements(app)).toMatchObject([{ x: 8, y: 10 }]);
@@ -120,46 +126,42 @@ describe('phone layout (390 x 844, touch)', () => {
     noErrors(app);
   });
 
-  it('never hides the selection under the sheet', async () => {
+  it('puts the action bar beside the selection, never over it', async () => {
     const app = await open(env, 'phone');
     await app.page.tap('[data-tool="box"]');
-    await drag(app, await cellToClient(app, 4, 34), await cellToClient(app, 14, 42)); // low on the page
-    await app.page.waitForTimeout(300);
-    const sheet = (await box(app, '#sheet'))!;
+    await drag(app, await cellToClient(app, 4, 34), await cellToClient(app, 14, 40)); // low on the page
+    const barBox = (await box(app, '#action-bar'))!;
     const sel = (await app.page.locator('#content rect[stroke-dasharray]').boundingBox())!;
-    expect(sel.y + sel.height).toBeLessThanOrEqual(sheet.y);
-    expect(sel.y).toBeGreaterThanOrEqual((await box(app, '#canvas-wrap'))!.y);
-    await shot(app, 'phone-selection-above-sheet');
-    // pulled up the sheet still doesn't cover it
-    await app.page.tap('.grip');
-    await app.page.waitForTimeout(400);
-    expect(await app.page.locator('#sheet').getAttribute('data-state')).toBe('full');
-    const bigger = (await box(app, '#sheet'))!;
-    expect(bigger.height).toBeGreaterThan(sheet.height);
-    const sel2 = (await app.page.locator('#content rect[stroke-dasharray]').boundingBox())!;
-    expect(sel2.y + sel2.height).toBeLessThanOrEqual(bigger.y + 1);
+    const wrap = (await box(app, '#canvas-wrap'))!;
+    expect(barBox.y >= sel.y + sel.height || barBox.y + barBox.height <= sel.y).toBe(true); // clear of the element
+    expect(barBox.y).toBeGreaterThanOrEqual(wrap.y);
+    expect(barBox.x + barBox.width).toBeLessThanOrEqual(wrap.x + wrap.width);
+    const labels = await app.page.locator('#action-bar button').allInnerTexts();
+    expect(labels.map((l) => l.trim())).toEqual(['Properties', 'Duplicate', 'Delete', 'More']);
+    expect(await smallControls(app)).toEqual([]);
+    await shot(app, 'phone-action-bar');
     noErrors(app);
   });
 
-  it('opens from the Layers button, reorders layers with the arrows, and is swiped down to dismiss', async () => {
+  it('opens from the Layers button, reorders layers with the arrows, and closes with its Close button', async () => {
     const app = await open(env, 'phone');
     const { page } = app;
     await page.tap('[data-tool="box"]');
     await drag(app, await cellToClient(app, 3, 4), await cellToClient(app, 8, 8));
     await page.tap('[data-tool="rule"]');
     await drag(app, await cellToClient(app, 3, 12), await cellToClient(app, 12, 12));
-    // dismiss with a swipe down on the grip
-    const grip = (await box(app, '.grip'))!;
-    await drag(app, { x: grip.x + 100, y: grip.y + 20 }, { x: grip.x + 100, y: grip.y + 240 });
-    expect(await page.locator('#sheet').getAttribute('data-state')).toBe('closed');
+    expect(await page.locator('#sheet').getAttribute('data-state')).toBe('closed'); // nothing slid up unasked
     await page.tap('#layers-button');
-    expect(await page.locator('#sheet').getAttribute('data-state')).toBe('peek');
+    expect(await page.locator('#sheet').getAttribute('data-state')).toBe('open');
     expect(await page.locator('#panel .layer').count()).toBe(2);
     await shot(app, 'phone-layers');
     // the rule is on top; send it down with its arrow
     await page.locator('#panel .layer').first().locator('button[aria-label^="Move down"]').tap();
     expect((await elements(app)).map((e) => e.type)).toEqual(['rule', 'box']);
     expect(await smallControls(app)).toEqual([]);
+    expect((await page.locator('#sheet .sheet-close').innerText()).trim()).toBe('Close');
+    await page.tap('#sheet .sheet-close');
+    expect(await page.locator('#sheet').getAttribute('data-state')).toBe('closed');
     noErrors(app);
   });
 });
@@ -173,8 +175,6 @@ describe('touch replacements', () => {
     await drag(app, await cellToClient(app, 4, 6), await cellToClient(app, 14, 14));
     await page.tap('[data-tool="shade"]');
     await drag(app, await cellToClient(app, 6, 8), await cellToClient(app, 12, 16));
-    await page.tap('#layers-button'); // close the sheet that opened
-    await page.waitForTimeout(250);
     expect(await elements(app)).toHaveLength(2);
 
     await press(app, await cellToClient(app, 8, 10));
@@ -222,6 +222,7 @@ describe('touch replacements', () => {
     await page.tap('[data-tool="box"]');
     await drag(app, await cellToClient(app, 2.5, 2.5), await cellToClient(app, 6.5, 6.5));
     expect(await elements(app)).toMatchObject([{ type: 'box', x: 2.5, y: 2.5, w: 4, h: 4 }]);
+    await bar(app, 'properties');
     await page.tap('[data-key="nudge-right"]');
     expect(await elements(app)).toMatchObject([{ x: 3 }]);
     await page.tap('#half-cells');
@@ -271,8 +272,130 @@ describe('touch replacements', () => {
   });
 });
 
+describe('touch gestures', () => {
+  /** Two shades side by side; leaves nothing selected. Returns where each is. */
+  async function twoShades(app: App) {
+    await app.page.tap('[data-tool="shade"]');
+    await drag(app, await cellToClient(app, 4, 14), await cellToClient(app, 12, 24));
+    await app.page.tap('[data-tool="shade"]');
+    await drag(app, await cellToClient(app, 15, 14), await cellToClient(app, 23, 24));
+    await tap(app, await cellToClient(app, 2, 40)); // empty space clears the selection
+    return { a: await cellToClient(app, 8, 19), b: await cellToClient(app, 19, 19) };
+  }
+  const state = async (app: App) => ({
+    elements: await elements(app),
+    sheet: await app.page.locator('#sheet').getAttribute('data-state'),
+    selected: await app.page.locator('#panel .layer.selected').allInnerTexts(),
+    bar: await app.page.locator('#action-bar').isVisible(),
+  });
+
+  it('a pinch that starts on an element changes nothing but the view', async () => {
+    const app = await open(env, 'phone');
+    const { a, b } = await twoShades(app);
+    const before = await state(app);
+    expect(before.selected).toEqual([]);
+    const view = await viewBoxOf(app);
+    // first finger on the unselected shade, second finger lands a moment later
+    await stagger(app, a, { x: a.x + 60, y: a.y }, 120);
+    expect(await state(app)).toEqual(before);
+    expect((await viewBoxOf(app))[2]).toBeLessThan(view[2]);
+
+    // and the same with another element selected
+    await app.page.tap('#fit');
+    await tap(app, b);
+    const selected = await state(app);
+    expect(selected.selected).toHaveLength(1);
+    expect(selected.bar).toBe(true);
+    await stagger(app, a, { x: a.x + 60, y: a.y }, 120);
+    expect(await state(app)).toEqual(selected);
+    // no undo entry was added: one undo removes the second shade, nothing else
+    await app.page.tap('#undo');
+    expect(await elements(app)).toHaveLength(1);
+    noErrors(app);
+  });
+
+  it('tap selects on release; tapping empty space clears', async () => {
+    const app = await open(env, 'phone');
+    const { a } = await twoShades(app);
+    await tap(app, a);
+    expect(await app.page.locator('#panel .layer.selected').count()).toBe(1);
+    expect(await app.page.locator('#action-bar').isVisible()).toBe(true);
+    expect(await app.page.locator('#sheet').getAttribute('data-state')).toBe('closed');
+    await tap(app, await cellToClient(app, 2, 40));
+    expect(await app.page.locator('#panel .layer.selected').count()).toBe(0);
+    expect(await app.page.locator('#action-bar').isVisible()).toBe(false);
+    noErrors(app);
+  });
+
+  it('dragging an unselected element pans; dragging the selected one moves it', async () => {
+    const app = await open(env, 'phone');
+    const { a } = await twoShades(app);
+    await pinch(app, await cellToClient(app, 13, 19), 80, 160);
+    const zoomed = await viewBoxOf(app);
+    const before = await elements(app);
+    await drag(app, a, { x: a.x - 40, y: a.y + 30 });
+    expect(await elements(app)).toEqual(before); // nothing moved
+    const panned = await viewBoxOf(app);
+    expect(panned[0]).toBeGreaterThan(zoomed[0]);
+    expect(panned[2]).toBeCloseTo(zoomed[2], 3);
+    expect(await app.page.locator('#panel .layer.selected').count()).toBe(0);
+
+    const at = await cellToClient(app, 8, 19);
+    await tap(app, at);
+    expect(await app.page.locator('#panel .layer.selected').count()).toBe(1);
+    await drag(app, at, { x: at.x + 40, y: at.y });
+    const moved = await elements(app);
+    expect(moved[0].x as number).toBeGreaterThan(before[0].x as number);
+    expect(await viewBoxOf(app)).toEqual(panned); // and the view stayed put
+    noErrors(app);
+  });
+
+  it('double-tap opens properties; the action bar buttons work', async () => {
+    const app = await open(env, 'phone');
+    const { page } = app;
+    const { a } = await twoShades(app);
+    await tap(app, a);
+    await bar(app, 'duplicate');
+    expect(await elements(app)).toHaveLength(3);
+    await bar(app, 'remove');
+    expect(await elements(app)).toHaveLength(2);
+    expect(await page.locator('#action-bar').isVisible()).toBe(false);
+
+    await tap(app, a);
+    await bar(app, 'more');
+    await page.waitForSelector('.ctx-menu');
+    expect(await page.locator('.ctx-menu [data-action="delete"]').count()).toBe(1);
+    await page.keyboard.press('Escape');
+    expect(await page.locator('.ctx-menu').count()).toBe(0);
+
+    await bar(app, 'properties');
+    expect(await page.locator('#sheet').getAttribute('data-state')).toBe('open');
+    expect(await page.locator('#panel[data-tab="properties"]').count()).toBe(1);
+    await page.tap('#sheet .sheet-close');
+    expect(await page.locator('#sheet').getAttribute('data-state')).toBe('closed');
+
+    await tap(app, await cellToClient(app, 2, 40));
+    await doubleTap(app, a);
+    expect(await page.locator('#sheet').getAttribute('data-state')).toBe('open');
+    expect(await page.locator('#panel .layer.selected').count()).toBe(1);
+    expect(await page.locator('#panel[data-tab="properties"]').count()).toBe(1);
+    expect(await smallControls(app)).toEqual([]);
+    await shot(app, 'phone-properties-modal');
+    noErrors(app);
+  });
+
+  it('a second finger cancels a drawing', async () => {
+    const app = await open(env, 'phone');
+    await app.page.tap('[data-tool="box"]');
+    const from = await cellToClient(app, 4, 6);
+    await stagger(app, from, { x: from.x + 80, y: from.y }, 100);
+    expect(await elements(app)).toHaveLength(0);
+    noErrors(app);
+  });
+});
+
 describe('spreads on a phone', () => {
-  it('edits one page at a time with Left and Right (or a swipe), and shows both with View spread', async () => {
+  it('edits one page at a time with Left and Right (a swipe does not switch), and shows both with View spread', async () => {
     const app = await open(env, 'phone');
     const { page } = app;
     await page.tap('#view-spread');
@@ -285,13 +408,13 @@ describe('spreads on a phone', () => {
     expect(await page.locator('#canvas-right').isVisible()).toBe(true);
     expect(await page.locator('#canvas-left').isVisible()).toBe(false);
 
-    // swipe across the empty page: back to the left page, then forward again
+    // swiping across the empty page no longer changes page (it pans, which is what a finger there means)
     const y = (await cellToClient(app, 13, 20, '#canvas-right')).y;
     await drag(app, { x: 80, y }, { x: 320, y });
-    expect(await page.locator('#canvas-left').isVisible()).toBe(true);
-    await drag(app, { x: 320, y }, { x: 80, y });
     expect(await page.locator('#canvas-right').isVisible()).toBe(true);
+    expect(await page.locator('#canvas-left').isVisible()).toBe(false);
 
+    await page.waitForTimeout(1200); // Chromium ignores a tap soon after a fast synthetic swipe
     await page.tap('#side-both');
     const l = (await box(app, '#canvas-left'))!, r = (await box(app, '#canvas-right'))!;
     expect(l.x + l.width).toBeLessThanOrEqual(r.x + 1);
