@@ -23,7 +23,7 @@ async function smallControls(app: App, scope: string) {
   }, scope);
 }
 
-for (const device of ['phone', 'desktop'] as const) {
+for (const device of ['phone', 'tablet', 'desktop'] as const) {
   describe(`the three menus (${device})`, () => {
     it('Page switches views and shows the current one; Settings opens the settings', async () => {
       const app = await open(env, device);
@@ -39,7 +39,7 @@ for (const device of ['phone', 'desktop'] as const) {
       await hit(app, '#view-spread');
       expect(await visible(app, '#list-page')).toBe(false); // choosing closes it
       expect((await page.locator('#menu-page').innerText()).replace('▾', '').trim()).toBe('Spread');
-      expect(await visible(app, device === 'phone' ? '#canvas-left' : '#spread')).toBe(true);
+      expect(await visible(app, device === 'desktop' ? '#spread' : '#canvas-left')).toBe(true);
 
       await choose(app, 'page', '#view-book');
       await page.waitForSelector('.stage-page');
@@ -249,6 +249,7 @@ describe('the library', () => {
     // the examples live here, marked as examples; there is no separate "Load example"
     expect(await page.locator('#examples').count()).toBe(0);
     expect(await page.locator('.lib-card .hint', { hasText: /example/ }).count()).toBeGreaterThan(5);
+    await page.waitForSelector('.lib-card');
     const all = await page.locator('.lib-card').count();
 
     // search matches names, any order, any case

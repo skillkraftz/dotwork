@@ -332,7 +332,7 @@ body.help-mode button, body.help-mode select, body.help-mode input, body.help-mo
   .topbar .menu-list { min-width: 200px; }
   #group-history { margin-left: 0; gap: 0; }
   #group-history .label { display: none; }
-  #group-history button { min-width: 40px; padding: 3px 6px; }
+  #group-history button { min-width: var(--tap); padding: 3px 4px; }
 
   /* the bottom bar: three modes on the left, five buttons that follow the mode and the selection on the right */
   #tools { order: 3; flex-wrap: nowrap; gap: 0; padding: 0 0 env(safe-area-inset-bottom); border-bottom: 0; border-top: 1px solid var(--gray-2); align-items: stretch; }

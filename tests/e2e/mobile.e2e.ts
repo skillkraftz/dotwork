@@ -114,9 +114,10 @@ describe('phone layout (390 x 844, touch)', () => {
     const dialog = (await box(app, 'dialog[aria-label="Library"]'))!;
     expect([dialog.width, dialog.height]).toEqual([390, 844]); // a full-screen sheet
     await page.tap('dialog[aria-label="Library"] .lib-save .primary');
-    await page.waitForSelector('.lib-card:not(:has(.hint:text-is("example")))');
+    await page.waitForSelector('.lib-msg:not([hidden])');
+    await page.waitForSelector('.lib-card[data-name="Untitled"]');
     expect(await page.locator('.lib-card .lib-name', { hasText: /^Untitled$/ }).count()).toBe(1);
-    expect((await box(app, '.lib-card .thumb svg'))!.height).toBeGreaterThan(90); // a thumbnail you can read
+    expect((await box(app, '.lib-card[data-name="Untitled"] .thumb svg'))!.height).toBeGreaterThan(90); // a thumbnail you can read
     expect(await smallControls(app)).toEqual([]);
     await shot(app, 'phone-library');
     noErrors(app);
