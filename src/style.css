@@ -35,7 +35,7 @@ body {
 
 /* ---- top bar ---- */
 .topbar {
-  position: relative; order: 0; z-index: 40;
+  position: relative; order: 0; z-index: 45;
   display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px;
   padding: 8px 14px; border-bottom: 1px solid var(--gray-2); background: #fff;
 }

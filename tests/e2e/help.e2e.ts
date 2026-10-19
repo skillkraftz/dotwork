@@ -1,10 +1,17 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { HELP } from '../../src/help';
-import { bar, cellToClient, draft, drag, open, press, shot, start, stop, tap, type App, type Env } from './harness';
+import { bar, box, cellToClient, draft, drag, open, press, shot, start, stop, tap, type App, type Env } from './harness';
 
 let env: Env;
 beforeAll(async () => { env = await start(); });
 afterAll(async () => { await stop(env); });
+
+/** Tap or click the middle of a control by position, which works on a disabled one too. */
+async function poke(app: App, selector: string, mouse = !app.touch) {
+  const b = (await box(app, selector))!;
+  const at = { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+  if (mouse) await app.page.mouse.click(at.x, at.y); else await tap(app, at);
+}
 
 const popup = (app: App) => app.page.locator('#help-pop');
 const popupText = async (app: App) => (await popup(app).isVisible()) ? (await popup(app).innerText()) : '';
@@ -73,7 +80,7 @@ describe('help mode', () => {
     await shot(app, 'phone-help-popover');
 
     // a disabled control can be asked about too
-    await page.tap('#undo');
+    await poke(app, '#undo');
     expect(await popupText(app)).toContain('UNDO');
 
     // the page explains its gestures for the current tool, and drawing does nothing
@@ -114,7 +121,7 @@ describe('help mode', () => {
     const { page } = app;
     await page.click('#help');
     expect(await page.locator('#help-card').innerText()).toContain('Help mode: click anything to see what it does.');
-    await page.click('#undo');
+    await poke(app, '#undo');
     const text = await popupText(app);
     expect(text).toContain('Ctrl/Cmd+Z');
     expect(text).not.toMatch(/\btap\b/i);
@@ -139,7 +146,7 @@ describe('help mode', () => {
     const { page } = app;
     await page.tap('#menu-button');
     await page.tap('#help');
-    await page.mouse.click(60, 650); // the Select tool, by mouse
+    await poke(app, '[data-tool="select"]', true); // by mouse
     expect(await popupText(app)).toContain('Press V');
     expect(await page.locator('#help-card').innerText()).toContain('click');
     await page.tap('[data-tool="select"]');
@@ -189,7 +196,7 @@ describe('every control has a help entry', () => {
     await page.tap('#sheet .sheet-close');
 
     // the menu on an element (long-press), and a message with its Dismiss button
-    await press(app, await cellToClient(app, 7, 8));
+    await press(app, await cellToClient(app, 4, 8));
     await page.waitForSelector('.ctx-menu');
     expect(await missingHelp(app)).toEqual([]);
     await page.keyboard.press('Escape');
@@ -260,6 +267,7 @@ describe('every control has a help entry', () => {
       expect(await missingHelp(app), `${device} book`).toEqual([]);
       await page.evaluate(() => { document.querySelector<HTMLDetailsElement>('.print-settings')!.open = true; });
       expect(await missingHelp(app), `${device} settings`).toEqual([]);
+      await page.evaluate(() => { document.querySelector<HTMLDetailsElement>('.print-settings')!.open = false; });
       await go('.view-toggle'); // spreads
       expect(await missingHelp(app), `${device} spreads`).toEqual([]);
       await go('.contents-toggle');
