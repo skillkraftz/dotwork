@@ -17,31 +17,30 @@
     <div id="app">
       <header class="topbar">
         <h1>Dotwork</h1>
-        <div class="group seg" id="view-switch" role="group" aria-label="View">
-          <button id="view-page" data-help="view-page" type="button" title="Edit one page">Page</button>
-          <button id="view-spread" data-help="view-spread" type="button" title="Edit a left and a right page side by side">Spread</button>
-          <button id="view-book" data-help="view-book" type="button" title="Arrange pages into a book and export print files">Book</button>
+        <div class="dropdown" id="drop-page">
+          <button id="menu-page" class="menubtn" data-help="menu-page" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="list-page"><span id="menu-page-label">Page</span><span class="caret" aria-hidden="true">▾</span></button>
+          <div class="menu-list" id="list-page" role="menu" aria-label="Page" hidden>
+            <button id="view-page" data-help="view-page" type="button" role="menuitemradio" aria-checked="true">Page</button>
+            <button id="view-spread" data-help="view-spread" type="button" role="menuitemradio" aria-checked="false">Spread</button>
+            <button id="view-book" data-help="view-book" type="button" role="menuitemradio" aria-checked="false">Book</button>
+            <button id="settings" data-help="settings" type="button" role="menuitem">Settings…</button>
+          </div>
         </div>
+        <div class="dropdown" id="drop-edit">
+          <button id="menu-edit" class="menubtn" data-help="menu-edit" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="list-edit"><span>Edit</span><span class="caret" aria-hidden="true">▾</span></button>
+          <div class="menu-list" id="list-edit" role="menu" aria-label="Edit" hidden>
+            <button id="mode-edit" data-help="mode-edit" type="button" role="menuitemradio" aria-checked="true">Edit</button>
+            <button id="mode-preview" data-help="mode-preview" type="button" role="menuitemradio" aria-checked="false">Preview</button>
+            <button id="library" data-help="library" type="button" role="menuitem">Library…</button>
+            <button id="new" data-help="new" type="button" role="menuitem">New</button>
+          </div>
+        </div>
+        <button id="export" class="menubtn" data-help="export" type="button" aria-haspopup="dialog">Export</button>
         <div class="group" id="group-history" role="group" aria-label="History">
           <button id="undo" data-help="undo" type="button" class="iconbtn" title="Undo (Ctrl/Cmd+Z)" aria-label="Undo"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5L4 10l5 5"/><path d="M4 10h10a6 6 0 010 11h-4"/></svg><span class="label">Undo</span></button>
           <button id="redo" data-help="redo" type="button" class="iconbtn" title="Redo (Shift+Ctrl/Cmd+Z)" aria-label="Redo"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l5 5-5 5"/><path d="M20 10H10a6 6 0 000 11h4"/></svg><span class="label">Redo</span></button>
+          <button id="help" data-help="help" type="button" class="iconbtn" title="Help: tap anything to see what it does" aria-label="Help"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 114 2c-1 .7-1.5 1.2-1.5 2.5"/><path d="M12 17h0"/></svg></button>
         </div>
-        <button id="menu-button" data-help="menu-button" type="button" class="iconbtn" aria-label="Menu" aria-haspopup="true" aria-expanded="false" aria-controls="menu"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
-        <div id="menu" role="group" aria-label="Menu">
-          <div class="group seg" id="group-mode" role="group" aria-label="Mode">
-            <button id="mode-edit" data-help="mode-edit" type="button">Edit</button>
-            <button id="mode-preview" data-help="mode-preview" type="button" title="See the page as it prints">Preview</button>
-          </div>
-          <button id="library" data-help="library" type="button" title="Saved pages and spreads">Library</button>
-          <button id="new" data-help="new" type="button">New</button>
-          <select id="examples" data-help="examples" aria-label="Load an example"></select>
-          <button id="import" data-help="import" type="button">Import JSON</button>
-          <button id="export-json" data-help="export-json" type="button">Export JSON</button>
-          <button id="export-png" data-help="export-png" type="button">Export PNG</button>
-          <input id="spread-name" data-help="spread-name" type="text" aria-label="Spread name" placeholder="Spread name" maxlength="80" />
-          <button id="help" data-help="help" type="button">Help</button>
-        </div>
-        <input id="import-file" type="file" accept=".json,application/json" hidden />
       </header>
       <main>
         <section id="book" hidden></section>

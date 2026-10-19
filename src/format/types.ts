@@ -149,6 +149,8 @@ export interface Page {
   version: 2;
   name: string;
   identity?: string;
+  /** Whether the page number prints in the header's outer corner. Default true. */
+  page_number?: boolean;
   side?: PageSide;
   grid: { cols: 27; rows: 44; pitch_mm: 3 };
   elements: PageElement[];
@@ -159,7 +161,6 @@ export function emptyPage(): Page {
     format: 'dotwork-page',
     version: 2,
     name: 'Untitled',
-    identity: '{weekday} {month} {day}',
     grid: { cols: COLS, rows: ROWS, pitch_mm: PITCH_MM },
     elements: [],
   };

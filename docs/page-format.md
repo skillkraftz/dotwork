@@ -13,8 +13,13 @@ place labels anywhere.
   page**. Its top-left corner sits 3.95 mm from the page's left edge and
   3.85 mm from its top edge. Nothing is drawn outside the grid.
 - **Row 0 is the header row**, drawn by the printer software: the page number
-  at the top outer corner and the page's identity by the spine. Elements may
-  not extend above y = 1.
+  at the top outer corner and the page's identity by the spine. While the page
+  has an `identity`, the whole row belongs to the header and elements may not
+  extend above y = 1. **When `identity` is empty or absent, row 0 can be drawn
+  on**, except the page number's corner cells while page numbers are on: the
+  two cells (6 mm) at the outer top corner, x 0 to 2 on a left page and x 25 to
+  27 on a right page (`"either"` counts as right). With `page_number` set to
+  `false` nothing is reserved and the whole row is free.
 
 ## Coordinates
 
@@ -24,7 +29,9 @@ place labels anywhere.
   grid lines or exactly halfway between them (for example the offset
   sleep-hours column on the monthly tracker).
 - Elements must stay inside the grid and below the header: `x >= 0`,
-  `y >= 1`, `x + w <= 27`, `y + h <= 44`, with sizes greater than 0.
+  `y >= 1`, `x + w <= 27`, `y + h <= 44`, with sizes greater than 0. When row 0
+  is free (see above), `y >= 0` instead, and an element that reaches into the
+  reserved page number corner is refused.
 - **Elements may overlap.** They are drawn in array order, so later elements
   sit on top of earlier ones.
 
@@ -35,7 +42,8 @@ place labels anywhere.
 | `format`   | string | yes      | `"dotwork-page"` |
 | `version`  | number | yes      | `2` |
 | `name`     | string | yes      | The design's name. |
-| `identity` | string | no       | Header text by the spine. May contain tokens. |
+| `identity` | string | no       | Header text by the spine. May contain tokens. Empty or absent frees row 0 for drawing. |
+| `page_number` | boolean | no    | `false` leaves the page number off this page. Default `true`. A book's own `page_numbers` setting can turn numbers off for every page. |
 | `side`     | string | no       | `"left"`, `"right"` or `"either"` (default). Which page of a spread the design is meant for. The spine is on the right of a left page and on the left of a right page. |
 | `grid`     | object | yes      | Always `{ "cols": 27, "rows": 44, "pitch_mm": 3 }`. |
 | `elements` | array  | yes      | The elements, bottom to top. |
@@ -109,7 +117,7 @@ Rows, columns and cells are counted from the area's top-left corner. Light, medi
 | `values` | What the items are: `"numbers"` (default), `"letters"`, `"list"` or `"icons"`. |
 | `start` | `numbers`: the first number (default `1`). `letters`: the first letter (default `"A"`; a small letter gives small letters). |
 | `step` | `numbers`: what to add each time, default `1`. |
-| `list` | `list`: the items, repeating, each one or two characters. |
+| `list` | `list`: the items, repeating, each one or two characters. May be empty or missing while the person is still typing; nothing is drawn then. |
 | `icons` | `icons`: icon names from the icon set, repeating. |
 | `tone` | `"black"` (default) or `"gray"`. |
 | `size` | `icons`: how many cells wide and tall each icon is, `1` (default) or `2`. Set `every` to at least the size so the icons do not overlap. |
@@ -198,7 +206,7 @@ not have `"side": "left"` or whose `right` page does not have
 
 A reader must reject a file with the wrong `format`, an unknown `version`, an
 unknown element type or field value, a coordinate that is not a multiple of
-0.5, an element outside the grid or above y = 1, a diagonal rule, a
+0.5, an element outside the grid or above the first usable row (y = 1, or y = 0 when row 0 is free), an element on the page number's corner, a diagonal rule, a
 `checkboxes` or `sequence` element whose items leave the grid, a `shade` whose `tones` are not the letters L, M, D and B, an empty `group`, a `sequence`
 with a text item of more than two characters or an unknown icon name, or an unknown token, and say
 which rule failed. Overlap is allowed.

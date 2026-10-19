@@ -1,23 +1,23 @@
 import { COLS, DEFAULTS, ROWS, type Area, type IconSize, type PageElement, type Rule, type TextTone } from './format/types';
-import { elementArea, insideGrid, limitsArea } from './format/bounds';
+import { CLOSED_HEADER, elementArea, hitsCorner, insideGrid, limitsArea, type Header } from './format/bounds';
 
 export interface Pt { x: number; y: number }
 export type Handle = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw' | 'p1' | 'p2';
 
-/** Nearest whole cell (or half cell) to a position given in cells, kept on the grid below the header. */
-export function snapPoint(p: Pt, half: boolean): Pt {
+/** Nearest whole cell (or half cell) to a position given in cells, kept on the grid below the header (or from row 0 when `top` is 0). */
+export function snapPoint(p: Pt, half: boolean, top = 1): Pt {
   const u = half ? 0.5 : 1;
   const snap = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, Math.round(v / u) * u));
-  return { x: snap(p.x, 0, COLS), y: snap(p.y, 1, ROWS) };
+  return { x: snap(p.x, 0, COLS), y: snap(p.y, top, ROWS) };
 }
 
 export const snapStep = (half: boolean) => (half ? 0.5 : 1);
 
 /** The corner of the whole or half cell holding a point in cells, kept on the grid below the header: where an icon or a sequence starts. */
-export function cellPoint(p: Pt, half: boolean): Pt {
+export function cellPoint(p: Pt, half: boolean, top = 1): Pt {
   const u = snapStep(half);
   const snap = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, Math.floor(v / u) * u));
-  return { x: snap(p.x, 0, COLS - 1), y: snap(p.y, 1, ROWS - 1) };
+  return { x: snap(p.x, 0, COLS - 1), y: snap(p.y, top, ROWS - 1) };
 }
 
 export function areaFromPoints(a: Pt, b: Pt): Area {
@@ -81,23 +81,26 @@ export function boundsOf(els: readonly PageElement[]): Area {
 }
 
 /** Move elements together by (dx, dy) cells, keeping their positions relative to each other: the group stops at the grid edge and the header row as one. */
-export function moveGroup<T extends PageElement>(els: readonly T[], dx: number, dy: number): T[] {
+export function moveGroup<T extends PageElement>(els: readonly T[], dx: number, dy: number, header: Header = CLOSED_HEADER): T[] {
   if (!els.length) return [];
   const a = groupArea(els);
   dx = Math.max(-a.x, Math.min(COLS - (a.x + a.w), dx));
-  dy = Math.max(1 - a.y, Math.min(ROWS - (a.y + a.h), dy));
-  return els.map((el) => translate(el, dx, dy));
+  const place = (top: number) => els.map((el) => translate(el, dx, Math.max(top - a.y, Math.min(ROWS - (a.y + a.h), dy))));
+  const moved = place(header.top);
+  // Row 0 is open, but the page number's corner is not: a move that would land on it stops below the header instead.
+  return moved.some((el) => hitsCorner(el, header)) ? place(1) : moved;
 }
 
 /** Move an element by (dx, dy) cells, stopping at the edge of the grid and the header row. */
-export function moveElement<T extends PageElement>(el: T, dx: number, dy: number): T {
-  return moveGroup([el], dx, dy)[0];
+export function moveElement<T extends PageElement>(el: T, dx: number, dy: number, header: Header = CLOSED_HEADER): T {
+  return moveGroup([el], dx, dy, header)[0];
 }
 
 /** True when `el` can be moved by (dx, dy) without being pushed back by the grid edge. */
-export function canMove(els: PageElement | readonly PageElement[], dx: number, dy: number): boolean {
-  const a = groupArea([els].flat());
-  return insideGrid({ ...a, x: a.x + dx, y: a.y + dy });
+export function canMove(els: PageElement | readonly PageElement[], dx: number, dy: number, header: Header = CLOSED_HEADER): boolean {
+  const list = [els].flat();
+  const a = groupArea(list);
+  return insideGrid({ ...a, x: a.x + dx, y: a.y + dy }, header.top) && !list.some((el) => hitsCorner(translate(el, dx, dy), header));
 }
 
 /** Handles an element offers for resizing. Checkboxes and text are resized in the properties panel. */

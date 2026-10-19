@@ -1,12 +1,13 @@
 import {
-  ALIGNS, ALONGS, DEFAULTS, DIRECTIONS, DOT_SIZES, ICON_SIZES, PAGE_SIDES, PATTERNS, RULE_WEIGHTS, SEQUENCE_VALUES, SIDES, TEXT_SIZES, TEXT_STYLES,
-  TEXT_TONES, WEIGHTS, type BoxSide, type Page, type PageElement, type Pattern, type Sequence, type SequenceValues, type Shade,
+  ALIGNS, ALONGS, DEFAULTS, DIRECTIONS, DOT_SIZES, ICON_SIZES, PATTERNS, RULE_WEIGHTS, SEQUENCE_VALUES, SIDES, TEXT_SIZES, TEXT_STYLES,
+  TEXT_TONES, WEIGHTS, type BoxSide, type PageElement, type Pattern, type Sequence, type SequenceValues, type Shade,
 } from './format/types';
 import { cleanTones, toneAt } from './format/shade';
 import { SHADE_TONES } from './render';
 import { iconGlyph } from './icons/glyph';
-import { findUnknownTokens, TOKENS } from './format/tokens';
+import { findUnknownTokens } from './format/tokens';
 import { validateElement } from './format/validate';
+import { headerOf } from './format/bounds';
 import { canNudge, deleteElement, deleteElements, duplicateElement, nudgeButton, nudgeStep, reorderElement } from './actions';
 import type { Store } from './store';
 import type { ValidationIssue } from './format/validate';
@@ -66,7 +67,7 @@ const fmt = (v: number) => String(+v.toFixed(2));
 function switchValues(x: Sequence, to: SequenceValues) {
   x.values = to;
   delete x.start; delete x.step;
-  if (to === 'list') x.list ??= ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+  if (to === 'list') x.list ??= []; // the field shows an example as a placeholder; nothing is put in for the person to delete
   if (to === 'icons') x.icons ??= ['star'];
   if (to !== 'icons') { delete x.size; if (x.every !== undefined && x.every < 1) x.every = 1; }
 }
@@ -101,14 +102,15 @@ export function shortProblem(issue: ValidationIssue): string {
     case 'size': return key === 'size' ? 'Size must be from 0.5 to 1.' : 'It needs a width, a height or a length above 0.';
     case 'bounds':
     case 'header-row': return 'That doesn’t fit on the grid, below the header row.';
+    case 'header-corner': return 'That covers the page number. Turn the page number off in Settings, or move it.';
     case 'diagonal': return 'A rule must be horizontal or vertical.';
     case 'sequence': return issue.message;
     default: return issue.message;
   }
 }
 
-export type PanelTab = 'properties' | 'layers' | 'page';
-const TABS: [PanelTab, string][] = [['properties', 'Properties'], ['layers', 'Layers'], ['page', 'Page']];
+export type PanelTab = 'properties' | 'layers';
+const TABS: [PanelTab, string][] = [['properties', 'Properties'], ['layers', 'Layers']];
 
 /** How long after the last keystroke a typed number is taken as meant. */
 const PAUSE_MS = 900;
@@ -124,8 +126,8 @@ interface Built { node: HTMLElement; ctl: Ctl }
 type StepBy = 'cell' | number;
 
 /**
- * The side panel: page settings, the layers list, and the selected element's properties. On a wide screen all
- * three show at once; on a narrow one (the bottom sheet) the tabs pick one.
+ * The side panel: the layers list and the selected element's properties. On a wide screen both show at once; on a
+ * narrow one (the bottom sheet) the tabs pick one. Page, spread and book settings are in the settings window.
  *
  * The panel is built once and then updated in place. A field being typed in is never replaced (a phone drops its
  * keyboard when that happens): only the properties section is rebuilt, and only when the selection changes to a
@@ -141,17 +143,12 @@ export class Panel {
   /** Open the icon grid and call back with the icon picked. */
   pickIcon: ((pick: (name: string) => void) => void) | null = null;
 
-  /** In a spread the side belongs to the slot the page is in, so the field is replaced by a note. */
-  lockedSide: 'left' | 'right' | null = null;
+  /** A layer's name was tapped: its element is selected, and its properties should be shown. */
+  openLayer: (() => void) | null = null;
 
   private tabButtons = new Map<PanelTab, HTMLElement>();
-  private pageEl = h('section', { 'data-tab': 'page' });
   private layersEl = h('section', { 'data-tab': 'layers' });
   private propsEl = h('section', { 'data-tab': 'properties' });
-  private pageCtls: Ctl[] = [];
-  private sideSlot = h('div');
-  private sideKey = '';
-  private identityWarn = h('div');
   private layersSig = '';
   private layersFor: { store: Store; selected: number | null } | null = null;
   private propsKey = '';
@@ -161,21 +158,19 @@ export class Panel {
   private stepId = 0;
 
   constructor(private root: HTMLElement, public store: Store) {
-    this.buildPage();
-    root.replaceChildren(this.tabBar(), this.pageEl, this.layersEl, this.propsEl);
+    root.replaceChildren(this.tabBar(), this.layersEl, this.propsEl);
   }
 
   render() {
     this.root.dataset.tab = this.tab;
     for (const [id, b] of this.tabButtons) { b.setAttribute('aria-selected', String(this.tab === id)); b.setAttribute('aria-pressed', String(this.tab === id)); }
-    this.syncPage();
     this.syncLayers();
     this.syncProps();
   }
 
   /** Take whatever has been typed but not yet applied (when the modal closes, say). */
   flush() {
-    for (const c of [...this.pageCtls, ...this.propCtls]) c.flush();
+    for (const c of this.propCtls) c.flush();
   }
 
   private tabBar(): HTMLElement {
@@ -211,11 +206,11 @@ export class Panel {
    * A text field that applies what is typed as it is typed, without ever being replaced. A value the page refuses
    * stays in the field, with the reason beside it, until the field is left; then it reverts.
    */
-  private textField(o: { label: string; key: string; help: string; read: () => string; write: (v: string) => string | null }): Built {
+  private textField(o: { label: string; key: string; help: string; placeholder?: string; read: () => string; write: (v: string) => string | null }): Built {
     const msg = this.message();
     let dirty = false;
     const input = h('input', {
-      type: 'text', id: o.key, 'data-key': o.key, 'data-help': o.help, value: o.read(), autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', enterkeyhint: 'done',
+      type: 'text', id: o.key, 'data-key': o.key, 'data-help': o.help, value: o.read(), placeholder: o.placeholder, autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', enterkeyhint: 'done',
       oninput: () => {
         dirty = true;
         const problem = o.write(input.value);
@@ -235,7 +230,7 @@ export class Panel {
     if (store.isLocked(i)) return 'Locked: unlock it in the layers list to edit.';
     const el = structuredClone(store.page.elements[i]);
     fn(el);
-    const issues = validateElement(el);
+    const issues = validateElement(el, 'element', headerOf(store.page));
     if (issues.length) return shortProblem(issues[0]);
     const next = structuredClone(store.page);
     next.elements[i] = el;
@@ -302,7 +297,7 @@ export class Panel {
       if (v === undefined || store.idAt(i) !== id) return false;
       const el = structuredClone(store.page.elements[i]) as unknown as Record<string, number>;
       el[key] = Math.round((v + dir * stepSize()) * 100) / 100;
-      return validateElement(el).length === 0;
+      return validateElement(el, 'element', headerOf(store.page)).length === 0;
     };
     const stepper = (dir: 1 | -1) => {
       let held = false, swallow = false;
@@ -366,51 +361,6 @@ export class Panel {
     return { node: h('label', { class: 'field' }, o.label, select), ctl: { sync, flush() {} } };
   }
 
-  // ---- page ---------------------------------------------------------------
-
-  private editPage(key: string, fn: (p: Page) => void) {
-    const next = structuredClone(this.store.page);
-    fn(next);
-    this.store.commit(next, key);
-    return null;
-  }
-
-  private buildPage() {
-    const name = this.textField({
-      label: 'Name', key: 'page-name', help: 'page-name', read: () => this.store.page.name,
-      write: (v) => this.editPage('page-name', (p) => { p.name = v; }),
-    });
-    const identity = this.textField({
-      label: 'Identity', key: 'page-identity', help: 'page-identity', read: () => this.store.page.identity ?? '',
-      write: (v) => this.editPage('page-identity', (p) => { if (v) p.identity = v; else delete p.identity; }),
-    });
-    this.pageCtls = [name.ctl, identity.ctl];
-    this.pageEl.replaceChildren(
-      h('h2', {}, 'Page'), name.node, identity.node, this.identityWarn, this.sideSlot,
-      h('p', { class: 'hint' }, `Tokens: ${TOKENS.map((t) => `{${t}}`).join(' ')}`),
-      h('p', { class: 'hint' }, 'The spine is right of a left page, left of a right page; “either” shows as a right page.'),
-    );
-  }
-
-  private syncPage() {
-    const { store } = this;
-    for (const c of this.pageCtls) c.sync();
-    this.identityWarn.replaceChildren(...warnNodes(store.page.identity ?? ''));
-    const side = store.page.side ?? DEFAULTS.side;
-    const key = `${this.lockedSide ?? 'free'}`;
-    if (key !== this.sideKey) {
-      this.sideKey = key;
-      this.sideSlot.replaceChildren(this.lockedSide
-        ? h('p', { class: 'hint' }, `This is the ${this.lockedSide} page of the spread.`)
-        : h('label', {}, 'Side',
-          this.select('page-side', 'page-side', PAGE_SIDES, side, (v) => this.editPage('page-side', (p) => {
-            if (v === 'either') delete p.side; else p.side = v as Page['side'];
-          }))));
-    }
-    const sel = this.sideSlot.querySelector('select');
-    if (sel && sel.value !== side) sel.value = side;
-  }
-
   // ---- layers -------------------------------------------------------------
 
   private syncLayers() {
@@ -441,7 +391,7 @@ export class Panel {
           if (Number.isInteger(from)) reorderElement(store, from, i);
         },
       },
-        h('button', { type: 'button', class: 'layer-name', 'data-key': `layer-${i}-name`, 'data-help': 'layer-select', 'aria-current': store.isSelected(i), onclick: () => store.select(i) }, describe(el)),
+        h('button', { type: 'button', class: 'layer-name', 'data-key': `layer-${i}-name`, 'data-help': 'layer-select', 'aria-current': store.isSelected(i), onclick: () => { store.select(i); this.openLayer?.(); } }, describe(el)),
         icon(hidden ? 'hide' : 'show', hidden ? 'Show' : 'Hide', () => store.toggleHidden(i), { pressed: hidden, key: `layer-${i}-hide`, help: 'layer-hide' }),
         icon(locked ? 'lock' : 'unlock', locked ? 'Unlock' : 'Lock', () => store.toggleLocked(i), { pressed: locked, key: `layer-${i}-lock`, help: 'layer-lock' }),
         icon('up', 'Move up (toward the front)', () => reorderElement(store, i, i + 1), { disabled: i === els.length - 1, key: `layer-${i}-up`, help: 'layer-up' }),
@@ -458,7 +408,7 @@ export class Panel {
           h('ol', { class: 'layers' }, ...list.reverse()),
           h('p', { class: 'hint end' }, 'Bottom: drawn first'))
         : h('p', { class: 'hint' }, 'Nothing on the page yet. Pick a tool and draw on the page.'),
-      ...(els.length ? [h('p', { class: 'hint' }, 'Use the arrows to reorder (or drag a row). Hiding affects only this editor.')] : []),
+      ...(els.length ? [h('p', { class: 'hint' }, 'Tap a name to select it and see its properties. Use the arrows to reorder (or drag a row). Hiding affects only this editor.')] : []),
     );
     const layers = this.layersEl.querySelector<HTMLElement>('.layers');
     if (layers) {
@@ -751,14 +701,14 @@ export class Panel {
     if (kind === 'numbers') out.push(h('div', { class: 'grid2' }, f.num('start', 'Start', 1), f.num('step', 'Step', 1)));
     if (kind === 'letters') {
       out.push(f.add(this.textField({
-        label: 'Start letter', key: 'prop-letter', help: 'prop-letter',
-        read: () => (typeof current().start === 'string' ? (current().start as string) : DEFAULTS.letter),
-        write: (v) => this.edit(store, i, id, 'start', (x) => { (x as Sequence).start = v; }),
+        label: 'Start letter', key: 'prop-letter', help: 'prop-letter', placeholder: DEFAULTS.letter,
+        read: () => (typeof current().start === 'string' ? (current().start as string) : ''),
+        write: (v) => this.edit(store, i, id, 'start', (x) => { if (v) (x as Sequence).start = v; else delete (x as Sequence).start; }),
       })));
     }
     if (kind === 'list') {
       out.push(f.add(this.textField({
-        label: 'Items (separated by spaces, up to 2 characters each)', key: 'prop-list', help: 'prop-list',
+        label: 'Items (separated by spaces, up to 2 characters each)', key: 'prop-list', help: 'prop-list', placeholder: 'S M T W T F S',
         read: () => (current().list ?? []).join(' '),
         write: (v) => this.edit(store, i, id, 'list', (x) => { (x as Sequence).list = v.split(/\s+/).filter(Boolean); }),
       })));

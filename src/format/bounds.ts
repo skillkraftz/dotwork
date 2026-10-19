@@ -1,4 +1,4 @@
-import { COLS, DEFAULTS, PITCH_MM, ROWS, type Area, type PageElement, type Text } from './types';
+import { COLS, DEFAULTS, PITCH_MM, ROWS, type Area, type Page, type PageElement, type Text } from './types';
 import { sequenceArea } from './sequence';
 
 /** Gap between a label and the edge it is anchored to, in mm (matches journal-system's label inset). */
@@ -63,4 +63,26 @@ export function limitsArea(el: PageElement): Area {
   }
 }
 
-export const insideGrid = (a: Area) => a.x >= 0 && a.y >= 1 && a.x + a.w <= COLS && a.y + a.h <= ROWS;
+/** What row 0, the header row, allows on a page: the first row elements may use, and the page number's corner cells that stay free. */
+export interface Header { top: 0 | 1; corner: Area | null }
+export const CLOSED_HEADER: Header = { top: 1, corner: null };
+/** The page number sits in this many cells at the outer top corner. */
+export const CORNER_CELLS = 2;
+
+/** Row 0 is the printed header, unless the page has no identity: then it can be drawn on, except the page number's corner. */
+export function headerOf(page: Pick<Page, 'identity' | 'side' | 'page_number'>): Header {
+  if (page.identity) return CLOSED_HEADER;
+  if (page.page_number === false) return { top: 0, corner: null };
+  // The outer corner is away from the spine: the left of a left page, the right of a right (or either) page.
+  return { top: 0, corner: { x: page.side === 'left' ? 0 : COLS - CORNER_CELLS, y: 0, w: CORNER_CELLS, h: 1 } };
+}
+
+/** Whether an element reaches into the header's page-number corner. */
+export function hitsCorner(el: PageElement, header: Header): boolean {
+  const c = header.corner;
+  if (!c) return false;
+  const a = elementArea(el);
+  return a.y < 1 && a.x < c.x + c.w && a.x + a.w > c.x;
+}
+
+export const insideGrid = (a: Area, top: number = 1) => a.x >= 0 && a.y >= top && a.x + a.w <= COLS && a.y + a.h <= ROWS;

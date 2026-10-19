@@ -123,7 +123,7 @@ describe('nudge buttons and the half-cell toggle', () => {
   });
 
   it('stops at the grid edge and the header row, and says so through canNudge', () => {
-    const s = new Store({ ...emptyPage(), elements: [{ type: 'box', x: 0, y: 1, w: 3, h: 3 }] });
+    const s = new Store({ ...emptyPage(), identity: 'MON', elements: [{ type: 'box', x: 0, y: 1, w: 3, h: 3 }] });
     expect(canNudge(s, 0, -1, 0)).toBe(false);
     expect(canNudge(s, 0, 0, -1)).toBe(false);
     expect(canNudge(s, 0, 1, 0)).toBe(true);

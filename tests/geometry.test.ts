@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   canMove, elementFromDrag, hitElement, hitHandle, moveElement, resizeElement, snapPoint,
 } from '../src/geometry';
-import { elementArea, limitsArea } from '../src/format/bounds';
+import { elementArea, headerOf, limitsArea } from '../src/format/bounds';
 import { expandTokens, findUnknownTokens } from '../src/format/tokens';
 import { GRID_X_MM, GRID_Y_MM, type Box, type PageElement } from '../src/format/types';
 
@@ -146,5 +146,32 @@ describe('tokens', () => {
     expect(expandTokens('{weekday} {month} {day}')).toBe('MON OCT 26');
     expect(expandTokens('{nope}')).toBe('{nope}');
     expect(findUnknownTokens('{day} {nope} {x}')).toEqual(['nope', 'x']);
+  });
+});
+
+describe('the header row', () => {
+  const open = headerOf({});
+  const free = headerOf({ page_number: false });
+
+  it('is closed while there is an identity, open without one, with the page number corner kept clear', () => {
+    expect(headerOf({ identity: 'MON' }).top).toBe(1);
+    expect(open).toEqual({ top: 0, corner: { x: 25, y: 0, w: 2, h: 1 } });
+    expect(headerOf({ side: 'left' }).corner).toEqual({ x: 0, y: 0, w: 2, h: 1 });
+    expect(free.corner).toBeNull();
+  });
+
+  it('lets snapping and moving reach row 0 only when it is open', () => {
+    expect(snapPoint({ x: 3, y: 0 }, false, 0)).toEqual({ x: 3, y: 0 });
+    expect(moveElement({ ...box, x: 4, y: 2 }, 0, -5, open)).toMatchObject({ y: 0 });
+    expect(moveElement({ ...box, x: 4, y: 2 }, 0, -5)).toMatchObject({ y: 1 });
+    expect(canMove({ ...box, x: 4, y: 1 }, 0, -1, open)).toBe(true);
+  });
+
+  it('stops a move at the page number corner, and lets it through when the number is off', () => {
+    const wide = { ...box, x: 24, y: 2, w: 3, h: 1 };
+    expect(canMove(wide, 0, -2, open)).toBe(false);
+    expect(moveElement(wide, 0, -2, open)).toMatchObject({ y: 1 });
+    expect(canMove(wide, 0, -2, free)).toBe(true);
+    expect(moveElement(wide, 0, -2, free)).toMatchObject({ y: 0 });
   });
 });

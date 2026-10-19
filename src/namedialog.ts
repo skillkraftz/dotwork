@@ -17,7 +17,8 @@ export class NameDialog {
       if (this.dialog.open) this.dialog.close();
       resolve?.(name);
     };
-    const save = () => finish(this.input.value.trim() || null);
+    // Left empty, the example shown in gray is taken as the name.
+    const save = () => finish(this.input.value.trim() || this.input.placeholder || null);
     this.input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); save(); } });
     this.dialog = h('dialog', { class: 'library ask', 'aria-label': 'Name' },
       h('header', {}, this.title),
@@ -29,10 +30,12 @@ export class NameDialog {
     document.body.append(this.dialog);
   }
 
-  ask(title: string, initial = ''): Promise<string | null> {
+  /** `initial` is a real value to edit (renaming); `example` is shown in gray and is not in the field. */
+  ask(title: string, initial = '', example = ''): Promise<string | null> {
     this.done?.(null);
     this.title.textContent = title;
     this.input.value = initial;
+    this.input.placeholder = example;
     this.dialog.showModal();
     this.input.focus();
     this.input.select();

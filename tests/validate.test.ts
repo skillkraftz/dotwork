@@ -8,6 +8,7 @@ const base = () => ({
   format: 'dotwork-page',
   version: 2,
   name: 'Test',
+  identity: '{weekday}',
   grid: { cols: 27, rows: 44, pitch_mm: 3 },
   elements: [] as Record<string, unknown>[],
 });
@@ -123,6 +124,38 @@ describe('element rules', () => {
     expect(elRules({ ...box, y: 1 })).toEqual([]);
     expect(elRules({ ...box, y: -1 })).toEqual(['bounds']);
     expect(elRules({ type: 'text', x: 0, y: 0.5, text: 'a' })).toEqual(['header-row']);
+  });
+
+  describe('row 0 with no identity', () => {
+    const open = (extra: Record<string, unknown> = {}, el: unknown = { ...box, y: 0, x: 4 }) => {
+      const { identity: _gone, ...rest } = base();
+      return { ...rest, ...extra, elements: [el] };
+    };
+
+    it('can be drawn on when the identity is empty or missing', () => {
+      expect(rules(open())).toEqual([]);
+      expect(rules(open({ identity: '' }))).toEqual([]);
+      expect(rules({ ...base(), identity: 'MON', elements: [{ ...box, y: 0, x: 4 }] })).toEqual(['header-row']);
+    });
+
+    it('keeps the page number corner free: the outer end, on the right for a right or either page', () => {
+      const corner = { ...box, y: 0, x: 25, w: 2, h: 1 };
+      expect(rules(open({}, corner))).toEqual(['header-corner']);
+      expect(rules(open({ side: 'right' }, corner))).toEqual(['header-corner']);
+      expect(rules(open({ side: 'left' }, corner))).toEqual([]);
+      expect(rules(open({ side: 'left' }, { ...corner, x: 0 }))).toEqual(['header-corner']);
+      expect(rules(open({}, { ...box, y: 0, x: 22, w: 3, h: 1 }))).toEqual([]); // ends where the corner starts
+    });
+
+    it('frees the corner too when the page number is off, and below row 0 nothing is reserved', () => {
+      expect(rules(open({ page_number: false }, { ...box, y: 0, x: 25, w: 2, h: 1 }))).toEqual([]);
+      expect(rules(open({}, { ...box, y: 1, x: 25, w: 2, h: 1 }))).toEqual([]);
+      expect(rules(open({ page_number: 'no' }))).toEqual(['page-number']);
+    });
+
+    it('still keeps everything inside the grid', () => {
+      expect(rules(open({}, { ...box, y: -1 }))).toEqual(['bounds']);
+    });
   });
 
   it('overlap is allowed', () => {

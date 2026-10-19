@@ -3,7 +3,7 @@ import {
   SEQUENCE_VALUES, SIDES, TEXT_SIZES, TEXT_STYLES, TEXT_TONES, WEIGHTS, type Sequence,
 } from './types';
 import { tonesProblem } from './shade';
-import { checkboxSpan, insideGrid, limitsArea } from './bounds';
+import { CLOSED_HEADER, checkboxSpan, headerOf, hitsCorner, insideGrid, limitsArea, type Header } from './bounds';
 import { sequenceProblem, sequenceSpan } from './sequence';
 import { findUnknownTokens, TOKENS } from './tokens';
 import type { PageElement } from './types';
@@ -52,6 +52,9 @@ export function validatePage(input: unknown): ValidationIssue[] {
     if (typeof input.identity !== 'string') fail('identity', 'identity', '"identity" must be a string when present.');
     else checkTokens(input.identity, 'identity', fail);
   }
+  if (input.page_number !== undefined && typeof input.page_number !== 'boolean') {
+    fail('page-number', 'page_number', '"page_number" must be true or false when present.');
+  }
   if (input.side !== undefined && !oneOf(PAGE_SIDES, input.side)) {
     fail('side', 'side', `"side" must be one of ${list(PAGE_SIDES)}, got ${JSON.stringify(input.side)}.`);
   }
@@ -65,18 +68,24 @@ export function validatePage(input: unknown): ValidationIssue[] {
     fail('elements-array', 'elements', '"elements" is required and must be an array (it may be empty).');
     return issues;
   }
-  input.elements.forEach((el: unknown, i: number) => validateElementInto(el, `elements[${i}]`, fail));
+  // Row 0 depends on the page: it is the printed header unless the page has no identity.
+  const header = headerOf({
+    identity: typeof input.identity === 'string' ? input.identity : undefined,
+    side: oneOf(PAGE_SIDES, input.side) ? (input.side as 'left' | 'right' | 'either') : undefined,
+    page_number: input.page_number === false ? false : undefined,
+  });
+  input.elements.forEach((el: unknown, i: number) => validateElementInto(el, `elements[${i}]`, fail, header));
   return issues;
 }
 
 /** The rule failures of one element, for the editor to check an edit before it is committed. */
-export function validateElement(el: unknown, path = 'element'): ValidationIssue[] {
+export function validateElement(el: unknown, path = 'element', header: Header = CLOSED_HEADER): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
-  validateElementInto(el, path, (rule, p, message) => issues.push({ rule, path: p, message }));
+  validateElementInto(el, path, (rule, p, message) => issues.push({ rule, path: p, message }), header);
   return issues;
 }
 
-function validateElementInto(el: unknown, at: string, fail: Fail) {
+function validateElementInto(el: unknown, at: string, fail: Fail, header: Header) {
   if (!isObject(el)) {
     fail('element-object', at, 'An element must be an object.');
     return;
@@ -196,15 +205,18 @@ function validateElementInto(el: unknown, at: string, fail: Fail) {
 
   if (usable) {
     const area = limitsArea(el as unknown as PageElement);
-    if (!insideGrid(area)) {
+    if (!insideGrid(area, header.top)) {
       const extra = el.type === 'checkboxes'
         ? ` The ${el.count} boxes (every ${el.every ?? 1}, ${el.direction ?? 'down'}) cover ${checkboxSpan(el.count as number, (el.every as number) ?? 1)} cells.`
         : el.type === 'sequence'
           ? ` The ${el.count} items (every ${el.every ?? 1}, ${el.direction ?? 'down'}) cover ${sequenceSpan(el as unknown as Sequence)} cells.`
           : '';
-      const onlyHeader = area.y >= 0 && area.y < 1 && area.x >= 0 && area.x + area.w <= COLS && area.y + area.h <= ROWS;
+      const onlyHeader = header.top === 1 && area.y >= 0 && area.y < 1 && area.x >= 0 && area.x + area.w <= COLS && area.y + area.h <= ROWS;
       fail(onlyHeader ? 'header-row' : 'bounds', at,
-        `Does not fit below the header in the ${COLS} x ${ROWS} grid: need x >= 0, y >= 1, x + w <= ${COLS}, y + h <= ${ROWS}; this one spans x ${area.x} to ${area.x + area.w}, y ${area.y} to ${area.y + area.h}.${extra}`);
+        `Does not fit ${header.top === 1 ? 'below the header ' : ''}in the ${COLS} x ${ROWS} grid: need x >= 0, y >= ${header.top}, x + w <= ${COLS}, y + h <= ${ROWS}; this one spans x ${area.x} to ${area.x + area.w}, y ${area.y} to ${area.y + area.h}.${extra}`);
+    } else if (hitsCorner(el as unknown as PageElement, header)) {
+      const c = header.corner!;
+      fail('header-corner', at, `Covers the page number in row 0 (x ${c.x} to ${c.x + c.w}). Turn the page number off, or keep clear of that corner.`);
     }
   }
 }

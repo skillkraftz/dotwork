@@ -1,5 +1,6 @@
 import { GRID_X_MM, GRID_Y_MM, PITCH_MM as P, type Area, type PageElement } from './format/types';
 import { validateElement } from './format/validate';
+import { headerOf } from './format/bounds';
 import {
   cellPoint, elementFromDrag, boundsOf, HANDLE_CURSOR, hitElement, hitHandle, hitHandlePoint, moveGroup, resizeElement, snapPoint, snapStep,
   tapCandidates, touchedBy, cycleHit, type Handle, type Pt,
@@ -208,9 +209,11 @@ export class Canvas {
   }
 
   /** Where a drawing tool's press lands: sequences and icons start in the cell under the pointer, the rest at the nearest dot. */
+  private header() { return headerOf(this.store.page); }
+
   private pointFor(p: Pt, e: { shiftKey: boolean }): Pt {
     const cells = this.store.tool === 'sequence' || this.store.tool === 'icon';
-    return cells ? cellPoint(p, this.half(e)) : snapPoint(p, this.half(e));
+    return cells ? cellPoint(p, this.half(e), this.header().top) : snapPoint(p, this.half(e), this.header().top);
   }
 
   /** What a press-and-drag with the current drawing tool would add to the page, if anything. */
@@ -288,7 +291,7 @@ export class Canvas {
 
     if (store.tool === 'text') {
       // Placed on release, so a pinch that starts with this finger doesn't leave text behind.
-      this.drag = { kind: 'text', at: snapPoint(p, this.half(e)) };
+      this.drag = { kind: 'text', at: snapPoint(p, this.half(e), this.header().top) };
     } else if (store.tool !== 'select') {
       const at = this.pointFor(p, e);
       this.drag = { kind: 'draw', start: at, cur: at };
@@ -420,12 +423,12 @@ export class Canvas {
       if (!d.moved && Math.hypot(e.clientX - this.downPx.x, e.clientY - this.downPx.y) < slop) return;
       d.moved = true;
       const dx = Math.round((p.x - d.startCells.x) / step) * step, dy = Math.round((p.y - d.startCells.y) / step) * step;
-      d.last = moveGroup(d.origins, dx, dy);
+      d.last = moveGroup(d.origins, dx, dy, this.header());
     } else if (d.kind === 'resize') {
-      const next = resizeElement(d.origin, d.handle, snapPoint(p, this.half(e)));
+      const next = resizeElement(d.origin, d.handle, snapPoint(p, this.half(e), this.header().top));
       // Hold the last good shape when the drag would leave nothing, and say why.
       if (!next) this.notify('An element can’t be resized down to nothing.');
-      else if (validateElement(next).length) this.notify(validateElement(next)[0].message);
+      else if (validateElement(next, 'element', this.header()).length) this.notify(validateElement(next, 'element', this.header())[0].message);
       else { this.notify(null); d.last = next; }
     } else {
       return;
@@ -478,13 +481,15 @@ export class Canvas {
     const { store } = this;
 
     if (d.kind === 'text') {
-      addElement(store, { type: 'text', x: d.at.x, y: Math.min(d.at.y, 43), text: 'Text' });
+      const text: PageElement = { type: 'text', x: d.at.x, y: Math.min(d.at.y, 43), text: 'Text' };
+      // The page number's corner can't take text; drop it just below the header instead.
+      addElement(store, validateElement(text, 'element', this.header()).length ? { ...text, y: 1 } : text);
       return;
     } else if (d.kind === 'draw') {
       const els = this.placed(d);
-      const bad = els.find((el) => validateElement(el).length > 0);
+      const bad = els.find((el) => validateElement(el, 'element', this.header()).length > 0);
       if (els.length && !bad) { addElements(store, els); return; }
-      if (bad) this.notify(`Not created: ${validateElement(bad)[0].message}`);
+      if (bad) this.notify(`Not created: ${validateElement(bad, 'element', this.header())[0].message}`);
     } else if (d.kind === 'marquee') {
       this.finishMarquee(d);
       return;

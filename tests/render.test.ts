@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { elementMarkup, exportSvg, pageContent } from '../src/render';
+import { elementMarkup, exportSvg, headerItems, pageContent } from '../src/render';
 import { emptyPage, type Page, type PageElement } from '../src/format/types';
 import { blankTokens } from '../src/format/tokens';
 
@@ -185,5 +185,13 @@ describe('page numbers and tokens in a book', () => {
     expect(blank).toContain('>Week <');
     expect(blank).not.toContain('MON');
     expect(blank).not.toContain('font-weight="700"'); // a blank identity leaves no empty bold text behind
+  });
+});
+
+describe('the page number', () => {
+  it('is left out of a page that turns it off, whatever number the book gives it', () => {
+    const page = { ...emptyPage(), side: 'left' as const };
+    expect(headerItems(page, '7').map((i) => i.text)).toEqual(['7']);
+    expect(headerItems({ ...page, page_number: false }, '7')).toEqual([]);
   });
 });

@@ -31,34 +31,48 @@ the identity by the spine. Version 1 files are converted when imported.
   small or large, and "include the first edge" adds the top (or left) line.
 - **Advanced** places a **Sequence**, an **Icon** (about 60 line icons from a big tappable grid), **Checks**, or one of your
   **Widgets**. Save a selection from More; widgets are kept in the browser, beside the library.
-- **Layers** lists every element from top (drawn last) to bottom. Select, hide,
-  lock, delete, and reorder with the arrows or by dragging a row. Hiding and
-  locking are for editing only; they are not saved in the file.
+- **Layers** lists every element from top (drawn last) to bottom. Tap a name to select that element and open its
+  properties. Hide, lock, delete, and reorder with the arrows or by dragging a row. Hiding and locking are for editing
+  only; they are not saved in the file.
 - **Properties** shows every field of the selected element. A value that would
   break the format is refused, with the reason.
-- **Page** holds the name, the identity (tokens such as `{weekday}` allowed) and
-  the side: the spine and header are drawn on the correct side.
+- **The top bar** has three buttons. **Page ▾** switches between Page, Spread and Book (its label shows which one you are
+  in) and opens **Settings**. **Edit ▾** holds Edit, Preview, Library and New. **Export** opens the import and export
+  window. Undo, redo and help are icons on the right. A menu closes when you choose an item or tap outside it.
+- **Settings** (Page ▾, then Settings) holds the name and settings of what you are editing. For a page: its name, whether
+  the page number prints, the identity (optional text by the spine, with tokens such as `{weekday}`; the field starts empty
+  with an example in gray) and the side. **Row 0 is the header row**: while the page has an identity it belongs to the
+  header; leave the identity empty and you can draw in row 0, except the page number's two corner cells while the page
+  number is on. A spread's settings cover its name and both pages; a book's cover its name, page count, page numbers and the
+  print settings.
+- **Library** (Edit ▾, then Library) is a browser with a search box and tabs for Pages, Spreads, Books, Widgets and
+  Favorites. Tap the star on anything to find it under Favorites. The built-in examples are in Pages, marked as examples.
+  Tap an item to open or place it; Rename, Duplicate and Delete are in the ⋯ menu on each one.
+- **Export** is one window with four tabs. **Import** opens a JSON file. **Export** saves the current page, spread or book as
+  JSON. **PNG** saves the page or spread at 150, 300 or 600 DPI. **PDF** makes the book's pages at final size, or
+  print-ready signatures, with or without the covers. Each tab says what file you get, and nothing downloads until you
+  press its **Download** button.
 
 ## On a phone or tablet
 
-The same app is laid out for touch below 1000 px wide: a one-row top bar (Page /
-Spread / Book, Undo, Redo, and a menu holding Library, New, examples, import and
-export, Preview and Help), the page filling the screen, and the tools along the
-bottom (including a **Half** toggle that replaces holding Shift).
+The same app is laid out for touch below 1000 px wide: a one-row top bar (the
+Page, Edit and Export buttons, with Undo, Redo and Help as icons), the page filling
+the screen, and the tools along the bottom (including a **Half** toggle that replaces
+holding Shift).
 
 ![Phone: selection above the properties sheet](docs/screenshots/mobile/phone-selection-above-sheet.png)
 
 - **Pinch** to zoom, **two fingers** to pan, the **Fit** button to bring the
   whole page back.
 - Selecting an element opens the **bottom sheet** (properties with nudge arrows
-  for a cell or half a cell; tabs for Layers and Page). Pull the grip up or
+  for a cell or half a cell; a tab for Layers). Pull the grip up or
   swipe it down; the page scrolls so the selection never hides under it.
 - **Long-press** an element for duplicate, delete, bring forward, send backward
   and select the one underneath. Resize handles are finger-sized.
 - **Spread** edits one page at a time (Left / Right, or swipe over an empty
   part of the page); **View spread** shows the pair as it will look open.
-- Library and print-file windows are full-screen sheets; on a phone the print
-  files download as one zip.
+- The Library, Settings and Export windows are full-screen sheets on a phone; the signature PDFs
+  download as one zip.
 - A web app manifest and icon let you add Dotwork to the home screen.
 
 Screenshots for phone, tablet and desktop are in
@@ -74,9 +88,9 @@ npm run build    # type-checks, then builds to dist/
 npm run test:e2e # drives the app in headless Chromium at phone, tablet and desktop sizes
 ```
 
-The current page autosaves to your browser's localStorage. Use Export JSON,
-Import JSON and Export PNG (the whole 88.9 x 139.7 mm page at 600 DPI) in the toolbar.
-Example pages live in [examples/](examples/); the monthly tracker, daily Good
+The current page autosaves to your browser's localStorage. Use the Export button for
+JSON, PNG (the whole 88.9 x 139.7 mm page, 600 DPI by default) and PDF.
+Example pages live in [examples/](examples/) and show in the Library; the monthly tracker, daily Good
 Time Journal, idea and weekly pages recreate journal-system's pages. Compare
 them with `reference/` in [docs/screenshots/](docs/screenshots/)
 (`compare-*.png`: reference on the left, Dotwork's export on the right).
@@ -106,18 +120,18 @@ cover.
   expands on tap. On a phone it opens from the **Contents** button.
 - **Page numbers** are on by default, in each page's outer top corner. Date
   tokens (`{weekday}` and so on) print blank so the date can be written in.
-- **Book settings**: paper thickness for creep (0.14 mm), the back-side offset
-  (x and y, for printers that shift on the second pass) and the number of
-  signatures. A creep that would cross the fold is refused with the reason.
-- **Export print files** builds `pages.pdf`, `print-first.pdf` and
-  `print-second.pdf` (one pair per signature), `cover.pdf`, a `preview.png`
-  contact sheet and a `summary.txt`, and offers them one by one or as a zip.
+- **Book settings** (Page ▾, then Settings, and again in the PDF tab): paper thickness for creep (0.14 mm), the back-side
+  offset (x and y, for printers that shift on the second pass) and the number of signatures. A creep that would cross
+  the fold is refused with the reason.
+- **Print files…** (or Export, then PDF) offers **pages at final size** (`pages.pdf`) or **print-ready signatures**
+  (`print-first.pdf` and `print-second.pdf`, one pair per signature, with a `preview.png` contact sheet and a
+  `summary.txt` in the zip), and **cover.pdf** with either. One file downloads as itself, several as a zip.
   Text stays real text in the embedded Courier Prime and lines stay vector.
 
 ![The print files](docs/screenshots/book-export.png)
 
-A book is saved to the Library beside pages and spreads, and **Export JSON** /
-**Import JSON** read and write it as a file; the format and the print files are
+A book is saved to the Library beside pages and spreads, and Export's **Export** and **Import** tabs
+read and write it as a JSON file; the format and the print files are
 described in [docs/book-format.md](docs/book-format.md). The imposition is a
 port of journal-system's `pocketjournal/imposition.py`, tested with the same
 cases. Print each signature the way it says in `summary.txt`: `print-first.pdf`,

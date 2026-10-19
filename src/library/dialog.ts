@@ -1,12 +1,15 @@
 import { formatIssue } from '../format/validate';
 import { readPage } from '../format/read';
-import type { Page } from '../format/types';
+import { GRID_X_MM, GRID_Y_MM, PITCH_MM, emptyPage, type Page } from '../format/types';
 import { readSpread, type Spread, type SpreadSide } from '../format/spread';
 import { readBook, bookPage, type Book } from '../book/book';
 import { h } from '../panel';
-import { thumbnailSvg } from '../render';
+import { pageContent, thumbnailSvg } from '../render';
+import { placeWidget, widgetSize, type Widget, type WidgetStore } from '../widgets';
 import oflUrl from '../fonts/OFL.txt?url';
 import type { Library, LibraryItem } from './library';
+import type { Favorites } from './favorites';
+import { TABS, TAB_LABEL, exampleId, visibleEntries, widgetId, type Entry, type LibraryTab } from './browse';
 
 /** What can be saved from the editor right now. */
 export type SaveWhat = 'page' | 'spread' | 'left' | 'right' | 'book';
@@ -15,31 +18,61 @@ export interface SaveOption { what: SaveWhat; label: string; name: string }
 
 /** What the dialog needs from the editor around it. */
 export interface LibraryHost {
+  view(): 'page' | 'spread' | 'book';
   saveOptions(): SaveOption[];
   data(what: SaveWhat): Page | Spread | Book;
+  /** The built-in example pages, listed with the saved pages. */
+  examples: readonly Page[];
+  widgets: WidgetStore;
+  favorites: Favorites;
+  /** In a spread, the side a tapped page is placed on; null when it should open on its own. */
+  pageTarget(): SpreadSide | null;
   openPage(page: Page): void;
   openSpread(spread: Spread): void;
   openBook(book: Book): void;
   placePage(page: Page, side: SpreadSide): void;
+  /** Arm the widget tool, ready to be put on the page. */
+  useWidget(widget: Widget): void;
   download(blob: Blob, filename: string): void;
   /** The window was closed; anything that lists the library can refresh. */
   closed?(): void;
 }
 
-const itemThumb = (item: LibraryItem) =>
-  thumbnailSvg(item.kind === 'page' ? [item.data] : item.kind === 'spread' ? [item.data.left, item.data.right]
-    : [bookPage(item.data, 0), bookPage(item.data, 1)]); // a book shows as its first spread
+const itemThumb = (e: Entry): string =>
+  e.kind === 'page' ? thumbnailSvg([e.data])
+    : e.kind === 'spread' ? thumbnailSvg([e.data.left, e.data.right])
+      : e.kind === 'book' ? thumbnailSvg([bookPage(e.data, 0), bookPage(e.data, 1)]) // a book shows as its first spread
+        : widgetThumbnail(e.data);
+
+/** A widget drawn on its own, cropped to the cells it covers. */
+function widgetThumbnail(widget: Widget): string {
+  const { w, h: hh } = widgetSize(widget);
+  const page: Page = { ...emptyPage(), elements: placeWidget(widget, { x: 0, y: 1 }) };
+  const pad = 2, x = GRID_X_MM - pad, y = GRID_Y_MM + PITCH_MM - pad;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${x} ${y} ${w * PITCH_MM + 2 * pad} ${hh * PITCH_MM + 2 * pad}" role="img">${pageContent(page, { mode: 'export', pageNumber: null })}</svg>`;
+}
 
 const when = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+const KIND_LABEL = { page: 'Page', spread: 'Spread', book: 'Book', widget: 'Widget' } as const;
+/** Where the library opens: on pages (in a spread they are what you place), or on books when arranging one. */
+const VIEW_TAB = { page: 'pages', spread: 'pages', book: 'books' } as const;
+const KIND_TAB = { page: 'pages', spread: 'spreads', book: 'books' } as const;
 
-/** The library window: save the current page or spread, and open, rename, duplicate and delete what is saved. */
+/**
+ * The library browser: search, tabs for pages, spreads, books, widgets and favorites, a star on every item, and the
+ * built-in examples listed beside what is saved. Tapping an item opens or places it; renaming, duplicating and deleting
+ * are in the ⋯ menu on each one.
+ */
 export class LibraryDialog {
   private dialog: HTMLDialogElement;
   private msgEl = h('p', { class: 'lib-msg', role: 'status', hidden: true });
   private listEl = h('div', { class: 'lib-list' });
   private saveRow = h('div', { class: 'lib-save' });
+  private search = h('input', { type: 'text', 'aria-label': 'Search by name', placeholder: 'Search by name', 'data-help': 'library-search', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', enterkeyhint: 'search' });
+  private tabsEl = h('div', { class: 'lib-tabs', role: 'tablist', 'aria-label': 'Library sections' });
+  private tab: LibraryTab = 'pages';
   private renaming: string | null = null;
-  private nameEdited = false;
+  private menuFor: string | null = null;
 
   constructor(private library: Library, private host: LibraryHost) {
     const file = h('input', { type: 'file', accept: '.json,application/json', hidden: true });
@@ -48,31 +81,43 @@ export class LibraryDialog {
       file.value = '';
       if (f) await this.importBackup(f);
     };
-    this.dialog = h('dialog', { class: 'library', 'aria-label': 'Library' },
+    this.search.oninput = () => void this.renderList();
+    this.tabsEl.replaceChildren(...TABS.map((t) => h('button', {
+      type: 'button', role: 'tab', 'data-tab': t, 'data-help': 'library-tab', 'aria-selected': 'false',
+      onclick: () => { this.tab = t; this.menuFor = null; this.renderTabs(); void this.renderList(); },
+    }, TAB_LABEL[t])));
+    this.dialog = h('dialog', { class: 'library browser', 'aria-label': 'Library' },
       h('header', {},
         h('h2', {}, 'Library'),
         h('button', { type: 'button', 'data-help': 'library-close', onclick: () => this.dialog.close() }, 'Close')),
       this.saveRow,
+      h('div', { class: 'lib-find' }, this.search, this.tabsEl),
       this.msgEl,
       this.listEl,
       h('footer', {},
-        h('button', { type: 'button', 'data-help': 'library-export', onclick: () => this.exportBackup() }, 'Export library'),
-        h('button', { type: 'button', 'data-help': 'library-import', onclick: () => file.click() }, 'Import library'),
+        h('button', { type: 'button', 'data-help': 'library-export', onclick: () => this.exportBackup() }, 'Back up library'),
+        h('button', { type: 'button', 'data-help': 'library-import', onclick: () => file.click() }, 'Restore backup'),
         file,
-        h('span', { class: 'hint' }, 'Kept in this browser. Export a backup file to keep it safe.'),
         h('span', { class: 'hint' }, 'Courier Prime © The Courier Prime Project Authors, ',
           h('a', { href: oflUrl, target: '_blank', rel: 'noopener', 'data-help': 'credits-link' }, 'SIL OFL 1.1'), '.')),
     );
-    this.dialog.addEventListener('click', (e) => { if (e.target === this.dialog) this.dialog.close(); });
+    this.dialog.addEventListener('click', (e) => {
+      if (e.target === this.dialog) this.dialog.close();
+      else if (this.menuFor && !(e.target as HTMLElement).closest('.lib-more, .lib-menu')) { this.menuFor = null; void this.renderList(); }
+    });
     this.dialog.addEventListener('close', () => host.closed?.());
+    host.widgets.subscribe(() => { if (this.dialog.open) void this.renderList(); });
     document.body.append(this.dialog);
   }
 
   async show() {
     this.renaming = null;
-    this.nameEdited = false;
+    this.menuFor = null;
+    this.search.value = '';
+    this.tab = VIEW_TAB[this.host.view()];
     this.say(null);
     this.renderSave();
+    this.renderTabs();
     await this.renderList();
     if (!this.dialog.open) this.dialog.showModal();
   }
@@ -85,26 +130,22 @@ export class LibraryDialog {
 
   private close() { if (this.dialog.open) this.dialog.close(); }
 
-  // ---- saving ---------------------------------------------------------------
-
-  private renderSave(selected?: SaveWhat) {
-    const options = this.host.saveOptions();
-    const current = options.find((o) => o.what === selected) ?? options[0];
-    const name = h('input', { type: 'text', value: current.name, 'aria-label': 'Name', 'data-help': 'library-save-name', maxlength: 80 });
-    name.oninput = () => { this.nameEdited = true; };
-    const what = h('select', { 'aria-label': 'What to save', 'data-help': 'library-save-what' },
-      ...options.map((o) => h('option', { value: o.what, selected: o === current }, o.label)));
-    what.onchange = () => {
-      const o = options.find((x) => x.what === what.value)!;
-      if (!this.nameEdited) name.value = o.name;
-    };
-    const save = h('button', { type: 'button', class: 'primary', 'data-help': 'library-save' }, 'Save to library');
-    save.onclick = () => this.save(what.value as SaveWhat, name.value);
-    name.onkeydown = (e) => { if (e.key === 'Enter') save.click(); };
-    this.saveRow.replaceChildren(what, name, save);
+  private renderTabs() {
+    for (const b of this.tabsEl.querySelectorAll('button')) b.setAttribute('aria-selected', String(b.dataset.tab === this.tab));
   }
 
-  private async save(what: SaveWhat, name: string) {
+  // ---- saving ---------------------------------------------------------------
+
+  /** One button per thing that can be saved: it is saved under its own name (set in Settings). */
+  private renderSave() {
+    this.saveRow.replaceChildren(...this.host.saveOptions().map((o) => h('button', {
+      type: 'button', class: 'primary', 'data-key': `library-save-${o.what}`, 'data-help': 'library-save', title: `Save under the name “${o.name}”`,
+      onclick: () => void this.save(o),
+    }, `Save ${o.label.toLowerCase()}`)));
+  }
+
+  private async save(option: SaveOption) {
+    const { what, name } = option;
     const kind = what === 'spread' ? 'spread' : what === 'book' ? 'book' : 'page';
     const existing = await this.library.findByName(kind, name);
     if (existing && !confirm(`Replace the saved ${kind} “${existing.name}”?`)) return;
@@ -118,69 +159,114 @@ export class LibraryDialog {
       : kind === 'book' ? await this.library.save('book', name, data as Book)
         : await this.library.save('page', name, data as Page);
     this.say(`Saved ${kind} “${item.name}” to the library.`);
-    this.nameEdited = false;
-    this.renderSave(what);
+    this.tab = KIND_TAB[kind];
+    this.renderTabs();
     await this.renderList();
   }
 
   // ---- the list -------------------------------------------------------------
 
+  private async entries(): Promise<Entry[]> {
+    const saved = (await this.library.list()).map((i): Entry => ({ ...i, updated: i.updated, example: false }) as Entry);
+    const examples = this.host.examples.map((data): Entry => ({ kind: 'page', id: exampleId(data), name: data.name, updated: null, example: true, data }));
+    const widgets = this.host.widgets.list().map((data): Entry => ({ kind: 'widget', id: widgetId(data), name: data.name, updated: null, example: false, data }));
+    return [...saved, ...examples, ...widgets];
+  }
+
   private async renderList() {
-    const items = await this.library.list();
-    if (!items.length) {
-      this.listEl.replaceChildren(h('p', { class: 'hint' }, 'Nothing saved yet. Name the current page, spread or book above and save it.'));
+    const query = this.search.value;
+    const shown = visibleEntries(await this.entries(), this.tab, query, (id) => this.host.favorites.has(id));
+    if (!shown.length) {
+      const empty: Record<LibraryTab, string> = {
+        pages: 'No pages yet. Save the page you are editing with the button above.',
+        spreads: 'No spreads yet. Save the spread you are editing with the button above.',
+        books: 'No books yet. Save the book you are arranging with the button above.',
+        widgets: 'No widgets yet. Select elements on a page, then More, Save as widget.',
+        favorites: 'Nothing starred yet. Tap the star on anything to find it here.',
+      };
+      this.listEl.replaceChildren(h('p', { class: 'hint', 'data-key': 'library-empty' }, query.trim() ? `Nothing in ${TAB_LABEL[this.tab]} matches “${query.trim()}”.` : empty[this.tab]));
       return;
     }
-    this.listEl.replaceChildren(...items.map((item) => this.card(item)));
+    this.listEl.replaceChildren(...shown.map((e) => this.card(e)));
   }
 
-  private card(item: LibraryItem): HTMLElement {
-    const thumb = h('div', { class: `thumb ${item.kind}`, role: 'img', 'aria-label': `Thumbnail of ${item.name}` });
-    thumb.innerHTML = itemThumb(item);
+  /** Tapping the item: open it, put it on the spread page being edited, or arm the widget tool. */
+  private use(e: Entry) {
+    if (e.kind === 'page') {
+      const side = this.host.pageTarget();
+      if (side) this.host.placePage(e.data, side); else this.host.openPage(e.data);
+    } else if (e.kind === 'spread') this.host.openSpread(e.data);
+    else if (e.kind === 'book') this.host.openBook(e.data);
+    else this.host.useWidget(e.data);
+    this.close();
+  }
 
-    const title = this.renaming === item.id
-      ? this.renameField(item)
-      : h('strong', { class: 'lib-name', title: item.name }, item.name);
-    const btn = (help: string, label: string, fn: () => void | Promise<void>, title?: string) =>
-      h('button', { type: 'button', title, 'data-help': `library-${help}`, onclick: () => void fn() }, label);
+  private card(e: Entry): HTMLElement {
+    const thumb = h('div', { class: `thumb ${e.kind}`, role: 'img', 'aria-label': `Thumbnail of ${e.name}` });
+    thumb.innerHTML = itemThumb(e);
+    const starred = this.host.favorites.has(e.id);
+    const title = this.renaming === e.id ? this.renameField(e) : h('strong', { class: 'lib-name', title: e.name }, e.name);
+    const meta = [KIND_LABEL[e.kind], e.example ? 'example' : e.updated ? when(e.updated) : e.kind === 'widget' ? `${e.data.elements.length} element${e.data.elements.length === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ');
+    const open = h('button', {
+      type: 'button', class: 'lib-open', 'data-key': 'library-item', 'data-help': 'library-item', 'data-kind': e.kind, 'aria-label': `${this.openVerb(e)} ${e.name}`,
+      onclick: () => this.use(e),
+    }, thumb);
+    const star = h('button', {
+      type: 'button', class: 'lib-star', 'data-key': 'library-star', 'data-help': 'library-star', 'aria-pressed': String(starred), 'aria-label': starred ? `Unstar ${e.name}` : `Star ${e.name}`,
+      onclick: () => { this.host.favorites.toggle(e.id); void this.renderList(); },
+    }, starred ? '★' : '☆');
+    const more = h('button', {
+      type: 'button', class: 'lib-more', 'data-key': 'library-more', 'data-help': 'library-more', 'aria-haspopup': 'menu', 'aria-expanded': String(this.menuFor === e.id), 'aria-label': `More for ${e.name}`,
+      onclick: () => { this.menuFor = this.menuFor === e.id ? null : e.id; void this.renderList(); },
+    }, '⋯');
+    return h('article', { class: `lib-card${this.menuFor === e.id ? ' menu-open' : ''}`, 'data-name': e.name },
+      open,
+      h('div', { class: 'lib-meta' }, title, h('span', { class: 'hint' }, meta)),
+      h('div', { class: 'lib-tools' }, star, more),
+      this.menuFor === e.id ? this.menu(e) : null);
+  }
 
-    const actions: HTMLElement[] = [
-      btn('open', 'Open', () => {
-        if (item.kind === 'page') this.host.openPage(item.data);
-        else if (item.kind === 'spread') this.host.openSpread(item.data);
-        else this.host.openBook(item.data);
-        this.close();
-      }, item.kind === 'page' ? 'Edit this page on its own' : item.kind === 'spread' ? 'Edit this spread' : 'Arrange this book'),
-    ];
-    if (item.kind === 'page') {
-      const place = (side: SpreadSide) => () => { this.host.placePage(item.data, side); this.close(); };
-      actions.push(btn('left', '→ Left', place('left'), 'Use as the left page of the spread'), btn('right', '→ Right', place('right'), 'Use as the right page of the spread'));
-    }
-    actions.push(
-      btn('rename', 'Rename', () => { this.renaming = item.id; return this.renderList(); }),
-      btn('duplicate', 'Duplicate', async () => { await this.library.duplicate(item.id); await this.renderList(); }),
-      btn('delete', 'Delete', async () => {
-        if (!confirm(`Delete the saved ${item.kind} “${item.name}”? This can’t be undone.`)) return;
-        await this.library.remove(item.id);
+  private openVerb(e: Entry) {
+    return e.kind === 'widget' ? 'Use widget' : e.kind === 'page' && this.host.pageTarget() ? `Place on the ${this.host.pageTarget()} page:` : 'Open';
+  }
+
+  /** Rename, duplicate and delete; the built-in examples can only be copied. */
+  private menu(e: Entry): HTMLElement {
+    const item = (help: string, label: string, fn: () => void | Promise<void>) =>
+      h('button', { type: 'button', role: 'menuitem', 'data-key': `library-${help}`, 'data-help': `library-${help}`, onclick: () => { this.menuFor = null; void fn(); } }, label);
+    const items: HTMLElement[] = [];
+    if (!e.example) items.push(item('rename', 'Rename', () => { this.renaming = e.id; return this.renderList(); }));
+    items.push(item('duplicate', 'Duplicate', () => this.duplicate(e)));
+    if (!e.example) {
+      items.push(item('delete', 'Delete', async () => {
+        if (!confirm(`Delete the saved ${e.kind} “${e.name}”? This can’t be undone.`)) { await this.renderList(); return; }
+        if (e.kind === 'widget') this.host.widgets.remove(e.data.id); else await this.library.remove(e.id);
         await this.renderList();
-      }),
-    );
-    return h('article', { class: 'lib-card' }, thumb,
-      h('div', { class: 'lib-meta' }, title, h('span', { class: 'hint' }, `${item.kind} · ${when(item.updated)}`)),
-      h('div', { class: 'lib-actions' }, ...actions));
+      }));
+    }
+    return h('div', { class: 'menu-list lib-menu', role: 'menu', 'aria-label': `${e.name} menu` }, ...items);
   }
 
-  private renameField(item: LibraryItem): HTMLElement {
-    const input = h('input', { type: 'text', value: item.name, 'aria-label': 'New name', 'data-help': 'library-rename-field', maxlength: 80 });
+  private async duplicate(e: Entry) {
+    if (e.kind === 'widget') this.host.widgets.add(`${e.name} copy`, e.data.elements);
+    else if (e.example) { await this.library.save('page', `${e.name} copy`, e.data); this.tab = 'pages'; this.renderTabs(); this.say(`Saved a copy of “${e.name}” to your pages.`); }
+    else await this.library.duplicate(e.id);
+    await this.renderList();
+  }
+
+  private renameField(e: Entry): HTMLElement {
+    const input = h('input', { type: 'text', value: e.name, 'aria-label': 'New name', 'data-help': 'library-rename-field', maxlength: 80 });
     let done = false;
     const finish = async (commit: boolean) => {
       if (done) return;
       done = true;
       this.renaming = null;
-      if (commit) await this.library.rename(item.id, input.value);
+      if (commit) {
+        if (e.kind === 'widget') this.host.widgets.rename(e.data.id, input.value); else await this.library.rename(e.id, input.value);
+      }
       await this.renderList();
     };
-    input.onkeydown = (e) => { if (e.key === 'Enter') void finish(true); else if (e.key === 'Escape') { e.stopPropagation(); void finish(false); } };
+    input.onkeydown = (ev) => { if (ev.key === 'Enter') void finish(true); else if (ev.key === 'Escape') { ev.stopPropagation(); void finish(false); } };
     input.onblur = () => void finish(true);
     queueMicrotask(() => { input.focus(); input.select(); });
     return input;
@@ -211,3 +297,5 @@ export class LibraryDialog {
     await this.renderList();
   }
 }
+
+export type { LibraryItem };

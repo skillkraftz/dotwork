@@ -62,8 +62,9 @@ export function sequenceProblem(e: Sequence): string | null {
       if (e.start !== undefined && !(typeof e.start === 'string' && /^[A-Za-z]$/.test(e.start))) return '"start" must be one letter for letters.';
       break;
     case 'list':
-      if (!Array.isArray(e.list) || !e.list.length || e.list.some((s) => typeof s !== 'string' || !s || [...s].length > MAX_ITEM_CHARS)) {
-        return `"list" must have at least one item, each 1 to ${MAX_ITEM_CHARS} characters.`;
+      // An empty or missing list is allowed (nothing is drawn yet); what is there must fit a cell.
+      if (e.list !== undefined && (!Array.isArray(e.list) || e.list.some((s) => typeof s !== 'string' || !s || [...s].length > MAX_ITEM_CHARS))) {
+        return `"list" must be a list of items, each 1 to ${MAX_ITEM_CHARS} characters.`;
       }
       break;
     case 'icons':

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { HELP } from '../../src/help';
-import { bar, box, cellToClient, draft, drag, missingHelp, open, press, shot, start, stop, tap, type App, type Env, tool,
+import { bar, box, cellToClient, choose, draft, drag, missingHelp, open, press, shot, start, stop, tap, type App, type Env, tool,
 } from './harness';
 
 let env: Env;
@@ -52,12 +52,10 @@ describe('help mode', () => {
   it('on a phone: shows a card, explains controls instead of using them, and ends when the card is closed', async () => {
     const app = await open(env, 'phone');
     const { page } = app;
-    await page.tap('#menu-button');
     await page.tap('#help');
     const card = page.locator('#help-card');
     expect(await card.isVisible()).toBe(true);
     expect(await card.innerText()).toContain('Help mode: tap anything to see what it does.');
-    expect(await page.locator('#menu').isVisible()).toBe(false);
     await shot(app, 'phone-help-card');
 
     // a tool does not arm; its popover says what it does, with touch text (the mode buttons do switch, to reach the tools)
@@ -87,17 +85,24 @@ describe('help mode', () => {
     for (const g of ['Tap', 'Double-tap', 'Drag', 'pinch', 'Long-press', 'Two fingers']) expect(await popupText(app), g).toContain(g);
     await shot(app, 'phone-help-page');
 
-    // the menu opens, so that its items can be asked about; nothing in it acts
-    await page.tap('#menu-button');
-    expect(await page.locator('#menu').isVisible()).toBe(true);
+    // the menus open, so that their items can be asked about; nothing in them acts
+    await page.tap('#menu-edit');
+    expect(await page.locator('#list-edit').isVisible()).toBe(true);
     await page.tap('#library');
     expect(await popupText(app)).toContain('LIBRARY');
     expect(await page.locator('dialog[open]').count()).toBe(0);
-    expect(await page.locator('#menu').isVisible()).toBe(true);
-    await page.tap('#examples'); // a list does not open or take focus
-    expect(await page.evaluate(() => document.activeElement?.id)).not.toBe('examples');
+    expect(await page.locator('#list-edit').isVisible()).toBe(true);
     await page.tap('#new');
-    await page.tap('#menu-button');
+    expect(await popupText(app)).toContain('NEW');
+    await page.tap('#menu-edit');
+    await page.tap('#menu-page');
+    await page.tap('#settings');
+    expect(await popupText(app)).toContain('SETTINGS');
+    expect(await page.locator('dialog[open]').count()).toBe(0);
+    await page.tap('#menu-page');
+    await page.tap('#export');
+    expect(await popupText(app)).toContain('EXPORT');
+    expect(await page.locator('dialog[open]').count()).toBe(0);
 
     // closing the card ends it
     await page.tap('#help-card button');
@@ -137,7 +142,6 @@ describe('help mode', () => {
   it('follows the pointer in use: a mouse on a touch screen gets mouse text, then a finger gets touch text', async () => {
     const app = await open(env, 'phone');
     const { page } = app;
-    await page.tap('#menu-button');
     await page.tap('#help');
     await poke(app, '#bar-select', true); // by mouse
     expect(await popupText(app)).toContain('Press V');
@@ -153,7 +157,6 @@ describe('help mode', () => {
     await tool(app, 'box');
     await drag(app, await cellToClient(app, 4, 6), await cellToClient(app, 9, 10));
     await bar(app, 'properties');
-    await page.tap('#menu-button');
     await page.tap('#help'); // the window stays open under help mode
     expect(await page.locator('#sheet').getAttribute('data-state')).toBe('open');
     await page.tap('[data-key="step-inc-x"]');
@@ -173,9 +176,11 @@ describe('every control has a help entry', () => {
     const app = await open(env, 'phone');
     const { page } = app;
     expect(await missingHelp(app)).toEqual([]);
-    await page.tap('#menu-button');
-    expect(await missingHelp(app)).toEqual([]);
-    await page.tap('#menu-button');
+    for (const id of ['#menu-page', '#menu-edit']) {
+      await page.tap(id);
+      expect(await missingHelp(app), id).toEqual([]);
+      await page.tap(id);
+    }
 
     // each mode's buttons
     await page.tap('#bar-draw');
@@ -188,7 +193,7 @@ describe('every control has a help entry', () => {
     await drag(app, await cellToClient(app, 4, 6), await cellToClient(app, 10, 10));
     expect(await missingHelp(app)).toEqual([]);
     await bar(app, 'properties');
-    for (const tab of ['properties', 'layers', 'page']) {
+    for (const tab of ['properties', 'layers']) {
       await page.tap(`[data-tab-button="${tab}"]`);
       expect(await missingHelp(app), tab).toEqual([]);
     }
@@ -203,12 +208,26 @@ describe('every control has a help entry', () => {
     await page.waitForSelector('.ctx-menu');
     expect(await missingHelp(app)).toEqual([]);
     await page.keyboard.press('Escape');
-    await page.setInputFiles('#import-file', { name: 'x.json', mimeType: 'application/json', buffer: Buffer.from('not json') }); // refused with a message
-    await page.waitForSelector('#notice:not([hidden])');
+
+    // the settings, and the export window with a refused file and every tab
+    await choose(app, 'page', '#settings');
+    await page.waitForSelector('dialog.settings[open]');
+    expect(await missingHelp(app), 'settings').toEqual([]);
+    await page.tap('dialog.settings header button');
+    await page.tap('#export');
+    await page.waitForSelector('dialog.export[open]');
+    for (const tab of ['import', 'export', 'png', 'pdf']) {
+      await page.tap(`dialog.export [data-tab="${tab}"]`);
+      expect(await missingHelp(app), `export ${tab}`).toEqual([]);
+    }
+    await page.tap('dialog.export [data-tab="import"]');
+    await page.setInputFiles('dialog.export input[type="file"]', { name: 'x.json', mimeType: 'application/json', buffer: Buffer.from('not json') }); // refused with a message
+    await page.waitForSelector('dialog.export .lib-msg:not([hidden])');
     expect(await missingHelp(app)).toEqual([]);
+    await page.tap('dialog.export header button');
 
     // the spread
-    await page.tap('#view-spread');
+    await choose(app, 'page', '#view-spread');
     expect(await missingHelp(app)).toEqual([]);
     await page.tap('#side-both');
     expect(await missingHelp(app)).toEqual([]);
@@ -231,29 +250,35 @@ describe('every control has a help entry', () => {
     }
     await page.locator('#panel [data-help="layer-lock"]').first().click(); // a locked element's panel
     expect(await missingHelp(app)).toEqual([]);
-    await page.click('#mode-preview');
+    await choose(app, 'edit', '#mode-preview');
     expect(await missingHelp(app)).toEqual([]);
     expect(app.errors).toEqual([]);
   });
 
-  it('in the library: saving, saved items, renaming', async () => {
+  it('in the library: saving, tabs, saved items, the ⋯ menu, renaming', async () => {
     const app = await open(env, 'desktop');
     const { page } = app;
-    await page.click('#library');
+    await choose(app, 'edit', '#library');
     await page.waitForSelector('dialog[aria-label="Library"][open]');
     expect(await missingHelp(app)).toEqual([]);
-    await page.locator('dialog[aria-label="Library"] input[aria-label="Name"]').fill('Test page');
-    await page.click('dialog[aria-label="Library"] .primary');
-    await page.waitForSelector('.lib-card');
+    await page.click('dialog[aria-label="Library"] .lib-save .primary');
+    await page.waitForSelector('.lib-card[data-name="Untitled"]');
     expect(await missingHelp(app)).toEqual([]);
-    await page.click('.lib-card button[data-help="library-rename"]');
+    await page.click('.lib-card[data-name="Untitled"] .lib-more');
+    await page.waitForSelector('.lib-menu');
+    expect(await missingHelp(app)).toEqual([]);
+    await page.click('.lib-menu button[data-help="library-rename"]');
     await page.waitForSelector('.lib-card input');
     expect(await missingHelp(app)).toEqual([]);
     await page.keyboard.press('Enter');
+    for (const tab of ['widgets', 'favorites']) {
+      await page.click(`dialog[aria-label="Library"] [data-tab="${tab}"]`);
+      expect(await missingHelp(app), tab).toEqual([]);
+    }
     await page.click('dialog[aria-label="Library"] header button');
-    // as a spread, where saved pages can go to either side
-    await page.click('#view-spread');
-    await page.click('#library');
+    // as a spread, where saved pages go to the page being edited
+    await choose(app, 'page', '#view-spread');
+    await choose(app, 'edit', '#library');
     await page.waitForSelector('dialog[aria-label="Library"][open]');
     expect(await missingHelp(app)).toEqual([]);
     expect(app.errors).toEqual([]);
@@ -264,12 +289,15 @@ describe('every control has a help entry', () => {
       const app = await open(env, device);
       const { page } = app;
       const go = (sel: string) => (app.touch ? page.tap(sel) : page.click(sel));
+      await go('#menu-page');
       await go('#view-book');
       await page.waitForSelector('.book-bar');
       expect(await missingHelp(app), `${device} book`).toEqual([]);
-      await page.evaluate(() => { document.querySelector<HTMLDetailsElement>('.print-settings')!.open = true; });
+      await go('#menu-page');
+      await go('#settings');
+      await page.waitForSelector('dialog.settings[open]');
       expect(await missingHelp(app), `${device} settings`).toEqual([]);
-      await page.evaluate(() => { document.querySelector<HTMLDetailsElement>('.print-settings')!.open = false; });
+      await go('dialog.settings header button');
       await go('.view-toggle'); // spreads
       expect(await missingHelp(app), `${device} spreads`).toEqual([]);
       if (app.touch) await go('.contents-toggle');
@@ -285,8 +313,7 @@ describe('every control has a help entry', () => {
       expect(await missingHelp(app), `${device} apply`).toEqual([]);
       await go('dialog.apply button[data-help="apply-cancel"]');
       await go('button[data-help="book-export"]');
-      await page.waitForSelector('dialog.export[open] .export-files, dialog.export[open] .export-individual', { timeout: 40_000 });
-      if (app.touch) await page.evaluate(() => { document.querySelector<HTMLDetailsElement>('.export-individual')!.open = true; });
+      await page.waitForSelector('dialog.export[open] .export-actions .primary');
       expect(await missingHelp(app), `${device} export`).toEqual([]);
       expect(app.errors).toEqual([]);
       await app.ctx.close();
