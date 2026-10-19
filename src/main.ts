@@ -8,6 +8,7 @@ import { contextActions, deleteElement, duplicateElement, nudgeElement } from '.
 import { h, Panel } from './panel';
 import { closeContextMenu, showContextMenu } from './ctxmenu';
 import { isCompact, Sheet } from './sheet';
+import { ActionBar } from './actionbar';
 import { pageToPng } from './png';
 import { Store, type Tool } from './store';
 import { Library, MemoryBackend } from './library/library';
@@ -96,7 +97,8 @@ function notify(message: string | string[] | null) {
 function hooksFor(store: () => Store): CanvasHooks {
   return {
     contextMenu: (index, hits, at) => showContextMenu(at, contextActions(store(), index, hits)),
-    swipe: (direction) => { if (view === 'spread' && isCompact() && !showBoth) setActive(direction > 0 ? 'right' : 'left'); },
+    openProperties: (index) => { store().select(index); showProperties(); },
+    rendered: () => { if (store() === cur()) updateBar(); },
   };
 }
 const canvases = {
@@ -140,7 +142,7 @@ function refresh() {
     $('view-page').setAttribute('aria-pressed', 'false');
     $('view-spread').setAttribute('aria-pressed', 'false');
     $<HTMLInputElement>('spread-name').hidden = true;
-    setInset();
+    updateBar();
     return;
   }
   canvases.left.readOnly = canvases.right.readOnly = both;
@@ -168,23 +170,38 @@ function refresh() {
     b.setAttribute('aria-pressed', String(b.dataset.tool === store.tool));
   }
   $('half-cells').setAttribute('aria-pressed', String(store.halfCells));
-  setInset();
+  updateBar();
 }
 
-/** Tell the notice how much of the bottom the sheet covers (the canvases ask `insetNow` themselves). */
-const insetNow = () => (view === 'book' || cur().mode === 'preview' ? 0 : sheet.inset);
-function setInset() {
-  document.querySelector('main')!.style.setProperty('--inset', `${insetNow()}px`);
-}
-const sheet = new Sheet($('sheet'), () => {
-  setInset();
-  // Closed: put the page back in the middle if it was only moved to clear the sheet. Open: keep the selection in view.
-  for (const c of Object.values(canvases)) {
-    if (sheet.state === 'closed') c.restore(); else c.revealSelection();
-  }
-});
-for (const c of Object.values(canvases)) c.inset = insetNow;
+const sheet = new Sheet($('sheet'), $('sheet-backdrop'), () => updateBar());
 panel.onTab = () => sheet.open();
+
+/** Properties for the selection: the modal on a narrow screen, the side panel's fields on a wide one. */
+function showProperties() {
+  panel.tab = 'properties';
+  panel.render();
+  if (isCompact()) { sheet.open(); return; }
+  if (!matchMedia('(pointer: coarse)').matches) $('panel').querySelector<HTMLElement>('section[data-tab="properties"] input, section[data-tab="properties"] select')?.focus();
+}
+
+// ---- the bar beside the selection ----
+
+const bar = new ActionBar($('action-bar'), document.querySelector('main')!, {
+  properties: showProperties,
+  duplicate() { const s = cur(); if (s.selected !== null) duplicateElement(s, s.selected); },
+  remove() { const s = cur(); if (s.selected !== null) deleteElement(s, s.selected); },
+  more(at) { const s = cur(); if (s.selected !== null) showContextMenu(at, contextActions(s, s.selected, [s.selected])); },
+});
+const canvasOf = (store: Store) => (store === stores.page ? canvases.page : store === stores.left ? canvases.left : canvases.right);
+
+/** Show the bar when something is selected on a touch-sized screen and no gesture, modal or menu is in the way. */
+function updateBar() {
+  const store = cur();
+  const canvas = canvasOf(store);
+  const wanted = (isCompact() || matchMedia('(pointer: coarse)').matches) && view !== 'book' && store.mode === 'edit' && store.tool === 'select'
+    && store.selected !== null && !store.isLocked(store.selected) && !canvas.readOnly && !canvas.busy && sheet.state === 'closed';
+  bar.place(wanted ? canvas.selectionRect() : null);
+}
 
 for (const key of ['page', 'left', 'right'] as const) {
   let last = stores[key].page;
@@ -197,24 +214,13 @@ for (const key of ['page', 'left', 'right'] as const) {
     }
     if (store.selected !== lastSelected) {
       lastSelected = store.selected;
-      if (store === cur()) selectionChanged(store);
+      // Selecting never opens anything; but a properties modal has nothing left to show once the selection is gone.
+      if (store === cur() && store.selected === null && panel.tab === 'properties' && sheet.state !== 'closed') sheet.set('closed');
     }
     refresh();
   });
 }
 refresh();
-
-/** Selecting something opens the sheet on its properties and scrolls the page so the selection isn't under it. */
-function selectionChanged(store: Store) {
-  if (store.selected === null) {
-    if (panel.tab === 'properties' && sheet.state !== 'closed') sheet.set('closed');
-    return;
-  }
-  if (!isCompact() || store.mode !== 'edit') return;
-  if (sheet.state === 'closed') { panel.tab = 'properties'; sheet.open(); }
-  canvasOf(store).revealSelection();
-}
-const canvasOf = (store: Store) => (store === stores.page ? canvases.page : store === stores.left ? canvases.left : canvases.right);
 
 // ---- view: one page or a spread --------------------------------------------
 
@@ -521,13 +527,13 @@ const helpDialog = h('dialog', { class: 'library help', 'aria-label': 'Help' },
       'Pinch to zoom and drag with two fingers to pan; the Fit button puts the whole page back on the screen.'),
     h('h3', {}, 'Changing things'),
     helpList(
-      'Select, then tap an element to select it. Drag it to move it, and drag its square handles to resize it.',
+      'Select, then tap an element to select it; a bar beside it offers Properties, Duplicate, Delete and More. Drag the selected element to move it and its square handles to resize it; dragging anywhere else moves the view. Double-tap an element for its properties.',
       'Long-press an element (or right-click it) for a menu: duplicate, delete, bring forward, send backward, and select the one underneath.',
-      'The panel shows the selected element’s properties, with arrow buttons to nudge it a cell (or half a cell). Layers lists everything on the page: select, hide, lock, delete and reorder with the arrows.',
+      'Properties shows the selected element’s settings, with arrow buttons to nudge it a cell (or half a cell). Layers lists everything on the page: select, hide, lock, delete and reorder with the arrows. On a phone both open in a window with a Close button.',
       'Keyboard: arrow keys nudge a cell (Shift: half a cell); Ctrl/Cmd+D duplicates; Delete removes; Alt-click steps down through what’s underneath; Ctrl/Cmd+Z undoes, Shift+Ctrl/Cmd+Z redoes.'),
     h('h3', {}, 'Pages and spreads'),
     helpList(
-      'Page edits one page. Spread edits a left and a right page; on a phone you edit one at a time with Left and Right (or swipe sideways over an empty part of the page), and View spread shows the pair side by side as they will look open.',
+      'Page edits one page. Spread edits a left and a right page; on a phone you edit one at a time with Left and Right, and View spread shows the pair side by side as they will look open.',
       'Preview (in the menu) shows the page as it prints, with sample values for tokens. Library saves and reopens pages, spreads and books. Everything is kept in this browser; export JSON to keep a copy.',
       'Book builds a book one page at a time: choose a design for each page, copy it to more pages, and export the print files.'),
     h('h3', {}, 'Credits'),

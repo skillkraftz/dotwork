@@ -135,3 +135,32 @@ export async function shot(app: App, name: string) {
 
 export const viewBoxOf = (app: App, selector = '#canvas') =>
   app.page.locator(selector).evaluate((el) => (el.getAttribute('viewBox') ?? '').split(' ').map(Number));
+
+/** Tap a button on the action bar beside the selection. */
+export async function bar(app: App, action: 'properties' | 'duplicate' | 'remove' | 'more') {
+  await app.page.tap(`#action-bar [data-action="${action}"]`);
+}
+
+/** Two fingers landing one after the other, as they do for a person: the first at `a`, a moment later the second at `b`, then moving apart. */
+export async function stagger(app: App, a: Pt, b: Pt, spread = 100) {
+  await touch(app, 'touchStart', [a]);
+  await app.page.waitForTimeout(40);
+  await touch(app, 'touchStart', [a, b]);
+  const dir = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+  for (let i = 1; i <= 8; i++) {
+    const d = (spread * i) / 8;
+    await touch(app, 'touchMove', [{ x: a.x - ((b.x - a.x) / dir) * d / 2, y: a.y - ((b.y - a.y) / dir) * d / 2 }, { x: b.x + ((b.x - a.x) / dir) * d / 2, y: b.y + ((b.y - a.y) / dir) * d / 2 }]);
+  }
+  await touch(app, 'touchEnd', []);
+  await settle(app);
+}
+
+/** Two quick taps in the same place. */
+export async function doubleTap(app: App, p: Pt) {
+  await touch(app, 'touchStart', [p]);
+  await touch(app, 'touchEnd', []);
+  await app.page.waitForTimeout(80);
+  await touch(app, 'touchStart', [p]);
+  await touch(app, 'touchEnd', []);
+  await settle(app);
+}
