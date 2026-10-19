@@ -89,7 +89,7 @@ describe('help mode', () => {
     expect((await draft(app)).elements).toEqual([]);
     await tap(app, await cellToClient(app, 12, 20));
     const pageHelp = await popupText(app);
-    expect(pageHelp).toContain('THE PAGE: SHADE TOOL');
+    expect(pageHelp).toContain('THE PAGE: SELECT TOOL');
     expect(pageHelp).toContain('Pinch');
     await page.tap('[data-tool="select"]');
     await tap(app, await cellToClient(app, 10, 10));
