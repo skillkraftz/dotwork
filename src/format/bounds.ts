@@ -1,4 +1,5 @@
 import { COLS, DEFAULTS, PITCH_MM, ROWS, type Area, type PageElement, type Text } from './types';
+import { sequenceArea } from './sequence';
 
 /** Gap between a label and the edge it is anchored to, in mm (matches journal-system's label inset). */
 export const TEXT_INSET_MM = 0.8;
@@ -12,7 +13,6 @@ export const checkboxSpan = (count: number, every: number) => (count - 1) * ever
 /** The area an element occupies, in cells, for hit testing and selection. Text is estimated from its length. */
 export function elementArea(el: PageElement, text = el.type === 'text' ? el.text : ''): Area {
   switch (el.type) {
-    case 'shade':
     case 'pattern':
     case 'box':
       return { x: el.x, y: el.y, w: el.w, h: el.h };
@@ -29,6 +29,8 @@ export function elementArea(el: PageElement, text = el.type === 'text' ? el.text
     }
     case 'text':
       return textArea(el, text);
+    case 'sequence':
+      return sequenceArea(el);
   }
 }
 

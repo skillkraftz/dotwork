@@ -27,7 +27,7 @@ describe('snapping', () => {
 describe('drawing', () => {
   it('builds area elements from a drag in any direction, and nothing from a zero-size drag', () => {
     expect(elementFromDrag('box', { x: 5, y: 9 }, { x: 2, y: 4 })).toEqual({ type: 'box', x: 2, y: 4, w: 3, h: 5 });
-    expect(elementFromDrag('shade', { x: 1, y: 2 }, { x: 1.5, y: 3 })).toMatchObject({ type: 'shade', w: 0.5, h: 1 });
+    expect(elementFromDrag('pattern', { x: 1, y: 2 }, { x: 1.5, y: 3 })).toMatchObject({ type: 'pattern', w: 0.5, h: 1 });
     expect(elementFromDrag('pattern', { x: 1, y: 2 }, { x: 4, y: 2 })).toBeNull();
     expect(elementFromDrag('box', { x: 1, y: 2 }, { x: 1, y: 2 })).toBeNull();
   });
@@ -96,7 +96,7 @@ describe('resizing', () => {
 
 describe('hit testing', () => {
   it('hits shades and patterns anywhere inside, boxes only on their drawn sides', () => {
-    const shade: PageElement = { type: 'shade', x: 2, y: 2, w: 4, h: 4 };
+    const shade: PageElement = { type: 'pattern', pattern: 'none', background: 'light', x: 2, y: 2, w: 4, h: 4 };
     expect(hitElement(shade, { x: 3, y: 3 }, 0.1)).toBe(true);
     expect(hitElement(shade, { x: 6.5, y: 3 }, 0.1)).toBe(false);
     expect(hitElement(box, { x: 4, y: 4 }, 0.2)).toBe(false);

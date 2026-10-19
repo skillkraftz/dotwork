@@ -11,13 +11,18 @@ const centered = (page: number, cells: number) => +((page - cells * PITCH_MM) / 
 export const GRID_X_MM = centered(PAGE_W_MM, COLS); // 3.95
 export const GRID_Y_MM = centered(PAGE_H_MM, ROWS); // 3.85
 
-export const TONES = ['light', 'medium', 'dark'] as const;
-export type ShadeTone = (typeof TONES)[number];
+export const BACKGROUNDS = ['none', 'light', 'medium', 'dark'] as const;
+export type Background = (typeof BACKGROUNDS)[number];
 export const STRIPES = ['none', 'rows', 'columns'] as const;
 export type Stripes = (typeof STRIPES)[number];
 
-export const PATTERNS = ['lines', 'vlines', 'grid', 'dots'] as const;
+export const PATTERNS = ['none', 'lines', 'vlines', 'grid', 'dots'] as const;
 export type PatternKind = (typeof PATTERNS)[number];
+
+export const SEQUENCE_VALUES = ['numbers', 'letters', 'list', 'icons'] as const;
+export type SequenceValues = (typeof SEQUENCE_VALUES)[number];
+export const ICON_SIZES = [1, 2] as const;
+export type IconSize = (typeof ICON_SIZES)[number];
 
 export const SIDES = ['top', 'bottom', 'left', 'right'] as const;
 export type BoxSide = (typeof SIDES)[number];
@@ -46,15 +51,11 @@ export type PageSide = (typeof PAGE_SIDES)[number];
 
 export interface Area { x: number; y: number; w: number; h: number }
 
-export interface Shade extends Area {
-  type: 'shade';
-  tone?: ShadeTone;
-  stripes?: Stripes;
-}
-
 export interface Pattern extends Area {
   type: 'pattern';
   pattern: PatternKind;
+  background?: Background;
+  stripes?: Stripes;
   every?: number;
 }
 
@@ -96,9 +97,32 @@ export interface Text {
   rotate?: Rotation;
 }
 
-export type PageElement = Shade | Pattern | Box | Rule | Checkboxes | Text;
+/** A run of cells with one item in each: numbers, letters, a repeating list of short texts, or icons. */
+export interface Sequence {
+  type: 'sequence';
+  x: number;
+  y: number;
+  count: number;
+  direction?: Direction;
+  /** Cells from one item to the next. */
+  every?: number;
+  values?: SequenceValues;
+  /** numbers: the first number. letters: the first letter. */
+  start?: number | string;
+  /** numbers: what to add each time. */
+  step?: number;
+  /** list: items of one or two characters, repeating. */
+  list?: string[];
+  /** icons: icon names, repeating. */
+  icons?: string[];
+  tone?: TextTone;
+  /** icons: how many cells wide and tall each icon is. */
+  size?: IconSize;
+}
+
+export type PageElement = Pattern | Box | Rule | Checkboxes | Text | Sequence;
 export type ElementType = PageElement['type'];
-export const ELEMENT_TYPES: readonly ElementType[] = ['shade', 'pattern', 'box', 'rule', 'checkboxes', 'text'];
+export const ELEMENT_TYPES: readonly ElementType[] = ['pattern', 'box', 'rule', 'checkboxes', 'text', 'sequence'];
 
 export interface Page {
   format: 'dotwork-page';
@@ -123,7 +147,7 @@ export function emptyPage(): Page {
 
 /** Defaults for optional fields, as the format document lists them. */
 export const DEFAULTS = {
-  tone: 'light',
+  background: 'none',
   stripes: 'none',
   every: 1,
   boxWeight: 'thin',
@@ -136,4 +160,10 @@ export const DEFAULTS = {
   align: 'left',
   rotate: 0,
   side: 'either',
+  values: 'numbers',
+  start: 1,
+  step: 1,
+  letter: 'A',
+  sequenceTone: 'black',
+  iconSize: 1,
 } as const;

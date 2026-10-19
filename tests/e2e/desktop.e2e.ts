@@ -11,7 +11,7 @@ describe('desktop (1280 x 800, mouse and keyboard)', () => {
   it('double-click focuses the element’s properties and shows no action bar', async () => {
     const app = await open(env, 'desktop');
     const { page } = app;
-    await page.keyboard.press('s');
+    await page.keyboard.press('p');
     await drag(app, await cellToClient(app, 3, 4), await cellToClient(app, 9, 8));
     expect(await page.locator('#action-bar').isVisible()).toBe(false);
     const at = await cellToClient(app, 6, 6);
@@ -66,9 +66,9 @@ describe('desktop (1280 x 800, mouse and keyboard)', () => {
   it('Alt-click steps to the element underneath; right-click opens the same menu as a long press', async () => {
     const app = await open(env, 'desktop');
     const { page } = app;
-    await page.keyboard.press('s');
+    await page.keyboard.press('p');
     await drag(app, await cellToClient(app, 4, 6), await cellToClient(app, 14, 14));
-    await page.keyboard.press('s');
+    await page.keyboard.press('p');
     await drag(app, await cellToClient(app, 6, 8), await cellToClient(app, 12, 16));
     const p = await cellToClient(app, 9, 11);
     await page.keyboard.down('Alt');

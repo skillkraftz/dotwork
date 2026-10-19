@@ -8,7 +8,7 @@ import { Store } from '../src/store';
 const page = (): Page => ({
   ...emptyPage(),
   elements: [
-    { type: 'shade', x: 4, y: 6, w: 10, h: 8 },
+    { type: 'pattern', pattern: 'none', background: 'light', x: 4, y: 6, w: 10, h: 8 },
     { type: 'box', x: 6, y: 8, w: 6, h: 6 },
     { type: 'rule', x1: 2, y1: 20, x2: 9, y2: 20 },
   ],
@@ -27,7 +27,7 @@ describe('long-press menu actions', () => {
   it('duplicate copies the element above itself and selects the copy', () => {
     const s = new Store(page());
     contextActions(s, 1, [1, 0]).find((a) => a.id === 'duplicate')!.run();
-    expect(types(s)).toEqual(['shade', 'box', 'box', 'rule']);
+    expect(types(s)).toEqual(['pattern', 'box', 'box', 'rule']);
     expect(s.selected).toBe(2);
   });
 
@@ -35,20 +35,20 @@ describe('long-press menu actions', () => {
     const s = new Store(page());
     s.select(1);
     contextActions(s, 1, [1]).find((a) => a.id === 'delete')!.run();
-    expect(types(s)).toEqual(['shade', 'rule']);
+    expect(types(s)).toEqual(['pattern', 'rule']);
     expect(s.selected).toBeNull();
   });
 
   it('bring forward and send backward move one step and keep the element selected', () => {
     const s = new Store(page());
     contextActions(s, 0, [0]).find((a) => a.id === 'forward')!.run();
-    expect(types(s)).toEqual(['box', 'shade', 'rule']);
+    expect(types(s)).toEqual(['box', 'pattern', 'rule']);
     expect(s.selected).toBe(1);
     contextActions(s, 1, [1]).find((a) => a.id === 'backward')!.run();
-    expect(types(s)).toEqual(['shade', 'box', 'rule']);
+    expect(types(s)).toEqual(['pattern', 'box', 'rule']);
     expect(s.selected).toBe(0);
     s.undo();
-    expect(types(s)).toEqual(['box', 'shade', 'rule']);
+    expect(types(s)).toEqual(['box', 'pattern', 'rule']);
   });
 
   it('selects the one underneath, wrapping round to the top', () => {
@@ -75,7 +75,7 @@ describe('long-press menu actions', () => {
     const s = new Store(page());
     s.select(2);
     shiftLayer(s, 0, 1);
-    expect(types(s)).toEqual(['box', 'shade', 'rule']);
+    expect(types(s)).toEqual(['box', 'pattern', 'rule']);
     expect(s.selected).toBe(1);
   });
 });

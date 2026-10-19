@@ -45,24 +45,19 @@ place labels anywhere.
 Every element has a `type` and the fields listed for it. Optional fields show
 their default.
 
-### `shade`: a gray fill
+### `pattern`: shading, writing lines, grid or dots
 
 | Field | Meaning |
 |-------|---------|
 | `x`, `y`, `w`, `h` | The area. |
-| `tone` | `"light"` (default), `"medium"` or `"dark"`. |
-| `stripes` | `"none"` (default), `"rows"` or `"columns"`. With stripes, only every other row or column is shaded, starting with the first. |
+| `pattern` | `"lines"`: a rule under each row band, including the bottom edge. `"vlines"`: a rule right of each column band, including the right edge. `"grid"`: rules on every boundary, including all four edges. `"dots"`: a dot on every intersection, including the edges. `"none"`: no lines or dots, for a plain shaded area. |
+| `background` | The gray behind the pattern: `"none"` (default), `"light"`, `"medium"` or `"dark"`. |
+| `stripes` | `"none"` (default), `"rows"` or `"columns"`. With stripes, only every other row or column of the background is shaded, starting with the first. |
+| `every` | Spacing of the lines or dots in cells, default `1`. `2` gives 6 mm lines. Stripes are always one cell wide. |
 
-### `pattern`: writing lines, grid or dots
-
-| Field | Meaning |
-|-------|---------|
-| `x`, `y`, `w`, `h` | The area. |
-| `pattern` | `"lines"`: a rule under each row band, including the bottom edge. `"vlines"`: a rule right of each column band, including the right edge. `"grid"`: rules on every boundary, including all four edges. `"dots"`: a dot on every intersection, including the edges. |
-| `every` | Spacing in cells, default `1`. `2` gives 6 mm lines. |
-
-Pattern lines and dots are light gray and thin, the same as journal-system's
-writing lines and dot grid.
+The background is drawn first and the lines or dots on top of it, so one element
+can be "writing lines on light gray, every other row". Pattern lines and dots are
+light gray and thin, the same as journal-system's writing lines and dot grid.
 
 ### `box`: an outline
 
@@ -89,6 +84,52 @@ writing lines and dot grid.
 | `direction` | `"down"` (default) or `"across"`. |
 | `size` | Box size as a fraction of a cell, `0.5` to `1`, default `0.7`. Each box is centered in its cell. |
 | `weight` | `"thin"` (default) or `"thick"`. |
+
+### `sequence`: a run of cells with one item in each
+
+| Field | Meaning |
+|-------|---------|
+| `x`, `y` | The top-left corner of the first cell. |
+| `count` | How many items. |
+| `direction` | `"down"` (default) or `"across"`. |
+| `every` | Cells from one item to the next, default `1`; a multiple of `0.5`. |
+| `values` | What the items are: `"numbers"` (default), `"letters"`, `"list"` or `"icons"`. |
+| `start` | `numbers`: the first number (default `1`). `letters`: the first letter (default `"A"`; a small letter gives small letters). |
+| `step` | `numbers`: what to add each time, default `1`. |
+| `list` | `list`: the items, repeating, each one or two characters. |
+| `icons` | `icons`: icon names from the icon set, repeating. |
+| `tone` | `"black"` (default) or `"gray"`. |
+| `size` | `icons`: how many cells wide and tall each icon is, `1` (default) or `2`. Set `every` to at least the size so the icons do not overlap. |
+
+Text items are at most two characters, so a number that would reach three
+characters (100, or -10) is an error. Each text item is centered in its own cell
+by the width of its characters, with no inset, in the label size; the baseline is
+the same as a `text` element's. A letters run goes A to Z and then AA, AB and on.
+An icon fills its 1 x 1 or 2 x 2 cells, starting at the item's cell.
+
+A single icon is a sequence of one: `{ "type": "sequence", "values": "icons",
+"icons": ["sun"], "x": 4, "y": 6, "count": 1 }`. The run must fit in the grid: it
+covers `(count - 1) * every + size` cells along its direction (`size` is 1 for
+text).
+
+#### Icons
+
+Icon names are plain lowercase names, with hyphens. A reader draws them from its
+own copy of the set; Dotwork's is in `src/icons/icons.ts` (line art on a 24 x 24
+grid, mostly from Lucide, ISC licence, see `src/icons/LICENSE.txt`). Names:
+
+- rapid log: `task` `done` `migrated` `scheduled` `note` `event` `priority` `inspiration` `explore`
+- checkboxes: `box` `box-check` `box-x`
+- moods: `angry` `sad` `neutral` `happy` `laugh`
+- weather: `sun` `cloud` `rain` `snow` `wind`
+- moon: `moon-new` `moon-first` `moon-full` `moon-last`
+- habits: `water` `exercise` `sleep` `pill` `food` `coffee`
+- errands: `home` `work` `phone` `mail` `cart` `money` `car` `plane` `pin` `calendar` `clock`
+- more: `gift` `cake` `heart` `star` `lightbulb` `flag` `trophy` `book` `music` `camera`
+- arrows: `arrow-up` `arrow-down` `arrow-left` `arrow-right`
+
+Icons are drawn with thin round-capped lines, 0.26 mm at one cell and 0.36 mm at
+two; the moon phases also have a solid part.
 
 ### `text`: a label or heading
 
@@ -145,7 +186,8 @@ not have `"side": "left"` or whose `right` page does not have
 A reader must reject a file with the wrong `format`, an unknown `version`, an
 unknown element type or field value, a coordinate that is not a multiple of
 0.5, an element outside the grid or above y = 1, a diagonal rule, a
-`checkboxes` element whose boxes leave the grid, or an unknown token, and say
+`checkboxes` or `sequence` element whose items leave the grid, a `sequence`
+with a text item of more than two characters or an unknown icon name, or an unknown token, and say
 which rule failed. Overlap is allowed.
 
 ## Version 1 files

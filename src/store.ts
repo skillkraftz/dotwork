@@ -1,7 +1,9 @@
 import { emptyPage, type Page } from './format/types';
+import type { IconChoice } from './geometry';
+import type { Widget } from './widgets';
 
 export type Mode = 'edit' | 'preview';
-export type Tool = 'select' | 'shade' | 'pattern' | 'box' | 'rule' | 'checkboxes' | 'text';
+export type Tool = 'select' | 'pattern' | 'box' | 'rule' | 'checkboxes' | 'text' | 'sequence' | 'icon' | 'widget';
 
 const MAX_HISTORY = 200;
 const COALESCE_MS = 1000;
@@ -16,7 +18,14 @@ interface Snapshot { page: Page; ids: number[] }
 export class Store {
   page: Page;
   ids: number[];
+  /** The main selected element (the one the properties show); `others` are the rest of a multiple selection, by id. */
   selected: number | null = null;
+  others = new Set<number>();
+  /** Touch: while on, tapping elements adds them to the selection (or takes them out) instead of replacing it. */
+  moreMode = false;
+  /** What the icon tool places, and what the widget tool places: set by the Advanced picker. */
+  icon: IconChoice = { name: 'star', size: 1, tone: 'black' };
+  widget: Widget | null = null;
   mode: Mode = 'edit';
   tool: Tool = 'select';
   halfCells = false;
@@ -46,6 +55,13 @@ export class Store {
 
   get canUndo() { return this.undoStack.length > 0; }
   get canRedo() { return this.redoStack.length > 0; }
+
+  /** Indexes of every selected element, in drawing order. */
+  get selection(): number[] {
+    if (this.selected === null) return [];
+    return this.ids.flatMap((id, i) => (i === this.selected || this.others.has(id) ? [i] : []));
+  }
+  isSelected(index: number) { return index === this.selected || this.others.has(this.ids[index]); }
 
   /** Id of the element at `index` (for hidden and locked). */
   idAt(index: number): number { return this.ids[index]; }
@@ -97,6 +113,8 @@ export class Store {
   /** Start over with a different page (new, imported or an example); undo can still bring the old one back. */
   replace(page: Page) {
     this.selected = null;
+    this.others.clear();
+    this.moreMode = false;
     this.hidden.clear();
     this.locked.clear();
     this.commit(page, undefined, page.elements.map(() => this.nextId++));
@@ -126,11 +144,55 @@ export class Store {
 
   private clampSelection() {
     if (this.selected !== null && this.selected >= this.page.elements.length) this.selected = null;
+    for (const id of this.others) if (!this.ids.includes(id)) this.others.delete(id);
+    if (this.selected === null) { this.others.clear(); this.moreMode = false; }
   }
 
+  /** Select just this element (or nothing). */
   select(index: number | null) {
-    if (index === this.selected) return;
+    if (index === this.selected && this.others.size === 0) return;
     this.selected = index;
+    this.others.clear();
+    if (index === null) this.moreMode = false;
+    this.emit();
+  }
+
+  /** Add the element to the selection, or take it out if it is already in. */
+  toggleSelect(index: number) {
+    if (this.selected === null) { this.selected = index; this.emit(); return; }
+    if (index === this.selected) {
+      const rest = this.selection.filter((i) => i !== index);
+      this.selectMany(rest);
+      return;
+    }
+    const id = this.ids[index];
+    if (!this.others.delete(id)) this.others.add(id);
+    this.emit();
+  }
+
+  /** Select several elements at once; the last is the main one. */
+  selectMany(indexes: readonly number[]) {
+    this.selected = indexes.length ? indexes[indexes.length - 1] : null;
+    this.others = new Set(indexes.slice(0, -1).map((i) => this.ids[i]));
+    if (this.selected === null) this.moreMode = false;
+    this.emit();
+  }
+
+  setMoreMode(on: boolean) {
+    if (on === this.moreMode) return;
+    this.moreMode = on;
+    this.emit();
+  }
+
+  /** Choose the icon the icon tool places. */
+  setIcon(icon: IconChoice) {
+    this.icon = icon;
+    this.emit();
+  }
+
+  /** Choose the widget the widget tool places. */
+  setWidget(widget: Widget | null) {
+    this.widget = widget;
     this.emit();
   }
 
@@ -143,6 +205,7 @@ export class Store {
   setTool(tool: Tool) {
     if (tool === this.tool) return;
     this.tool = tool;
+    this.moreMode = false;
     this.emit();
   }
 
