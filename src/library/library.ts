@@ -81,7 +81,13 @@ export class Library {
     private backend: Backend,
     private now: () => Date = () => new Date(),
     private newId: () => string = () => crypto.randomUUID(),
+    /** Whether a name belongs to a built-in example. Saved items can't take one, so a built-in is never overwritten. */
+    private reserved: (kind: LibraryKind, name: string) => boolean = () => false,
   ) {}
+
+  private checkName(kind: LibraryKind, name: string) {
+    if (this.reserved(kind, name)) throw new Error(`“${name.trim()}” is the name of a built-in example. Choose another name; the built-in can't be replaced.`);
+  }
 
   /** Newest first. */
   async list(): Promise<LibraryItem[]> {
@@ -103,6 +109,7 @@ export class Library {
   async save(kind: 'book', name: string, data: Book): Promise<LibraryItem>;
   async save(kind: LibraryKind, name: string, data: Page | Spread | Book): Promise<LibraryItem> {
     const clean = name.trim() || 'Untitled';
+    this.checkName(kind, clean);
     const existing = await this.findByName(kind, clean);
     const item = { id: existing?.id ?? this.newId(), kind, name: clean, updated: this.now().toISOString(), data: { ...structuredClone(data), name: clean } } as LibraryItem;
     await this.backend.put(item);
@@ -113,6 +120,7 @@ export class Library {
     const item = await this.get(id);
     const clean = name.trim();
     if (!item || !clean) return;
+    this.checkName(item.kind, clean);
     await this.backend.put({ ...item, name: clean, updated: this.now().toISOString(), data: { ...item.data, name: clean } } as LibraryItem);
   }
 

@@ -6,13 +6,14 @@ import { pageContent, thumbnailSvg } from '../render';
 import { h } from '../panel';
 import type { Library, LibraryItem } from '../library/library';
 import { blankPage, bookExpand, bookPage, dateOf, fillSlots, getSlot, setDates, setSlot, slotCount, slotSide, type Book } from './book';
+import { BUILTIN_SPREADS } from '../builtin/library';
 import { checkPrintSettings, signatureSizes } from './impose';
 import { contentsRows, datesSummary, designName, endOfRun, listPages, opening, planDates, scopeSlots, slotLabel, whatChanges, type DatePlan, type Scope } from './plan';
 
 export interface ArrangerHost {
   library: Library;
   /** The built-in example pages, offered next to the saved designs. */
-  examples: Page[];
+  examples: readonly Page[];
   /** Called after every change to the book, so the draft can be kept. */
   changed(book: Book): void;
   exportFiles(book: Book): void;
@@ -309,7 +310,8 @@ export class Arranger {
     const out: Choice[] = [{ name: 'Blank', kind: 'blank', data: null }];
     const saved = this.saved.filter((i) => i.kind === 'page').map((i): Choice => ({ name: i.name, kind: 'page', data: i.data as Page }));
     const spreads = left ? this.saved.filter((i) => i.kind === 'spread').map((i): Choice => ({ name: i.name, kind: 'spread', data: i.data as Spread })) : [];
-    return [...out, ...saved, ...spreads, ...this.host.examples.map((p): Choice => ({ name: p.name, kind: 'page', data: p }))];
+    const builtin = left ? BUILTIN_SPREADS.map((sp): Choice => ({ name: sp.name, kind: 'spread', data: sp })) : [];
+    return [...out, ...saved, ...spreads, ...builtin, ...this.host.examples.map((p): Choice => ({ name: p.name, kind: 'page', data: p }))];
   }
 
   private openPicker() {
@@ -338,7 +340,8 @@ export class Arranger {
     this.pickerBody.replaceChildren(
       h('div', { class: 'design-list' }, card(all[0])),
       ...section('Saved pages', savedPages, 'Nothing saved yet. Pages you save to the Library appear here.'),
-      ...(side === 'left' ? section('Saved spreads', all.filter((c) => c.kind === 'spread'), 'No saved spreads.') : []),
+      ...(side === 'left' ? section('Saved spreads', all.filter((c) => c.kind === 'spread' && !BUILTIN_SPREADS.includes(c.data as Spread)), 'No saved spreads.') : []),
+      ...(side === 'left' ? section('Built-in spreads', all.filter((c) => c.kind === 'spread' && BUILTIN_SPREADS.includes(c.data as Spread))) : []),
       ...section('Built-in examples', all.filter((c) => c.kind === 'page' && this.host.examples.includes(c.data as Page))),
     );
   }

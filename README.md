@@ -46,8 +46,14 @@ the identity by the spine. Version 1 files are converted when imported.
   number is on. A spread's settings cover its name and both pages; a book's cover its name, page count, page numbers and the
   print settings.
 - **Library** (Edit ▾, then Library) is a browser with a search box and tabs for Pages, Spreads, Books, Widgets and
-  Favorites. Tap the star on anything to find it under Favorites. The built-in examples are in Pages, marked as examples.
-  Tap an item to open or place it; Rename, Duplicate and Delete are in the ⋯ menu on each one.
+  Favorites. Tap the star on anything to find it under Favorites. It comes filled: every page of the owner's books,
+  paired spreads (ideas, book notes, weekly, and each book's covers), starter widgets, and book templates, all marked
+  as examples. An example can't be changed: opening or placing one gives an editable copy named “… copy”, and a saved
+  item can't take an example's name. Tap an item to open or place it; Rename, Duplicate and Delete are in the ⋯ menu on
+  each saved one.
+- **Book templates** (Library, Books tab) ask a few questions, then build a complete dated 52-page book you can edit
+  and export: *Year planner* (year and first and last week), *Monthly journal* (year and month), and Blank, Lined,
+  Dot grid and Idea books. They are small functions in `src/builtin/`, not files, because dates and month layouts change.
 - **Export** is one window with four tabs. **Import** opens a JSON file. **Export** saves the current page, spread or book as
   JSON. **PNG** saves the page or spread at 150, 300 or 600 DPI. **PDF** makes the book's pages at final size, or
   print-ready signatures, with or without the covers. Each tab says what file you get, and nothing downloads until you
@@ -90,8 +96,8 @@ npm run test:e2e # drives the app in headless Chromium at phone, tablet and desk
 
 The current page autosaves to your browser's localStorage. Use the Export button for
 JSON, PNG (the whole 88.9 x 139.7 mm page, 600 DPI by default) and PDF.
-Example pages live in [examples/](examples/) and show in the Library; the monthly tracker, daily Good
-Time Journal, idea and weekly pages recreate journal-system's pages. Compare
+Built-in pages live in [src/builtin/](src/builtin/) (pages that depend on a date are drawn in code) and
+[examples/](examples/) (plain page files), and show in the Library; they recreate journal-system's pages. Compare
 them with `reference/` in [docs/screenshots/](docs/screenshots/)
 (`compare-*.png`: reference on the left, Dotwork's export on the right).
 

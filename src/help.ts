@@ -26,7 +26,7 @@ export const HELP: Record<string, HelpEntry> = {
   'redo': e('Redo', 'Puts back a change you undid.', 'Tap to redo what Undo took back.', 'Click, or press Shift+Ctrl/Cmd+Z (or Ctrl/Cmd+Y).'),
   'mode-edit': e('Edit', 'Shows the page with its grid and handles, ready to change. Part of the Edit menu.', 'Tap to go back to editing after a Preview.', 'Click to go back to editing after a Preview.'),
   'mode-preview': e('Preview', 'Shows the page as it prints: no grid, sample values for tokens like the date.', 'Tap to see the printed look. Tap Edit to return.', 'Click to see the printed look. Click Edit to return.'),
-  'library': e('Library', 'Opens your saved pages, spreads, books and widgets, and the built-in examples. Part of the Edit menu.', 'Tap to save the current work, or to open or place something from the list.', 'Click to save the current work, or to open or place something from the list.'),
+  'library': e('Library', 'Opens your saved pages, spreads, books and widgets, and the built-in examples and book templates. Part of the Edit menu.', 'Tap to save the current work, or to open or place something from the list.', 'Click to save the current work, or to open or place something from the list.'),
   'new': e('New', 'Starts over with a blank page, spread or book. Part of the Edit menu.', 'Tap for a blank page. Undo brings the old one back.', 'Click for a blank page. Undo brings the old one back.'),
   'spread-name': e('Spread name', 'The name the spread is saved and exported under.', 'Tap and type a name.', 'Click and type a name.'),
   'help': e('Help', 'Turns on help mode: tap anything to see what it does.', 'Tap the ? to start help mode. Close its card at the top to stop.', 'Click the ? to start help mode. Close its card at the top to stop.'),
@@ -42,7 +42,7 @@ export const HELP: Record<string, HelpEntry> = {
   'page-number': e('Page number', 'Turns this page’s number on or off. The number prints in the header row’s outer corner. A book can also turn numbers off for every page.', 'Tap to turn on or off.', 'Click to turn on or off.'),
   'library-search': e('Search', 'Finds items by name. It looks through the section you are in; type part of a name.', 'Tap and type part of a name.', 'Click and type part of a name.'),
   'library-tab': e('Library section', 'Shows Pages, Spreads, Books, Widgets, or Favorites: everything you starred.', 'Tap to switch section.', 'Click to switch section.'),
-  'library-item': e('Library item', 'A saved page, spread, book or widget, or a built-in example. Tapping it opens it, or puts it on the page you are editing.', 'Tap to open or place it. A page opens on its own, or goes on the page you are editing in a spread; a widget is ready to tap onto the page.', 'Click to open or place it. A page opens on its own, or goes on the page you are editing in a spread; a widget is ready to click onto the page.'),
+  'library-item': e('Library item', 'A saved page, spread, book or widget, or a built-in example or book template. Tapping it opens it, or puts it on the page you are editing. A built-in is never changed: you get an editable copy. A book template asks a few questions, then builds a whole book.', 'Tap to open or place it. A page opens on its own, or goes on the page you are editing in a spread; a widget is ready to tap onto the page.', 'Click to open or place it. A page opens on its own, or goes on the page you are editing in a spread; a widget is ready to click onto the page.'),
   'library-star': e('Star', 'Marks the item as a favorite so it shows under Favorites. Tap again to remove the star.', 'Tap to star or unstar.', 'Click to star or unstar.'),
   'library-more': e('More', 'Opens the item’s menu: Rename, Duplicate and Delete.', 'Tap to open or close the menu.', 'Click to open or close the menu.'),
   'export-tab-import': e('Import tab', 'Opens a JSON file you exported before.', 'Tap to show it.', 'Click to show it.'),
@@ -188,6 +188,9 @@ export const HELP: Record<string, HelpEntry> = {
   'ask-cancel': e('Cancel', 'Closes this window without saving.', 'Tap to cancel.', 'Click to cancel, or press Escape.'),
 
   // ---- library ----------------------------------------------------------------
+  'template-field': e('Template question', 'A number the book template needs, such as the year or month. It stays within what makes sense.', 'Tap the number to type it, or use the minus and plus buttons.', 'Click the number and type it, or use the minus and plus buttons.'),
+  'template-build': e('Build book', 'Builds the complete 52-page book, dated from your answers, and opens it in the book view. It is an ordinary book you can edit and export.', 'Tap to build the book.', 'Click to build the book.'),
+  'template-cancel': e('Cancel', 'Closes this window without building a book.', 'Tap to close.', 'Click to close, or press Escape.'),
   'library-close': e('Close', 'Closes the Library.', 'Tap to close.', 'Click to close, or press Escape.'),
   'library-save': e('Save', 'Keeps a copy of what you are editing in this browser, under its own name (change that in Settings). Saving under an existing name replaces it, after asking.', 'Tap to save.', 'Click to save.'),
   'library-export': e('Back up library', 'Downloads everything you saved as one backup file.', 'Tap to download the backup.', 'Click to download the backup.'),

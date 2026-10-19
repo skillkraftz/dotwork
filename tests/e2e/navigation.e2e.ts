@@ -263,12 +263,15 @@ describe('the library', () => {
     await page.waitForFunction((n) => document.querySelectorAll('.lib-card').length === n, all);
 
     // the tabs
-    for (const tab of ['spreads', 'books', 'widgets', 'favorites']) {
+    // spreads, books (templates) and widgets come filled with built-ins; nothing is starred yet
+    for (const [tab, first] of [['spreads', 'Ideas spread'], ['books', 'Year planner'], ['widgets', 'Habit row']]) {
       await page.click(`[data-tab="${tab}"]`);
-      await page.waitForSelector('[data-key="library-empty"]');
-      expect(await page.locator('.lib-card').count(), tab).toBe(0);
+      await page.waitForSelector(`.lib-card[data-name="${first}"]`);
       expect(await page.locator(`[data-tab="${tab}"]`).getAttribute('aria-selected')).toBe('true');
     }
+    await page.click('[data-tab="favorites"]');
+    await page.waitForSelector('[data-key="library-empty"]');
+    expect(await page.locator('.lib-card').count()).toBe(0);
 
     // a star puts a page under Favorites, and survives a reload
     await page.click('[data-tab="pages"]');
@@ -322,7 +325,7 @@ describe('the library', () => {
     // tapping the item opens it and closes the library
     await page.click('.lib-card[data-name="Lined page"] .lib-open');
     await page.waitForSelector('dialog[aria-label="Library"]', { state: 'hidden' });
-    expect((await pageData(app)).name).toBe('Lined page');
+    expect((await pageData(app)).name).toBe('Lined page copy'); // a built-in opens as a copy
     expect((await pageData(app)).elements.length).toBeGreaterThan(0);
 
     // in a spread, a tapped page goes on the page being edited
@@ -332,7 +335,7 @@ describe('the library', () => {
     await page.waitForSelector('.lib-card[data-name="Daily Good Time Journal"]');
     await page.click('.lib-card[data-name="Daily Good Time Journal"] .lib-open');
     const right = await page.evaluate(() => JSON.parse(localStorage.getItem('dotwork.spread.right')!));
-    expect(right).toMatchObject({ name: 'Daily Good Time Journal', side: 'right' });
+    expect(right).toMatchObject({ name: 'Daily Good Time Journal copy', side: 'right' });
     noErrors(app);
   });
 
@@ -366,8 +369,8 @@ describe('the library', () => {
     await choose(app, 'edit', '#library');
     await page.click('[data-tab="widgets"]');
     await page.waitForSelector('.lib-card[data-name="Notes box"]');
-    expect(await page.locator('.lib-card .lib-name').allInnerTexts()).toEqual(['Notes box']);
-    await page.click('.lib-card .lib-open');
+    expect(await page.locator('.lib-card .lib-name').allInnerTexts()).toContain('Notes box');
+    await page.click('.lib-card[data-name="Notes box"] .lib-open');
     await page.waitForSelector('dialog[aria-label="Library"]', { state: 'hidden' });
     expect(await page.locator('#notice').innerText()).toContain('Notes box');
     await tap(app, await cellToClient(app, 6, 10));
