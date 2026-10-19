@@ -1,0 +1,22 @@
+{
+  "format": "dotwork-page",
+  "version": 2,
+  "name": "Shade and lines",
+  "identity": "{weekday} {month} {day}",
+  "grid": { "cols": 27, "rows": 44, "pitch_mm": 3 },
+  "elements": [
+    { "type": "text", "x": 0, "y": 1, "text": "Tones by rows: LBBMBB", "tone": "black" },
+    { "type": "shade", "x": 0, "y": 2, "w": 27, "h": 6, "tones": "LBBMBB" },
+    { "type": "text", "x": 0, "y": 9, "text": "Checker: LB", "tone": "black" },
+    { "type": "shade", "x": 0, "y": 10, "w": 12, "h": 6, "tones": "LB", "along": "checker" },
+    { "type": "text", "x": 14, "y": 9, "text": "Columns: LMD", "tone": "black" },
+    { "type": "shade", "x": 14, "y": 10, "w": 13, "h": 6, "tones": "LMD", "along": "columns" },
+    { "type": "text", "x": 0, "y": 17, "text": "Lines with a first edge", "tone": "black" },
+    { "type": "pattern", "pattern": "lines", "first": true, "weight": "thin", "x": 0, "y": 18, "w": 27, "h": 6 },
+    { "type": "text", "x": 0, "y": 25, "text": "Large dots", "tone": "black" },
+    { "type": "pattern", "pattern": "dots", "dots": "large", "every": 2, "x": 0, "y": 26, "w": 27, "h": 6 },
+    { "type": "text", "x": 0, "y": 33, "text": "Thick grid over a tint", "tone": "black" },
+    { "type": "shade", "x": 0, "y": 34, "w": 27, "h": 6, "tones": "L" },
+    { "type": "pattern", "pattern": "grid", "weight": "thick", "every": 3, "x": 0, "y": 34, "w": 27, "h": 6 }
+  ]
+}

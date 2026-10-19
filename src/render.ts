@@ -1,12 +1,13 @@
 import {
   COLS, DEFAULTS, GRID_X_MM, GRID_Y_MM, PAGE_H_MM, PAGE_W_MM, PITCH_MM as P, ROWS,
-  type Page, type PageElement, type PageSide, type Pattern, type Box, type Rule, type Checkboxes, type Text, type Sequence,
+  type Page, type PageElement, type PageSide, type Pattern, type Shade, type Box, type Rule, type Checkboxes, type Text, type Sequence,
 } from './format/types';
 import { isIcons, itemOrigin, itemSize, sequenceItems } from './format/sequence';
 import { ICON_GRID, ICONS } from './icons/icons';
 import { elementArea, TEXT_INSET_MM, TEXT_SIZE_MM } from './format/bounds';
 import { expandTokens } from './format/tokens';
-import { handlesFor, type Pt } from './geometry';
+import { shadeRects } from './format/shade';
+import { boundsOf, handlesFor, type Pt } from './geometry';
 
 /** Editor view box: the page plus a quiet margin around it. */
 export const EDIT_BOX = { x: -8, y: -6, w: PAGE_W_MM + 16, h: PAGE_H_MM + 12 };
@@ -19,7 +20,10 @@ export const FONT_FAMILY = `font-family="'Courier Prime', 'Courier New', monospa
 export const PT = 25.4 / 72;
 export const LINE = { hair: { w: 0.12, c: '#c4c4c4' }, thin: { w: 0.5 * PT, c: '#000' }, thick: { w: 1.5 * PT, c: '#000' } } as const;
 export const GRAY_DOT = '#b0b0b0';
-export const BACKGROUND_TONES = { light: '#efefef', medium: '#dcdcdc', dark: '#bdbdbd' } as const;
+/** The grays of a shade's tones (L, M, D); blank draws nothing. */
+export const SHADE_TONES = { L: '#efefef', M: '#dcdcdc', D: '#bdbdbd' } as const;
+/** Dots are 0.5 mm across, or this much when large. */
+export const DOT_MM = { small: 0.5, large: 0.9 } as const;
 export const TEXT_COLORS = { gray: '#808080', black: '#000' } as const;
 export const BASELINE_MM = 0.6; // text sits this far above the bottom of its cell band
 
@@ -31,6 +35,8 @@ export interface RenderOptions {
   selection?: readonly number[];
   /** Indexes of elements the editor is hiding (edit mode only). */
   hidden?: ReadonlySet<number>;
+  /** Indexes of the pieces of the group being edited from inside (edit mode): the rest of the page is dimmed, and the group framed. */
+  inside?: readonly number[];
   /** The box being dragged to select things (cells, edit mode). */
   marquee?: { x: number; y: number; w: number; h: number };
   /** What is about to be placed, drawn faintly (edit mode). */
@@ -58,38 +64,29 @@ export function ticks(from: number, len: number, step: number, includeStart: boo
 const stroke = (d: string, w: number, c: string, cap = 'butt') =>
   d ? `<path d="${d}" fill="none" stroke="${c}" stroke-width="${n(w)}" stroke-linecap="${cap}"/>` : '';
 
-/** The shaded background of a pattern: the whole area, or every other row or column of it. */
-function backgroundMarkup(e: Pattern): string {
-  const background = e.background ?? DEFAULTS.background;
-  if (background === 'none') return '';
-  const fill = BACKGROUND_TONES[background];
-  const stripes = e.stripes ?? DEFAULTS.stripes;
-  const rect = (x: number, y: number, w: number, h: number) =>
-    `<rect x="${n(x * P)}" y="${n(y * P)}" width="${n(w * P)}" height="${n(h * P)}" fill="${fill}"/>`;
-  if (stripes === 'none') return rect(e.x, e.y, e.w, e.h);
-  let out = '';
-  if (stripes === 'rows') for (let t = 0; t < e.h; t += 2) out += rect(e.x, e.y + t, e.w, Math.min(1, e.h - t));
-  else for (let t = 0; t < e.w; t += 2) out += rect(e.x + t, e.y, Math.min(1, e.w - t), e.h);
-  return out;
+/** The gray tints of a shade, one rectangle per run of the same tone. */
+function shadeMarkup(e: Shade): string {
+  return shadeRects(e).map((r) =>
+    `<rect x="${n(r.x * P)}" y="${n(r.y * P)}" width="${n(r.w * P)}" height="${n(r.h * P)}" fill="${SHADE_TONES[r.tone]}"/>`).join('');
 }
 
 function patternMarkup(e: Pattern): string {
   const step = e.every ?? DEFAULTS.every;
   const x0 = e.x * P, x1 = (e.x + e.w) * P, y0 = e.y * P, y1 = (e.y + e.h) * P;
+  const first = e.first === true;
   const rows = (start: boolean) => ticks(e.y, e.h, step, start).map((y) => y * P);
   const cols = (start: boolean) => ticks(e.x, e.w, step, start).map((x) => x * P);
   const h = (start: boolean) => rows(start).map((y) => `M${n(x0)} ${n(y)}H${n(x1)}`).join('');
   const v = (start: boolean) => cols(start).map((x) => `M${n(x)} ${n(y0)}V${n(y1)}`).join('');
-  const shading = backgroundMarkup(e); // under the lines
+  const line = LINE[e.weight ?? DEFAULTS.patternWeight];
   switch (e.pattern) {
-    case 'none': return shading;
-    case 'lines': return shading + stroke(h(false), LINE.hair.w, LINE.hair.c);
-    case 'vlines': return shading + stroke(v(false), LINE.hair.w, LINE.hair.c);
-    case 'grid': return shading + stroke(h(true) + v(true), LINE.hair.w, LINE.hair.c);
+    case 'lines': return stroke(h(first), line.w, line.c);
+    case 'vlines': return stroke(v(first), line.w, line.c);
+    case 'grid': return stroke(h(true) + v(true), line.w, line.c);
     case 'dots': {
       let d = '';
       for (const x of cols(true)) for (const y of rows(true)) d += `M${n(x)} ${n(y)}h0`;
-      return shading + stroke(d, 0.5, GRAY_DOT, 'round');
+      return stroke(d, DOT_MM[e.dots ?? DEFAULTS.dots], GRAY_DOT, 'round');
     }
   }
 }
@@ -166,6 +163,7 @@ function sequenceMarkup(e: Sequence): string {
 export function elementMarkup(e: PageElement, expand: (t: string) => string = sample): string {
   switch (e.type) {
     case 'pattern': return patternMarkup(e);
+    case 'shade': return shadeMarkup(e);
     case 'box': return boxMarkup(e);
     case 'rule': return ruleMarkup(e);
     case 'checkboxes': return checkboxesMarkup(e);
@@ -214,6 +212,12 @@ function selectionMarkup(e: PageElement, withHandles = true, handleMm = HANDLE_M
   return outline + `<g fill="#fff" stroke="#000" stroke-width="0.25">${handles}</g>`;
 }
 
+/** A frame round several elements: solid for the group being edited from inside, dashed for a selection of several. */
+function frameMarkup(a: { x: number; y: number; w: number; h: number }, solid: boolean): string {
+  const pad = 0.8;
+  return `<rect x="${n(a.x * P - pad)}" y="${n(a.y * P - pad)}" width="${n(a.w * P + 2 * pad)}" height="${n(a.h * P + 2 * pad)}" fill="none" stroke="#000" stroke-width="${solid ? 0.5 : 0.3}"${solid ? '' : ' stroke-dasharray="2 1"'}/>`;
+}
+
 function spineLabel(side: PageSide | undefined): string {
   const x = side === 'left' ? PAGE_W_MM + 2.6 : -2.6;
   return `<text transform="translate(${x} ${PAGE_H_MM / 2}) rotate(-90)" text-anchor="middle" font-size="1.8" fill="#999" ${FONT_FAMILY}>SPINE</text>`;
@@ -231,12 +235,17 @@ export function pageContent(page: Page, opts: RenderOptions): string {
     out += gridDots();
   }
   const expand = opts.expand ?? sample;
+  const inside = edit && opts.inside?.length ? new Set(opts.inside) : null;
   page.elements.forEach((e, i) => {
-    if (!(edit && opts.hidden?.has(i))) out += elementMarkup(e, expand);
+    if (edit && opts.hidden?.has(i)) return;
+    const markup = elementMarkup(e, expand);
+    out += inside && !inside.has(i) ? `<g opacity="0.3">${markup}</g>` : markup;
   });
   out += headerMarkup(page, opts.pageNumber === undefined ? SAMPLE_PAGE_NUMBER : opts.pageNumber, expand);
   if (edit) {
     const chosen = opts.selection ?? (opts.selected != null ? [opts.selected] : []);
+    if (inside) out += frameMarkup(boundsOf([...inside].map((i) => page.elements[i])), true);
+    if (chosen.length > 1) out += frameMarkup(boundsOf(chosen.map((i) => page.elements[i])), false);
     for (const i of chosen) {
       const sel = page.elements[i];
       // Only a lone selection can be resized, so only it shows handles.

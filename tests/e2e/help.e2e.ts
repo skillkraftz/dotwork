@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { HELP } from '../../src/help';
-import { bar, box, cellToClient, draft, drag, missingHelp, open, press, shot, start, stop, tap, type App, type Env } from './harness';
+import { bar, box, cellToClient, draft, drag, missingHelp, open, press, shot, start, stop, tap, type App, type Env, tool,
+} from './harness';
 
 let env: Env;
 beforeAll(async () => { env = await start(); });
@@ -20,7 +21,9 @@ const popupText = async (app: App) => (await popup(app).isVisible()) ? (await po
 const EVERYTHING = {
   format: 'dotwork-page', version: 2, name: 'Everything', grid: { cols: 27, rows: 44, pitch_mm: 3 },
   elements: [
-    { type: 'pattern', pattern: 'none', background: 'light', x: 1, y: 2, w: 5, h: 3 },
+    { type: 'shade', tones: 'LBM', along: 'checker', x: 1, y: 2, w: 5, h: 3 },
+    { type: 'pattern', pattern: 'lines', first: true, weight: 'thin', x: 1, y: 20, w: 8, h: 4 },
+    { type: 'pattern', pattern: 'grid', x: 10, y: 20, w: 8, h: 4 },
     { type: 'sequence', x: 20, y: 2, count: 4 },
     { type: 'sequence', x: 22, y: 2, count: 3, values: 'letters' },
     { type: 'sequence', x: 24, y: 2, count: 3, values: 'list', list: ['S', 'M'] },
@@ -29,7 +32,8 @@ const EVERYTHING = {
     { type: 'box', x: 1, y: 7, w: 8, h: 4 },
     { type: 'rule', x1: 1, y1: 13, x2: 20, y2: 13 },
     { type: 'checkboxes', x: 1, y: 15, count: 4 },
-    { type: 'text', x: 8, y: 16, text: 'Hello' },
+    { type: 'text', x: 8, y: 16, text: 'Hello', group: 'g1' },
+    { type: 'rule', x1: 8, y1: 18, x2: 12, y2: 18, group: 'g1' },
   ],
 };
 
@@ -56,9 +60,10 @@ describe('help mode', () => {
     expect(await page.locator('#menu').isVisible()).toBe(false);
     await shot(app, 'phone-help-card');
 
-    // a tool does not switch; its popover says what it does, with touch text
-    await page.tap('[data-tool="box"]');
-    expect(await page.locator('[data-tool="select"]').getAttribute('aria-pressed')).toBe('true');
+    // a tool does not arm; its popover says what it does, with touch text (the mode buttons do switch, to reach the tools)
+    await tool(app, 'box');
+    expect(await page.locator('#bar-draw').getAttribute('aria-pressed')).toBe('true');
+    expect(await page.locator('#bar-context [data-tool="box"]').getAttribute('aria-pressed')).toBe('false');
     const box = await popupText(app);
     expect(box).toContain('BOX');
     expect(box).toContain('drag from one corner');
@@ -70,16 +75,16 @@ describe('help mode', () => {
     expect(await popupText(app)).toContain('UNDO');
 
     // the page explains its gestures for the current tool, and drawing does nothing
-    await page.tap('[data-tool="pattern"]');
+    await tool(app, 'pattern');
     await drag(app, await cellToClient(app, 3, 4), await cellToClient(app, 8, 9));
     expect((await draft(app)).elements).toEqual([]);
     await tap(app, await cellToClient(app, 12, 20));
     const pageHelp = await popupText(app);
-    expect(pageHelp).toContain('THE PAGE: SELECT TOOL');
-    expect(pageHelp).toContain('Pinch');
-    await page.tap('[data-tool="select"]');
+    expect(pageHelp).toContain('THE PAGE: DRAW'); // in Draw mode with nothing chosen yet
+    await tool(app, 'select');
     await tap(app, await cellToClient(app, 10, 10));
-    for (const g of ['Tap', 'Double-tap', 'Drag', 'Pinch', 'Long-press']) expect(await popupText(app), g).toContain(g);
+    expect(await popupText(app)).toContain('THE PAGE: SELECT');
+    for (const g of ['Tap', 'Double-tap', 'Drag', 'pinch', 'Long-press', 'Two fingers']) expect(await popupText(app), g).toContain(g);
     await shot(app, 'phone-help-page');
 
     // the menu opens, so that its items can be asked about; nothing in it acts
@@ -98,7 +103,7 @@ describe('help mode', () => {
     await page.tap('#help-card button');
     expect(await card.isVisible()).toBe(false);
     expect(await popup(app).isVisible()).toBe(false);
-    await page.tap('[data-tool="box"]');
+    await tool(app, 'box');
     expect(await page.locator('[data-tool="box"]').getAttribute('aria-pressed')).toBe('true');
     expect(app.errors).toEqual([]);
   });
@@ -112,14 +117,15 @@ describe('help mode', () => {
     const text = await popupText(app);
     expect(text).toContain('Ctrl/Cmd+Z');
     expect(text).not.toMatch(/\btap\b/i);
-    await page.click('[data-tool="box"]');
-    expect(await page.locator('[data-tool="select"]').getAttribute('aria-pressed')).toBe('true');
+    await tool(app, 'box');
+    expect(await page.locator('#bar-context [data-tool="box"]').getAttribute('aria-pressed')).toBe('false');
+    await tool(app, 'select');
     await page.mouse.click(400, 400); // the page
     expect(await popupText(app)).toContain('Double-click');
     await shot(app, 'desktop-help-popover');
     // keys do nothing but Escape: first the popover, then help mode
     await page.keyboard.press('b');
-    expect(await page.locator('[data-tool="select"]').getAttribute('aria-pressed')).toBe('true');
+    expect(await page.locator('#bar-select').getAttribute('aria-pressed')).toBe('true');
     await page.keyboard.press('Escape');
     expect(await popup(app).isVisible()).toBe(false);
     expect(await page.locator('#help-card').isVisible()).toBe(true);
@@ -133,10 +139,10 @@ describe('help mode', () => {
     const { page } = app;
     await page.tap('#menu-button');
     await page.tap('#help');
-    await poke(app, '[data-tool="select"]', true); // by mouse
+    await poke(app, '#bar-select', true); // by mouse
     expect(await popupText(app)).toContain('Press V');
     expect(await page.locator('#help-card').innerText()).toContain('click');
-    await page.tap('[data-tool="select"]');
+    await tool(app, 'select');
     expect(await popupText(app)).toContain('Tap an element');
     expect(await page.locator('#help-card').innerText()).toContain('tap');
   });
@@ -144,7 +150,7 @@ describe('help mode', () => {
   it('explains the properties window and its steppers without changing anything', async () => {
     const app = await open(env, 'phone');
     const { page } = app;
-    await page.tap('[data-tool="box"]');
+    await tool(app, 'box');
     await drag(app, await cellToClient(app, 4, 6), await cellToClient(app, 9, 10));
     await bar(app, 'properties');
     await page.tap('#menu-button');
@@ -171,8 +177,14 @@ describe('every control has a help entry', () => {
     expect(await missingHelp(app)).toEqual([]);
     await page.tap('#menu-button');
 
-    // draw something: the bar beside it, then the properties window and every tab
-    await page.tap('[data-tool="box"]');
+    // each mode's buttons
+    await page.tap('#bar-draw');
+    expect(await missingHelp(app), 'draw').toEqual([]);
+    await page.tap('#advanced');
+    expect(await missingHelp(app), 'advanced').toEqual([]);
+
+    // draw something: its buttons, then the properties drawer and every tab
+    await tool(app, 'box');
     await drag(app, await cellToClient(app, 4, 6), await cellToClient(app, 10, 10));
     expect(await missingHelp(app)).toEqual([]);
     await bar(app, 'properties');
@@ -181,6 +193,10 @@ describe('every control has a help entry', () => {
       expect(await missingHelp(app), tab).toEqual([]);
     }
     await page.tap('#sheet .sheet-close');
+    await bar(app, 'more');
+    await page.waitForSelector('.ctx-menu');
+    expect(await missingHelp(app), 'more').toEqual([]);
+    await page.keyboard.press('Escape');
 
     // the menu on an element (long-press), and a message with its Dismiss button
     await press(app, await cellToClient(app, 4, 8));

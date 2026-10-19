@@ -104,7 +104,8 @@ describe('element rules', () => {
   it('size: area elements must have w and h above 0', () => {
     expect(elRules({ ...box, w: 0 })).toEqual(['size']);
     expect(elRules({ ...box, h: -1 })).toEqual(['size']);
-    expect(elRules({ type: 'pattern', pattern: 'none', x: 0, y: 1, w: 0.5, h: 0.5 })).toEqual([]);
+    expect(elRules({ type: 'shade', tones: 'L', x: 0, y: 1, w: 0.5, h: 0.5 })).toEqual([]);
+    expect(elRules({ type: 'shade', tones: 'L', x: 0, y: 1, w: 0, h: 1 })).toEqual(['size']);
   });
 
   it('bounds: inside the grid', () => {
@@ -129,17 +130,36 @@ describe('element rules', () => {
     expect(validatePage(page)).toEqual([]);
   });
 
-  it('pattern: background and stripes, and "none" for plain shading', () => {
-    const shade = { type: 'pattern', pattern: 'none', x: 0, y: 1, w: 3, h: 2 };
-    for (const background of ['none', 'light', 'medium', 'dark']) expect(elRules({ ...shade, background })).toEqual([]);
-    for (const stripes of ['none', 'rows', 'columns']) expect(elRules({ ...shade, stripes })).toEqual([]);
-    expect(elRules({ ...shade, background: 'black' })).toEqual(['value']);
-    expect(elRules({ ...shade, stripes: 'diagonal' })).toEqual(['value']);
-    expect(elRules({ ...shade, pattern: 'lines', background: 'light', stripes: 'rows' })).toEqual([]);
+  it('shade: tones are letters L, M, D and B; along and every are checked', () => {
+    const shade = { type: 'shade', x: 0, y: 1, w: 3, h: 2, tones: 'L' };
+    for (const tones of ['L', 'M', 'D', 'B', 'LB', 'LBBMBB', 'DDDB']) expect(elRules({ ...shade, tones })).toEqual([]);
+    for (const tones of ['', 'l', 'X', 'L B', 'LBX', 5, undefined]) expect(elRules({ ...shade, tones }), String(tones)).toEqual(['tones']);
+    for (const along of ['rows', 'columns', 'checker']) expect(elRules({ ...shade, along })).toEqual([]);
+    expect(elRules({ ...shade, along: 'diagonal' })).toEqual(['value']);
+    expect(elRules({ ...shade, every: 2 })).toEqual([]);
+    expect(elRules({ ...shade, every: 0.5 })).toEqual([]);
+    expect(elRules({ ...shade, every: 0 })).toEqual(['every']);
+    expect(elRules({ ...shade, every: 1.3 })).toEqual(['every']);
+    expect(elRules({ ...shade, x: 26, w: 2 })).toEqual(['bounds']);
   });
 
-  it('the shade element is gone', () => {
-    expect(elRules({ type: 'shade', x: 0, y: 1, w: 3, h: 2 })).toEqual(['element-type']);
+  it('pattern: weight, dots and first; shading is gone from patterns', () => {
+    const lines = { type: 'pattern', pattern: 'lines', x: 0, y: 1, w: 3, h: 2 };
+    for (const weight of ['hair', 'thin', 'thick']) expect(elRules({ ...lines, weight })).toEqual([]);
+    expect(elRules({ ...lines, weight: 'bold' })).toEqual(['value']);
+    for (const dots of ['small', 'large']) expect(elRules({ ...lines, pattern: 'dots', dots })).toEqual([]);
+    expect(elRules({ ...lines, pattern: 'dots', dots: 'huge' })).toEqual(['value']);
+    expect(elRules({ ...lines, first: true })).toEqual([]);
+    expect(elRules({ ...lines, first: 'yes' })).toEqual(['value']);
+    expect(elRules({ ...lines, pattern: 'none' })).toEqual(['value']);
+  });
+
+  it('group: a non-empty string on any element', () => {
+    for (const el of [box, { type: 'shade', tones: 'L', x: 0, y: 1, w: 1, h: 1 }, { type: 'text', x: 0, y: 1, text: 'a' }]) {
+      expect(elRules({ ...el, group: 'g1' })).toEqual([]);
+      expect(elRules({ ...el, group: '' })).toEqual(['group']);
+      expect(elRules({ ...el, group: 3 })).toEqual(['group']);
+    }
   });
 
   it('pattern: kind is required; every is a positive multiple of 0.5', () => {

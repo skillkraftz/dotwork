@@ -21,8 +21,8 @@ if (typeof window !== 'undefined') {
 const BLOCKED = ['pointerdown', 'pointerup', 'pointermove', 'pointercancel', 'mousedown', 'mouseup', 'click', 'dblclick', 'contextmenu', 'keydown', 'keyup', 'keypress', 'wheel'] as const;
 /** A press that moves farther than this is a drag or a scroll, not a tap. */
 const TAP_SLOP = 10;
-/** The menu button opens the menu even in help mode (it is how the menu's own items are reached); it is still explained. */
-const OPENS_ITSELF = ['menu-button'];
+/** These still work in help mode, so that what they reveal can be asked about (the menu's items, each mode's buttons); they are explained too. */
+const OPENS_ITSELF = ['menu-button', 'mode-select', 'mode-draw', 'mode-advanced'];
 
 export interface HelpHost {
   /** The key of the help entry for the page itself, for the current tool. */

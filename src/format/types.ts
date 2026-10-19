@@ -11,13 +11,16 @@ const centered = (page: number, cells: number) => +((page - cells * PITCH_MM) / 
 export const GRID_X_MM = centered(PAGE_W_MM, COLS); // 3.95
 export const GRID_Y_MM = centered(PAGE_H_MM, ROWS); // 3.85
 
-export const BACKGROUNDS = ['none', 'light', 'medium', 'dark'] as const;
-export type Background = (typeof BACKGROUNDS)[number];
-export const STRIPES = ['none', 'rows', 'columns'] as const;
-export type Stripes = (typeof STRIPES)[number];
-
-export const PATTERNS = ['none', 'lines', 'vlines', 'grid', 'dots'] as const;
+export const PATTERNS = ['lines', 'vlines', 'grid', 'dots'] as const;
 export type PatternKind = (typeof PATTERNS)[number];
+export const DOT_SIZES = ['small', 'large'] as const;
+export type DotSize = (typeof DOT_SIZES)[number];
+
+/** The letters of a shade's tones: light, medium, dark or blank. */
+export const TONE_LETTERS = ['L', 'M', 'D', 'B'] as const;
+export type ToneLetter = (typeof TONE_LETTERS)[number];
+export const ALONGS = ['rows', 'columns', 'checker'] as const;
+export type Along = (typeof ALONGS)[number];
 
 export const SEQUENCE_VALUES = ['numbers', 'letters', 'list', 'icons'] as const;
 export type SequenceValues = (typeof SEQUENCE_VALUES)[number];
@@ -51,11 +54,25 @@ export type PageSide = (typeof PAGE_SIDES)[number];
 
 export interface Area { x: number; y: number; w: number; h: number }
 
+/** Writing lines, a grid or dots over an area. */
 export interface Pattern extends Area {
   type: 'pattern';
   pattern: PatternKind;
-  background?: Background;
-  stripes?: Stripes;
+  every?: number;
+  /** lines, vlines and grid: how heavy the lines are. */
+  weight?: RuleWeight;
+  /** dots: how big the dots are. */
+  dots?: DotSize;
+  /** lines: also draw the top line. vlines: also draw the left line. */
+  first?: boolean;
+}
+
+/** A gray tint over an area: `tones` (letters L, M, D, B) repeat along rows, columns or as a checkerboard. */
+export interface Shade extends Area {
+  type: 'shade';
+  tones: string;
+  along?: Along;
+  /** How many cells each tone step covers. */
   every?: number;
 }
 
@@ -120,9 +137,12 @@ export interface Sequence {
   size?: IconSize;
 }
 
-export type PageElement = Pattern | Box | Rule | Checkboxes | Text | Sequence;
+/** Every element can belong to a group: elements with the same `group` are edited together. Printing ignores it. */
+export interface Grouped { group?: string }
+
+export type PageElement = (Pattern | Shade | Box | Rule | Checkboxes | Text | Sequence) & Grouped;
 export type ElementType = PageElement['type'];
-export const ELEMENT_TYPES: readonly ElementType[] = ['pattern', 'box', 'rule', 'checkboxes', 'text', 'sequence'];
+export const ELEMENT_TYPES: readonly ElementType[] = ['pattern', 'shade', 'box', 'rule', 'checkboxes', 'text', 'sequence'];
 
 export interface Page {
   format: 'dotwork-page';
@@ -147,9 +167,11 @@ export function emptyPage(): Page {
 
 /** Defaults for optional fields, as the format document lists them. */
 export const DEFAULTS = {
-  background: 'none',
-  stripes: 'none',
   every: 1,
+  shadeTones: 'L',
+  along: 'rows',
+  patternWeight: 'hair',
+  dots: 'small',
   boxWeight: 'thin',
   ruleWeight: 'thin',
   direction: 'down',

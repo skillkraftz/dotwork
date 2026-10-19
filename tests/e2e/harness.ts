@@ -137,9 +137,27 @@ export async function shot(app: App, name: string) {
 export const viewBoxOf = (app: App, selector = '#canvas') =>
   app.page.locator(selector).evaluate((el) => (el.getAttribute('viewBox') ?? '').split(' ').map(Number));
 
-/** Tap a button on the action bar beside the selection. */
-export async function bar(app: App, action: 'properties' | 'duplicate' | 'selectMore' | 'widget' | 'remove' | 'more') {
-  await app.page.tap(`#action-bar [data-action="${action}"]`);
+/**
+ * Tap or click a control, whichever the device has. An emulated tap straight after another touch is sometimes lost by the
+ * browser (it does this to the old action bar too), so a finger waits out a moment first, as a person's would.
+ */
+export async function hit(app: App, selector: string) {
+  if (!app.touch) { await app.page.click(selector); return; }
+  await app.page.waitForTimeout(450);
+  await app.page.tap(selector);
+}
+
+/** Tap one of the five context buttons beside the modes (properties, duplicate, remove, group, more, selectAll, half, or a tool's name). */
+export async function bar(app: App, action: string) {
+  await hit(app, `#bar-context [data-action="${action}"]`);
+}
+
+const DRAW_TOOLS = ['pattern', 'shade', 'box', 'rule', 'text'];
+/** Arm a drawing tool the way a person does: pick its mode, then its button. 'select' goes back to Select mode. */
+export async function tool(app: App, name: string) {
+  if (name === 'select') { await hit(app, '#bar-select'); return; }
+  if ((await app.page.locator(`#bar-context [data-tool="${name}"]`).count()) === 0) await hit(app, DRAW_TOOLS.includes(name) ? '#bar-draw' : '#advanced');
+  await hit(app, `#bar-context [data-tool="${name}"]`);
 }
 
 /** Two fingers landing one after the other, as they do for a person: the first at `a`, a moment later the second at `b`, then moving apart. */

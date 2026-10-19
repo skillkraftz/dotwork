@@ -1,6 +1,7 @@
 import { COLS, ROWS, type PageElement } from './format/types';
 import { validateElement } from './format/validate';
 import { groupArea, translate, type Pt } from './geometry';
+import { newGroupId } from './groups';
 
 /**
  * A saved group of elements. Their positions are relative to the group's top-left corner, which is (0, 0), so
@@ -13,7 +14,8 @@ const KEY = 'dotwork.widgets';
 /** A widget from elements on a page, with positions relative to their top-left corner. */
 export function makeWidget(id: string, name: string, elements: readonly PageElement[]): Widget {
   const a = groupArea(elements);
-  return { id, name: name.trim() || 'Widget', elements: elements.map((el) => translate(structuredClone(el), -a.x, -a.y)) };
+  // Groups belong to the page they were made on: a widget is placed as one new group of its own.
+  return { id, name: name.trim() || 'Widget', elements: elements.map((el) => { const { group: _gone, ...rest } = translate(structuredClone(el), -a.x, -a.y); return rest as PageElement; }) };
 }
 
 /** How many cells across and down a widget covers. */
@@ -22,11 +24,19 @@ export function widgetSize(widget: Widget): { w: number; h: number } {
   return { w, h };
 }
 
-/** Copies of the widget's elements with its top-left corner at `at`, moved back inside the page if it would hang off. */
-export function placeWidget(widget: Widget, at: Pt): PageElement[] {
+/**
+ * Copies of the widget's elements with its top-left corner at `at`, moved back inside the page if it would hang off.
+ * Several elements are placed as one group (named so as not to clash with the groups already on the page, `existing`).
+ */
+export function placeWidget(widget: Widget, at: Pt, existing: readonly PageElement[] = []): PageElement[] {
   const { w, h } = widgetSize(widget);
   const x = Math.max(0, Math.min(COLS - w, at.x)), y = Math.max(1, Math.min(ROWS - h, at.y));
-  return widget.elements.map((el) => translate(structuredClone(el), x, y));
+  const group = widget.elements.length > 1 ? newGroupId(existing) : undefined;
+  return widget.elements.map((el) => {
+    const placed = translate(structuredClone(el), x, y);
+    if (group !== undefined) placed.group = group;
+    return placed;
+  });
 }
 
 /** The place the widget list is kept: the browser's local storage, or anything shaped like it (tests use a plain object). */

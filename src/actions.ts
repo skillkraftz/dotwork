@@ -1,5 +1,6 @@
 import type { Page, PageElement } from './format/types';
 import { canMove, cycleHit, moveGroup } from './geometry';
+import { dropLoneGroups, newGroupId, regroup } from './groups';
 import type { Store } from './store';
 
 const clone = (page: Page) => structuredClone(page);
@@ -36,7 +37,7 @@ export function deleteElements(store: Store, indexes: readonly number[]) {
   const gone = new Set(indexes.filter((i) => !store.isLocked(i)));
   if (!gone.size) return;
   const next = clone(store.page);
-  next.elements = next.elements.filter((_, i) => !gone.has(i));
+  next.elements = dropLoneGroups(next.elements.filter((_, i) => !gone.has(i)));
   const ids = store.ids.filter((_, i) => !gone.has(i));
   store.selected = null;
   store.others.clear();
@@ -71,7 +72,10 @@ export function duplicateElements(store: Store, indexes: readonly number[]) {
   const src = indexes.map((i) => store.page.elements[i]).filter(Boolean);
   if (!src.length) return;
   const [dx, dy] = COPY_OFFSETS.find(([x, y]) => canMove(src, x, y)) ?? [0, 0];
-  const copies = moveGroup(structuredClone(src), dx, dy);
+  const moved = moveGroup(structuredClone(src), dx, dy);
+  // A piece copied from inside a group joins that group; copies of whole groups are groups of their own.
+  const inside = store.editingGroup !== null && src.every((e) => e.group === store.editingGroup);
+  const copies = inside ? moved : dropLoneGroups(regroup(moved, store.page.elements));
   if (src.length > 1) { addElements(store, copies); return; }
   const index = indexes[0];
   const next = clone(store.page);
@@ -122,7 +126,39 @@ export function shiftLayer(store: Store, index: number, by: 1 | -1) {
   reorderElement(store, index, index + by);
 }
 
-export interface ContextAction { id: 'duplicate' | 'delete' | 'forward' | 'backward' | 'beneath'; label: string; enabled: boolean; run(): void }
+/** Select everything that can be selected: visible, unlocked elements. */
+export function selectAll(store: Store) {
+  const all = store.page.elements.flatMap((_, i) => (!store.isHidden(i) && !store.isLocked(i) ? [i] : []));
+  if (all.length) store.selectMany(all);
+}
+
+/** What the Group / Ungroup button does for the selection: ungroup when all of it is in one group, group when it is several elements, else nothing. */
+export function groupAction(store: Store): 'group' | 'ungroup' | null {
+  const els = store.selection.map((i) => store.page.elements[i]);
+  if (!els.length || store.selection.some((i) => store.isLocked(i))) return null;
+  const first = els[0].group;
+  if (first !== undefined && els.every((e) => e.group === first)) return 'ungroup';
+  return els.length > 1 ? 'group' : null;
+}
+
+/** Make the selected elements one group, or take them out of theirs. The selection stays. */
+export function toggleGroup(store: Store) {
+  const action = groupAction(store);
+  if (!action) return;
+  const chosen = new Set(store.selection);
+  const next = clone(store.page);
+  if (action === 'group') {
+    const group = newGroupId(next.elements);
+    next.elements.forEach((e, i) => { if (chosen.has(i)) e.group = group; });
+    next.elements = dropLoneGroups(next.elements); // a piece left alone in its old group is let go
+  } else {
+    next.elements.forEach((e, i) => { if (chosen.has(i)) delete e.group; });
+    next.elements = dropLoneGroups(next.elements);
+  }
+  store.commit(next);
+}
+
+export interface ContextAction { id: 'duplicate' | 'delete' | 'forward' | 'backward' | 'beneath' | 'widget' | 'half'; label: string; enabled: boolean; run(): void }
 
 /**
  * The choices in the menu that long-pressing an element opens (the touch replacement for Alt-click and the
@@ -138,5 +174,18 @@ export function contextActions(store: Store, index: number, hits: number[]): Con
     { id: 'forward', label: 'Bring forward', enabled: index < last, run: () => shiftLayer(store, index, 1) },
     { id: 'backward', label: 'Send backward', enabled: index > 0, run: () => shiftLayer(store, index, -1) },
     { id: 'beneath', label: 'Select the one underneath', enabled: hits.length > 1 && beneath !== undefined && beneath !== index, run: () => store.select(beneath ?? index) },
+  ];
+}
+
+/** What the More button offers for the selection: the rest of the things that can be done to it. */
+export function moreActions(store: Store, index: number, hits: number[], saveWidget: () => void): ContextAction[] {
+  const last = store.page.elements.length - 1;
+  const beneath = cycleHit(hits, index);
+  return [
+    { id: 'forward', label: 'Bring forward', enabled: index < last, run: () => shiftLayer(store, index, 1) },
+    { id: 'backward', label: 'Send backward', enabled: index > 0, run: () => shiftLayer(store, index, -1) },
+    { id: 'beneath', label: 'Select underneath', enabled: hits.length > 1 && beneath !== undefined && beneath !== index, run: () => store.select(beneath ?? index) },
+    { id: 'widget', label: 'Save as widget', enabled: true, run: saveWidget },
+    { id: 'half', label: `Half cells: ${store.halfCells ? 'on' : 'off'}`, enabled: true, run: () => store.setHalfCells(!store.halfCells) },
   ];
 }

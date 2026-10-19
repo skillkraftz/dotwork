@@ -6,22 +6,19 @@ import type { IconChoice } from './geometry';
 import type { Widget, WidgetStore } from './widgets';
 import type { NameDialog } from './namedialog';
 
-/** What the Advanced picker can hand back: a tool to arm, ready for a tap or drag on the page. */
+/** What the picker can hand back: a tool to arm, ready for a tap or drag on the page. */
 export type AdvancedChoice =
-  | { kind: 'sequence' }
   | { kind: 'icon'; icon: IconChoice }
   | { kind: 'widget'; widget: Widget };
 
 /**
- * The Advanced picker: one window for everything that is not a plain tool, so new kinds of widget go here
- * instead of onto the tool bar. It lists Sequence, Icon and the saved widgets; the icon grid is its second page.
- * The same grid also picks a single icon for a sequence's properties.
+ * The window behind two of Advanced's buttons: the saved widgets (Widgets) and the icon grid (Icon). The same grid
+ * also picks a single icon for a sequence's properties.
  */
 export class AdvancedPicker {
   private dialog: HTMLDialogElement;
   private title = h('h2', {});
   private body = h('div', { class: 'picker-body' });
-  private back = h('button', { type: 'button', 'data-help': 'advanced-back', onclick: () => this.showMenu() }, '‹ Back');
   private icon: IconChoice = { name: 'star', size: 1, tone: 'black' };
   private onPick: ((name: string) => void) | null = null;
   private unsubscribe: (() => void) | null = null;
@@ -32,7 +29,7 @@ export class AdvancedPicker {
     private choose: (choice: AdvancedChoice) => void,
   ) {
     this.dialog = h('dialog', { class: 'library advanced', 'aria-label': 'Advanced' },
-      h('header', {}, this.back, this.title, h('button', { type: 'button', 'data-help': 'advanced-close', onclick: () => this.dialog.close() }, 'Close')),
+      h('header', {}, this.title, h('button', { type: 'button', 'data-help': 'advanced-close', onclick: () => this.dialog.close() }, 'Close')),
       this.body) as HTMLDialogElement;
     this.dialog.addEventListener('click', (e) => { if (e.target === this.dialog) this.dialog.close(); });
     document.body.append(this.dialog);
@@ -43,11 +40,18 @@ export class AdvancedPicker {
   /** The icon, size and colour last chosen (the icon tool places this). */
   setIcon(icon: IconChoice) { this.icon = icon; }
 
-  /** Open at the list of widgets. */
-  show() {
+  /** Open at the list of saved widgets. */
+  showWidgets() {
     this.onPick = null;
     this.open();
     this.showMenu();
+  }
+
+  /** Open the icon grid to choose the icon the icon tool places. */
+  showIconTool() {
+    this.onPick = null;
+    this.open();
+    this.showIcons();
   }
 
   /** Open the icon grid to pick one icon for something else (a sequence's list); `pick` is called with its name. */
@@ -74,23 +78,12 @@ export class AdvancedPicker {
 
   private showMenu() {
     this.view = 'menu';
-    this.title.textContent = 'Advanced';
-    this.back.hidden = true;
-    const tile = (id: string, label: string, hint: string, glyph: string, onclick: () => void) => {
-      const art = h('span', { class: 'tile-glyph' });
-      art.innerHTML = glyph;
-      return h('button', { type: 'button', class: 'tile', 'data-key': `advanced-${id}`, 'data-help': `advanced-${id}`, onclick },
-        art, h('span', { class: 'tile-text' }, h('strong', {}, label), h('small', {}, hint)));
-    };
+    this.title.textContent = 'Widgets';
     const saved = this.widgets.list();
     this.body.replaceChildren(
-      h('div', { class: 'tiles' },
-        tile('sequence', 'Sequence', 'Numbers, letters or a repeating list down or across a run of cells.', '<span class="seq">1<br>2<br>3</span>', () => this.done({ kind: 'sequence' })),
-        tile('icon', 'Icon', 'One icon, or a run of them, from the icon set.', iconGlyph('star'), () => this.showIcons())),
-      h('h3', {}, 'Saved widgets'),
       saved.length
         ? h('ul', { class: 'widget-list' }, ...saved.map((w) => this.widgetRow(w)))
-        : h('p', { class: 'hint' }, 'Nothing saved yet. Select one or more elements on the page, then tap Save as widget to keep them here for other pages.'));
+        : h('p', { class: 'hint' }, 'Nothing saved yet. Select one or more elements on the page, then tap More and Save as widget to keep them here for other pages.'));
   }
 
   private widgetRow(w: Widget): HTMLElement {
@@ -113,7 +106,6 @@ export class AdvancedPicker {
     this.view = 'icons';
     const picking = this.onPick !== null;
     this.title.textContent = picking ? 'Choose an icon' : 'Icon';
-    this.back.hidden = picking;
     const choice = (name: string) => () => {
       if (this.onPick) { const pick = this.onPick; this.onPick = null; this.dialog.close(); pick(name); return; }
       this.icon = { ...this.icon, name };

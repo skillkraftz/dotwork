@@ -30,7 +30,7 @@ describe('page rendering', () => {
   });
 
   it('draws elements in array order and hides hidden ones only while editing', () => {
-    const els: PageElement[] = [{ type: 'pattern', pattern: 'none', background: 'dark', x: 0, y: 1, w: 1, h: 1 }, { type: 'text', x: 0, y: 1, text: 'TOP' }];
+    const els: PageElement[] = [{ type: 'shade', tones: 'D', x: 0, y: 1, w: 1, h: 1 }, { type: 'text', x: 0, y: 1, text: 'TOP' }];
     const out = pageContent(page(els), { mode: 'edit' });
     expect(out.indexOf('#bdbdbd')).toBeLessThan(out.indexOf('TOP'));
     expect(pageContent(page(els), { mode: 'edit', hidden: new Set([0]) })).not.toContain('#bdbdbd');
@@ -39,26 +39,60 @@ describe('page rendering', () => {
 });
 
 describe('elements', () => {
-  it('shades in three tones, with optional stripes on every other row or column', () => {
-    const shade = { type: 'pattern', pattern: 'none', x: 0, y: 1, w: 4, h: 5 } as const;
-    expect(elementMarkup({ ...shade, background: 'light' })).toContain('#efefef');
-    expect(elementMarkup({ ...shade, background: 'medium' })).toContain('#dcdcdc');
-    expect(elementMarkup({ ...shade, background: 'dark' })).toContain('#bdbdbd');
-    expect(elementMarkup(shade)).toBe(''); // no background and no pattern: nothing to draw
-    expect(count(elementMarkup({ ...shade, background: 'light' }), /<rect/g)).toBe(1);
-    expect(count(elementMarkup({ ...shade, background: 'light', stripes: 'rows' }), /<rect/g)).toBe(3); // rows 1, 3, 5
-    expect(count(elementMarkup({ ...shade, background: 'light', stripes: 'columns' }), /<rect/g)).toBe(2); // columns 0 and 2
+  it('shades in three tones, and blank draws nothing', () => {
+    const shade = { type: 'shade', x: 0, y: 1, w: 4, h: 5 } as const;
+    expect(elementMarkup({ ...shade, tones: 'L' })).toContain('#efefef');
+    expect(elementMarkup({ ...shade, tones: 'M' })).toContain('#dcdcdc');
+    expect(elementMarkup({ ...shade, tones: 'D' })).toContain('#bdbdbd');
+    expect(elementMarkup({ ...shade, tones: 'B' })).toBe('');
+    expect(count(elementMarkup({ ...shade, tones: 'L' }), /<rect/g)).toBe(1); // solid: one rectangle, no seams
   });
 
-  it('draws a pattern’s background under its lines, so one element is "writing lines on light gray, every other row"', () => {
-    const el = elementMarkup({ type: 'pattern', pattern: 'lines', background: 'light', stripes: 'rows', x: 0, y: 1, w: 4, h: 5 });
-    expect(count(el, /<rect/g)).toBe(3);
-    expect(count(el, /H/g)).toBe(5);
-    expect(el.lastIndexOf('<rect')).toBeLessThan(el.indexOf('<path')); // every shaded row comes before the lines
-    for (const kind of ['vlines', 'grid', 'dots'] as const) {
-      const out = elementMarkup({ type: 'pattern', pattern: kind, background: 'medium', x: 0, y: 1, w: 4, h: 5 });
-      expect(out.indexOf('<rect')).toBeLessThan(out.indexOf('<path'));
-    }
+  it('shades rows, columns and a checkerboard from the tone letters', () => {
+    const shade = { type: 'shade', x: 0, y: 1, w: 4, h: 5 } as const;
+    // LB along rows: rows 0, 2 and 4 are light (every other row, starting with the first)
+    const rows = elementMarkup({ ...shade, tones: 'LB' });
+    expect(count(rows, /<rect/g)).toBe(3);
+    expect(rows).toContain('y="3" width="12" height="3"'); // row 0 is 3 mm tall at y = 1 cell
+    // LB along columns: columns 0 and 2
+    expect(count(elementMarkup({ ...shade, tones: 'LB', along: 'columns' }), /<rect/g)).toBe(2);
+    // LB as a checker: cell (r, c) takes tone (r + c) mod 2, so 4 x 5 cells hold 10 light ones
+    const checker = elementMarkup({ ...shade, tones: 'LB', along: 'checker' });
+    expect(count(checker, /<rect/g)).toBe(10);
+    // a custom repeat: L, B, B, M, B, B down five rows is a light, a medium row
+    const custom = elementMarkup({ ...shade, tones: 'LBBMBB' });
+    expect(custom).toContain('#efefef');
+    expect(custom).toContain('#dcdcdc');
+    expect(count(custom, /<rect/g)).toBe(2);
+  });
+
+  it('every sets how many cells each tone step covers, in multiples of half a cell', () => {
+    const shade = { type: 'shade', x: 0, y: 1, w: 4, h: 5, tones: 'LB' } as const;
+    expect(count(elementMarkup({ ...shade, every: 2 }), /<rect/g)).toBe(2); // rows 0-1 and 4-5 (the last is cut to one row)
+    expect(elementMarkup({ ...shade, every: 2 })).toContain('height="6"'); // two cells
+    expect(count(elementMarkup({ ...shade, every: 0.5 }), /<rect/g)).toBe(5); // ten half-rows, every other one
+  });
+
+  it('draws lines in three weights, and dots in two sizes', () => {
+    const area = { x: 0, y: 1, w: 4, h: 3 } as const;
+    expect(elementMarkup({ type: 'pattern', pattern: 'lines', ...area })).toContain('stroke="#c4c4c4"'); // hair by default
+    expect(elementMarkup({ type: 'pattern', pattern: 'lines', weight: 'thin', ...area })).toMatch(/stroke="#000" stroke-width="0.176"/);
+    expect(elementMarkup({ type: 'pattern', pattern: 'lines', weight: 'thick', ...area })).toMatch(/stroke="#000" stroke-width="0.529"/);
+    for (const kind of ['vlines', 'grid'] as const) expect(elementMarkup({ type: 'pattern', pattern: kind, weight: 'thick', ...area })).toContain('stroke-width="0.529"');
+    expect(elementMarkup({ type: 'pattern', pattern: 'dots', ...area })).toContain('stroke-width="0.5"');
+    expect(elementMarkup({ type: 'pattern', pattern: 'dots', dots: 'large', ...area })).toContain('stroke-width="0.9"');
+  });
+
+  it('can include the first edge: the top line of lines, the left line of vlines', () => {
+    const area = { x: 1, y: 2, w: 3, h: 4 } as const;
+    const lines = elementMarkup({ type: 'pattern', pattern: 'lines', first: true, ...area });
+    expect(count(lines, /H/g)).toBe(5);
+    expect(lines).toContain('M3 6H12'); // the top edge, at y = 2 cells
+    expect(elementMarkup({ type: 'pattern', pattern: 'lines', first: false, ...area })).not.toContain('M3 6H');
+    const vlines = elementMarkup({ type: 'pattern', pattern: 'vlines', first: true, ...area });
+    expect(count(vlines, /V/g)).toBe(4);
+    expect(vlines).toContain('M3 6V18'); // the left edge, at x = 1 cell
+    expect(elementMarkup({ type: 'pattern', pattern: 'vlines', ...area })).not.toContain('M3 6V');
   });
 
   it('draws a rule under each row band including the bottom edge, and a rule right of each column band', () => {

@@ -60,8 +60,11 @@
             <button id="fit" data-help="fit" type="button" class="iconbtn" title="Fit the page to the screen" aria-label="Fit page to screen"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg><span class="label">Fit</span></button>
             <button id="layers-button" data-help="layers-button" type="button" class="iconbtn" title="Layers and page settings" aria-label="Layers"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/></svg><span class="label">Layers</span></button>
           </div>
+          <div id="group-banner" role="status" hidden>
+            <span>Editing inside a group</span>
+            <button type="button" id="group-done" data-help="group-done">Done</button>
+          </div>
         </section>
-        <div id="sheet-backdrop" data-state="closed"></div>
         <aside id="sheet" data-state="closed" aria-label="Properties and layers">
           <div class="sheet-head">
             <span class="sheet-title">Edit</span>
@@ -69,18 +72,15 @@
           </div>
           <div id="panel"></div>
         </aside>
-        <div id="action-bar" role="toolbar" aria-label="Selected element" hidden></div>
         <div id="notice" role="status" hidden></div>
       </main>
       <nav id="tools" aria-label="Tools">
-      <button type="button" data-tool="select" data-help="tool-select" title="Select (V)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3l12 7-5 1.5L11 17z"/></svg><span class="label">Select</span></button>
-      <button type="button" id="advanced" data-help="tool-advanced" title="Advanced: sequence, icon, saved widgets (A)" aria-haspopup="dialog" aria-pressed="false"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="7"/><rect x="13.5" y="3.5" width="7" height="7"/><rect x="3.5" y="13.5" width="7" height="7"/><path d="M17 13.5v7M13.5 17h7"/></svg><span class="label">Advanced</span></button>
-      <button type="button" data-tool="pattern" data-help="tool-pattern" title="Pattern (P)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16"/><path d="M4 9.5h16M4 14.5h16M9.5 4v16M14.5 4v16"/></svg><span class="label">Pattern</span></button>
-      <button type="button" data-tool="box" data-help="tool-box" title="Box (B)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="6" width="16" height="12"/></svg><span class="label">Box</span></button>
-      <button type="button" data-tool="rule" data-help="tool-rule" title="Rule (R)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h18M3 9v6M21 9v6"/></svg><span class="label">Rule</span></button>
-      <button type="button" data-tool="checkboxes" data-help="tool-checkboxes" title="Checkboxes (C)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="7" height="7"/><rect x="4" y="13" width="7" height="7"/><path d="M14 7.5h6M14 16.5h6"/></svg><span class="label">Checks</span></button>
-      <button type="button" data-tool="text" data-help="tool-text" title="Text (T)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7V5h14v2M12 5v14M9 19h6"/></svg><span class="label">Text</span></button>
-        <button type="button" id="half-cells" data-help="half-cells" title="Snap to half cells (or hold Shift)" aria-pressed="false"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><text x="12" y="17" text-anchor="middle" font-size="17" fill="currentColor" stroke="none">½</text></svg><span class="label">Half</span></button>
+        <div id="bar-modes" role="group" aria-label="Mode">
+          <button type="button" id="bar-select" data-bar-mode="select" data-help="mode-select" title="Select: pick, move and change what is on the page (V)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3l12 7-5 1.5L11 17z"/></svg><span class="label">Select</span></button>
+          <button type="button" id="bar-draw" data-bar-mode="draw" data-help="mode-draw" title="Draw: pattern, shade, box, rule, text"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20l1-5L16 4l4 4L9 19z"/><path d="M14 6l4 4"/></svg><span class="label">Draw</span></button>
+          <button type="button" id="advanced" data-bar-mode="advanced" data-help="mode-advanced" title="Advanced: sequence, icon, checkboxes, widgets (A)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="7"/><rect x="13.5" y="3.5" width="7" height="7"/><rect x="3.5" y="13.5" width="7" height="7"/><path d="M17 13.5v7M13.5 17h7"/></svg><span class="label">Advanced</span></button>
+        </div>
+        <div id="bar-context" role="group" aria-label="Actions"></div>
       </nav>
     </div>
     <script type="module" src="/src/main.ts"></script>

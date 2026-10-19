@@ -1,9 +1,10 @@
 import { emptyPage, type Page } from './format/types';
+import { membersOf } from './groups';
 import type { IconChoice } from './geometry';
 import type { Widget } from './widgets';
 
 export type Mode = 'edit' | 'preview';
-export type Tool = 'select' | 'pattern' | 'box' | 'rule' | 'checkboxes' | 'text' | 'sequence' | 'icon' | 'widget';
+export type Tool = 'select' | 'pattern' | 'shade' | 'box' | 'rule' | 'checkboxes' | 'text' | 'sequence' | 'icon' | 'widget';
 
 const MAX_HISTORY = 200;
 const COALESCE_MS = 1000;
@@ -21,8 +22,8 @@ export class Store {
   /** The main selected element (the one the properties show); `others` are the rest of a multiple selection, by id. */
   selected: number | null = null;
   others = new Set<number>();
-  /** Touch: while on, tapping elements adds them to the selection (or takes them out) instead of replacing it. */
-  moreMode = false;
+  /** The group being edited from inside: its pieces are picked one at a time instead of as a whole. */
+  editingGroup: string | null = null;
   /** What the icon tool places, and what the widget tool places: set by the Advanced picker. */
   icon: IconChoice = { name: 'star', size: 1, tone: 'black' };
   widget: Widget | null = null;
@@ -50,7 +51,43 @@ export class Store {
   }
 
   private emit() {
+    this.syncGroup();
     this.listeners.forEach((fn) => fn());
+  }
+
+  /** Editing inside a group ends when the group is gone, or when something outside it is selected. */
+  private syncGroup() {
+    const g = this.editingGroup;
+    if (g === null) return;
+    const members = membersOf(this.page.elements, g);
+    if (members.length < 2 || this.selection.some((i) => !members.includes(i))) this.editingGroup = null;
+  }
+
+  /** Start editing inside a group. */
+  enterGroup(group: string) {
+    if (membersOf(this.page.elements, group).length < 2) return;
+    this.editingGroup = group;
+    this.emit();
+  }
+
+  leaveGroup() {
+    if (this.editingGroup === null) return;
+    this.editingGroup = null;
+    this.emit();
+  }
+
+  /** The elements a tap on `index` selects: its whole group (the usable members), or just itself while editing inside that group. */
+  pickSet(index: number): number[] {
+    const g = this.page.elements[index]?.group;
+    if (g === undefined || g === this.editingGroup) return [index];
+    return membersOf(this.page.elements, g).filter((i) => i === index || (!this.isHidden(i) && !this.isLocked(i)));
+  }
+
+  /** Select what a tap on `index` means: the element, or its whole group; the tapped one is the main one. */
+  pick(index: number) {
+    const set = this.pickSet(index);
+    if (set.length === 1) this.select(index);
+    else this.selectMany([...set.filter((i) => i !== index), index]);
   }
 
   get canUndo() { return this.undoStack.length > 0; }
@@ -114,7 +151,7 @@ export class Store {
   replace(page: Page) {
     this.selected = null;
     this.others.clear();
-    this.moreMode = false;
+    this.editingGroup = null;
     this.hidden.clear();
     this.locked.clear();
     this.commit(page, undefined, page.elements.map(() => this.nextId++));
@@ -145,7 +182,7 @@ export class Store {
   private clampSelection() {
     if (this.selected !== null && this.selected >= this.page.elements.length) this.selected = null;
     for (const id of this.others) if (!this.ids.includes(id)) this.others.delete(id);
-    if (this.selected === null) { this.others.clear(); this.moreMode = false; }
+    if (this.selected === null) this.others.clear();
   }
 
   /** Select just this element (or nothing). */
@@ -153,7 +190,6 @@ export class Store {
     if (index === this.selected && this.others.size === 0) return;
     this.selected = index;
     this.others.clear();
-    if (index === null) this.moreMode = false;
     this.emit();
   }
 
@@ -174,13 +210,6 @@ export class Store {
   selectMany(indexes: readonly number[]) {
     this.selected = indexes.length ? indexes[indexes.length - 1] : null;
     this.others = new Set(indexes.slice(0, -1).map((i) => this.ids[i]));
-    if (this.selected === null) this.moreMode = false;
-    this.emit();
-  }
-
-  setMoreMode(on: boolean) {
-    if (on === this.moreMode) return;
-    this.moreMode = on;
     this.emit();
   }
 
@@ -199,13 +228,14 @@ export class Store {
   setMode(mode: Mode) {
     if (mode === this.mode) return;
     this.mode = mode;
+    this.editingGroup = null;
     this.emit();
   }
 
   setTool(tool: Tool) {
     if (tool === this.tool) return;
     this.tool = tool;
-    this.moreMode = false;
+    this.editingGroup = null;
     this.emit();
   }
 

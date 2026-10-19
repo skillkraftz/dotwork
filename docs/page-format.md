@@ -42,22 +42,35 @@ place labels anywhere.
 
 ## Element types
 
-Every element has a `type` and the fields listed for it. Optional fields show
-their default.
+Every element has a `type`, the fields listed for it, and may have a `group`. Optional fields show their default.
 
-### `pattern`: shading, writing lines, grid or dots
+### `group`: elements edited together
+
+Any element may have `"group": "g1"`, a non-empty string. Elements with the same value form a group: the editor selects and moves them as one. The file stays a flat list and printing ignores groups.
+
+### `pattern`: writing lines, a grid or dots
 
 | Field | Meaning |
 |-------|---------|
 | `x`, `y`, `w`, `h` | The area. |
-| `pattern` | `"lines"`: a rule under each row band, including the bottom edge. `"vlines"`: a rule right of each column band, including the right edge. `"grid"`: rules on every boundary, including all four edges. `"dots"`: a dot on every intersection, including the edges. `"none"`: no lines or dots, for a plain shaded area. |
-| `background` | The gray behind the pattern: `"none"` (default), `"light"`, `"medium"` or `"dark"`. |
-| `stripes` | `"none"` (default), `"rows"` or `"columns"`. With stripes, only every other row or column of the background is shaded, starting with the first. |
-| `every` | Spacing of the lines or dots in cells, default `1`. `2` gives 6 mm lines. Stripes are always one cell wide. |
+| `pattern` | `"lines"`: a rule under each row band, including the bottom edge. `"vlines"`: a rule right of each column band, including the right edge. `"grid"`: rules on every boundary, including all four edges. `"dots"`: a dot on every intersection, including the edges. |
+| `every` | Spacing of the lines or dots in cells, default `1`. `2` gives 6 mm lines. |
+| `weight` | `lines`, `vlines`, `grid`: `"hair"` (default, light gray), `"thin"` (0.5 pt black) or `"thick"` (1.5 pt black). |
+| `dots` | `dots`: `"small"` (default, 0.5 mm) or `"large"` (0.9 mm). |
+| `first` | `lines`: `true` also draws the top line. `vlines`: `true` also draws the left line. Default `false`. A grid and dots already include every edge. |
 
-The background is drawn first and the lines or dots on top of it, so one element
-can be "writing lines on light gray, every other row". Pattern lines and dots are
-light gray and thin, the same as journal-system's writing lines and dot grid.
+Hair lines and dots are light gray and thin, the same as journal-system's writing lines and dot grid. Tinting an area is the `shade` element's job.
+
+### `shade`: a gray tint
+
+| Field | Meaning |
+|-------|---------|
+| `x`, `y`, `w`, `h` | The area. |
+| `tones` | A string of the letters `L` (light), `M` (medium), `D` (dark) and `B` (blank), repeated across the area. `"L"` is solid light; `"LB"` is every other row; `"LBBMBB"` is a custom repeat. Required, at least one letter, capitals only. |
+| `along` | `"rows"` (default): each row takes the next tone. `"columns"`: each column does. `"checker"`: the cell at row r, column c takes tone number (r + c) mod the number of tones, so `"LB"` is a checkerboard. |
+| `every` | How many cells each tone step covers, default `1`, a multiple of `0.5`. The last step is cut to the area. |
+
+Rows, columns and cells are counted from the area's top-left corner. Light, medium and dark are `#efefef`, `#dcdcdc` and `#bdbdbd`; blank draws nothing.
 
 ### `box`: an outline
 
@@ -186,7 +199,7 @@ not have `"side": "left"` or whose `right` page does not have
 A reader must reject a file with the wrong `format`, an unknown `version`, an
 unknown element type or field value, a coordinate that is not a multiple of
 0.5, an element outside the grid or above y = 1, a diagonal rule, a
-`checkboxes` or `sequence` element whose items leave the grid, a `sequence`
+`checkboxes` or `sequence` element whose items leave the grid, a `shade` whose `tones` are not the letters L, M, D and B, an empty `group`, a `sequence`
 with a text item of more than two characters or an unknown icon name, or an unknown token, and say
 which rule failed. Overlap is allowed.
 

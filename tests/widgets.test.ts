@@ -117,7 +117,7 @@ describe('saved widgets', () => {
     expect(els()[0]).toMatchObject({ x: 3 }); // the page's own elements were not changed
   });
 
-  it('saves from one page and places on another as matching, ordinary elements', () => {
+  it('saves from one page and places on another as a matching group', () => {
     const widgets = new WidgetStore(null, () => 'id1');
     const a = storeWith();
     a.selectMany([0, 1, 2, 3]);
@@ -129,8 +129,8 @@ describe('saved widgets', () => {
     // the copies match the originals, shifted to the new spot: the originals were at (3, 5)
     const placed = b.page.elements.slice(1);
     expect(placed).toEqual(els().map((e) => (e.type === 'rule'
-      ? { ...e, x1: e.x1 + 7, x2: e.x2 + 7, y1: e.y1 + 15, y2: e.y2 + 15 }
-      : { ...e, x: (e as { x: number }).x + 7, y: (e as { y: number }).y + 15 })));
+      ? { ...e, x1: e.x1 + 7, x2: e.x2 + 7, y1: e.y1 + 15, y2: e.y2 + 15, group: 'g1' }
+      : { ...e, x: (e as { x: number }).x + 7, y: (e as { y: number }).y + 15, group: 'g1' })));
     expect(validatePage(b.page)).toEqual([]);
     expect(b.selection).toEqual([1, 2, 3, 4]);
 

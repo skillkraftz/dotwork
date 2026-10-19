@@ -1,7 +1,9 @@
 import {
-  ALIGNS, BACKGROUNDS, DEFAULTS, DIRECTIONS, ICON_SIZES, PAGE_SIDES, PATTERNS, RULE_WEIGHTS, SEQUENCE_VALUES, SIDES, STRIPES, TEXT_SIZES, TEXT_STYLES,
-  TEXT_TONES, WEIGHTS, type BoxSide, type Page, type PageElement, type Sequence, type SequenceValues,
+  ALIGNS, ALONGS, DEFAULTS, DIRECTIONS, DOT_SIZES, ICON_SIZES, PAGE_SIDES, PATTERNS, RULE_WEIGHTS, SEQUENCE_VALUES, SIDES, TEXT_SIZES, TEXT_STYLES,
+  TEXT_TONES, WEIGHTS, type BoxSide, type Page, type PageElement, type Pattern, type Sequence, type SequenceValues, type Shade,
 } from './format/types';
+import { cleanTones, toneAt } from './format/shade';
+import { SHADE_TONES } from './render';
 import { iconGlyph } from './icons/glyph';
 import { findUnknownTokens, TOKENS } from './format/tokens';
 import { validateElement } from './format/validate';
@@ -71,16 +73,15 @@ function switchValues(x: Sequence, to: SequenceValues) {
 
 /** A one-line description of an element for the layers list. */
 export function describe(el: PageElement): string {
+  const group = el.group === undefined ? '' : ` · ${el.group}`;
   switch (el.type) {
-    case 'pattern': {
-      const bg = el.background && el.background !== 'none' ? ` on ${el.background}${el.stripes && el.stripes !== 'none' ? ` ${el.stripes}` : ''}` : '';
-      return `${el.pattern === 'none' ? 'shading' : el.pattern}${bg} · ${fmt(el.x)},${fmt(el.y)} ${fmt(el.w)}×${fmt(el.h)}`;
-    }
-    case 'sequence': return `${el.values === 'icons' ? 'icons' : `sequence ${el.values ?? DEFAULTS.values}`} · ${fmt(el.x)},${fmt(el.y)} ×${el.count}`;
-    case 'box': return `box · ${fmt(el.x)},${fmt(el.y)} ${fmt(el.w)}×${fmt(el.h)}`;
-    case 'rule': return `rule · ${fmt(el.x1)},${fmt(el.y1)} → ${fmt(el.x2)},${fmt(el.y2)}`;
-    case 'checkboxes': return `checkboxes · ${fmt(el.x)},${fmt(el.y)} ×${el.count}`;
-    case 'text': return `text · “${el.text.length > 22 ? el.text.slice(0, 21) + '…' : el.text}”`;
+    case 'pattern': return `${el.pattern} · ${fmt(el.x)},${fmt(el.y)} ${fmt(el.w)}×${fmt(el.h)}${group}`;
+    case 'shade': return `shade ${el.tones}${el.along && el.along !== 'rows' ? ` ${el.along}` : ''} · ${fmt(el.x)},${fmt(el.y)} ${fmt(el.w)}×${fmt(el.h)}${group}`;
+    case 'sequence': return `${el.values === 'icons' ? 'icons' : `sequence ${el.values ?? DEFAULTS.values}`} · ${fmt(el.x)},${fmt(el.y)} ×${el.count}${group}`;
+    case 'box': return `box · ${fmt(el.x)},${fmt(el.y)} ${fmt(el.w)}×${fmt(el.h)}${group}`;
+    case 'rule': return `rule · ${fmt(el.x1)},${fmt(el.y1)} → ${fmt(el.x2)},${fmt(el.y2)}${group}`;
+    case 'checkboxes': return `checkboxes · ${fmt(el.x)},${fmt(el.y)} ×${el.count}${group}`;
+    case 'text': return `text · “${el.text.length > 22 ? el.text.slice(0, 21) + '…' : el.text}”${group}`;
   }
 }
 
@@ -479,7 +480,7 @@ export class Panel {
     const { store } = this;
     const i = store.selected;
     const many = store.selection.length > 1;
-    const kind = i === null ? '' : (store.page.elements[i] as Partial<Sequence>).values ?? '';
+    const kind = i === null ? '' : (store.page.elements[i] as { values?: string; pattern?: string }).values ?? (store.page.elements[i] as { pattern?: string }).pattern ?? '';
     const key = i === null ? 'none'
       : many ? `many:${store.selection.map((k) => store.idAt(k)).join(',')}:${this.storeNo(store)}`
         : `${i}:${store.idAt(i)}:${store.page.elements[i].type}:${kind}:${this.storeNo(store)}`;
@@ -530,10 +531,24 @@ export class Panel {
     const area = () => [num('x', 'x'), num('y', 'y'), num('w', 'w'), num('h', 'h')];
     let fields: Child[];
     switch (el.type) {
-      case 'pattern':
-        fields = [h('div', { class: 'grid2' }, ...area()), choice('pattern', 'Pattern', PATTERNS, el.pattern),
-          choice('background', 'Background', BACKGROUNDS, DEFAULTS.background), choice('stripes', 'Stripes', STRIPES, DEFAULTS.stripes),
+      case 'pattern': {
+        const dots = el.pattern === 'dots';
+        // Each kind keeps only the fields it uses.
+        const tidy = (x: PageElement) => {
+          const q = x as Pattern;
+          if (q.pattern === 'dots') { delete q.weight; delete q.first; } else delete q.dots;
+          if (q.pattern !== 'lines' && q.pattern !== 'vlines') delete q.first;
+        };
+        fields = [h('div', { class: 'grid2' }, ...area()), choice('pattern', 'Pattern', PATTERNS, el.pattern, 'prop-pattern', tidy),
+          dots ? choice('dots', 'Dots', DOT_SIZES, DEFAULTS.dots, 'prop-dots') : choice('weight', 'Line weight', RULE_WEIGHTS, DEFAULTS.patternWeight, 'prop-line-weight'),
+          el.pattern === 'lines' || el.pattern === 'vlines'
+            ? this.flag(store, i, id, ctls, 'first', el.pattern === 'lines' ? 'Include the top line' : 'Include the left line', 'prop-first')
+            : null,
           h('div', { class: 'grid2' }, num('every', 'Every (cells)'))];
+        break;
+      }
+      case 'shade':
+        fields = this.shadeFields(store, i, id, el, { num, choice, add, ctls, area });
         break;
       case 'sequence':
         fields = this.sequenceFields(store, i, id, el, { num, choice, add, ctls });
@@ -625,7 +640,7 @@ export class Panel {
     this.propCtls = [pad];
     this.propsEl.replaceChildren(
       h('h2', {}, `Properties · ${count} elements`),
-      h('p', { class: 'hint' }, 'Drag any of them to move them all, or use the arrows. Tap one in the layers list to select just that one.'),
+      h('p', { class: 'hint' }, 'Drag any of them to move them all, or use the arrows. Group ties them together; tap one in the layers list to select just that one.'),
       pad.node,
       h('div', { class: 'row' },
         h('button', { type: 'button', 'data-help': 'prop-duplicate', onclick: () => duplicateElement(store, i) }, 'Duplicate'),
@@ -635,6 +650,81 @@ export class Panel {
     this.fieldset = null;
     this.lockedHint.hidden = true;
     pad.sync();
+  }
+
+  /** A tick box for a yes/no field: ticked writes `true`, unticked takes the field out (its default is off). */
+  private flag(store: Store, i: number, id: number, ctls: Ctl[], key: string, label: string, help: string): HTMLElement {
+    const input = h('input', {
+      type: 'checkbox', 'data-key': `prop-${key}`, 'data-help': help,
+      onchange: () => {
+        const problem = this.edit(store, i, id, null, (x) => {
+          const rec = x as unknown as Record<string, boolean | undefined>;
+          if (input.checked) rec[key] = true; else delete rec[key];
+        });
+        if (problem) sync();
+      },
+    });
+    const sync = () => {
+      if (store.idAt(i) !== id) return;
+      input.checked = (store.page.elements[i] as unknown as Record<string, boolean | undefined>)[key] === true;
+    };
+    ctls.push({ sync, flush() {} });
+    sync();
+    return h('label', { class: 'inline' }, input, label);
+  }
+
+  /** The fields of a shade: where it is, the tones it repeats, which way, and how many cells each step covers; with a strip that shows the pattern as it is typed. */
+  private shadeFields(
+    store: Store, i: number, id: number, el: Shade,
+    f: {
+      num: (key: string, label: string, by?: StepBy, help?: string) => HTMLElement;
+      choice: <T extends string | number>(key: string, label: string, options: readonly T[], dflt: T, help?: string) => HTMLElement;
+      add: (b: Built) => HTMLElement;
+      ctls: Ctl[];
+      area: () => HTMLElement[];
+    },
+  ): Child[] {
+    const current = () => (store.idAt(i) === id ? (store.page.elements[i] as Shade) : el);
+    const tones = this.textField({
+      label: 'Tones: L light, M medium, D dark, B blank', key: 'prop-tones', help: 'prop-tones',
+      read: () => current().tones,
+      write: (typed) => {
+        const clean = cleanTones(typed);
+        if (!clean) return 'Use the letters L, M, D and B.';
+        // Small letters become capitals and a letter that isn't a tone is dropped, as it is typed.
+        if (clean !== typed) input.value = clean;
+        if (clean === current().tones) return null;
+        return this.edit(store, i, id, 'tones', (x) => { (x as Shade).tones = clean; });
+      },
+    });
+    const input = tones.node.querySelector('input')!;
+    // The strip shows what is typed even before it is applied, so a half-typed pattern can be seen.
+    const strip = h('div', { class: 'tone-strip', role: 'img', 'aria-label': 'Preview of the tones', 'data-help': 'prop-tone-strip' });
+    const draw = () => {
+      const shade = current();
+      const typed = cleanTones(input.value) || shade.tones;
+      const along = shade.along ?? DEFAULTS.along;
+      const rows = along === 'checker' ? 3 : 1, cols = 12;
+      let cells = '';
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          // Rows and columns both read left to right here; a checker shifts by one each row.
+          const tone = toneAt({ tones: typed, along: 'checker' }, along === 'checker' ? r : 0, c);
+          cells += `<rect x="${c}" y="${r}" width="1" height="1" fill="${tone === 'B' ? '#fff' : SHADE_TONES[tone]}" stroke="#bbb" stroke-width="0.04"/>`;
+        }
+      }
+      strip.innerHTML = `<svg viewBox="0 0 ${cols} ${rows}" preserveAspectRatio="none" aria-hidden="true">${cells}</svg>`;
+    };
+    input.addEventListener('input', draw);
+    f.ctls.push(tones.ctl, { sync: draw, flush() {} });
+    draw();
+    return [
+      h('div', { class: 'grid2' }, ...f.area()),
+      tones.node,
+      strip,
+      f.choice('along', 'Along', ALONGS, DEFAULTS.along, 'prop-along'),
+      h('div', { class: 'grid2' }, f.num('every', 'Every (cells per step)', 0.5, 'prop-shade-every')),
+    ];
   }
 
   /** The fields of a sequence: where it runs, what it says, and how it looks. */

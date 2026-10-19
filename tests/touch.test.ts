@@ -8,7 +8,7 @@ import { Store } from '../src/store';
 const page = (): Page => ({
   ...emptyPage(),
   elements: [
-    { type: 'pattern', pattern: 'none', background: 'light', x: 4, y: 6, w: 10, h: 8 },
+    { type: 'pattern', pattern: 'lines', x: 4, y: 6, w: 10, h: 8 },
     { type: 'box', x: 6, y: 8, w: 6, h: 6 },
     { type: 'rule', x1: 2, y1: 20, x2: 9, y2: 20 },
   ],
