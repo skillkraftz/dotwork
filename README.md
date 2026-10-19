@@ -78,17 +78,25 @@ rounded to a multiple of 4) as spreads, the way it opens: the inside front cover
 beside page 1, pages 2 and 3, and so on to the last page beside the inside back
 cover.
 
-![The book arranger](docs/screenshots/book-arranger.png)
+![The book builder on a phone](docs/screenshots/book/phone-book-empty.png)
 
-- **Choose** a saved page or spread under *Designs*, **select** slots (click,
-  Shift-click for a range, the page label under a spread for both pages, or type
-  a page range) and press **Place**. Double-click a design, or drag it onto a
-  slot, to place it at once. A spread design fills both slots of a spread. The
-  covers are the first and last slots. **Clear** empties a slot, **Undo** steps
-  back.
+- The book is shown **one page at a time**, large. Use the arrows (or swipe, or
+  the arrow keys) to step through the inside front cover, pages 1 to N and the
+  inside back cover. **Spreads** shows the current opening side by side; tap a
+  page in it to pick that page.
+- **Choose design…** opens a picker of large, named thumbnails: Blank, your saved
+  pages, saved spreads (on a left page; a spread fills this page and the next)
+  and the built-in examples. Choosing one places it on this page.
+- **Apply to more pages…** copies this page's design to pages __ to __, every
+  page from here to __, or every left or right page in a range. It lists the
+  pages that will change before you apply. **Clear** blanks this page and
+  **Undo** steps back.
+- **Contents** lists every page with its design and a thumbnail; tap a row to
+  jump there. Runs of the same design fold into one row ("Pages 5–30") that
+  expands on tap. On a phone it opens from the **Contents** button.
 - **Page numbers** are on by default, in each page's outer top corner. Date
   tokens (`{weekday}` and so on) print blank so the date can be written in.
-- **Print settings**: paper thickness for creep (0.14 mm), the back-side offset
+- **Book settings**: paper thickness for creep (0.14 mm), the back-side offset
   (x and y, for printers that shift on the second pass) and the number of
   signatures. A creep that would cross the fold is refused with the reason.
 - **Export print files** builds `pages.pdf`, `print-first.pdf` and
