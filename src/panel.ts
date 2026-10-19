@@ -6,6 +6,7 @@ import { findUnknownTokens, TOKENS } from './format/tokens';
 import { validateElement } from './format/validate';
 import { canNudge, deleteElement, duplicateElement, nudgeButton, nudgeStep, reorderElement } from './actions';
 import type { Store } from './store';
+import type { ValidationIssue } from './format/validate';
 
 type Child = Node | string | null | false;
 
@@ -30,9 +31,9 @@ export function h<K extends keyof HTMLElementTagNameMap>(
   return el;
 }
 
-const warnUnknownTokens = (text: string) => {
+const warnNodes = (text: string): HTMLElement[] => {
   const bad = findUnknownTokens(text);
-  return bad.length ? h('p', { class: 'warn' }, `Unknown token ${bad.map((b) => `{${b}}`).join(' ')} – the page can’t be exported until it is fixed.`) : null;
+  return bad.length ? [h('p', { class: 'warn' }, `Unknown token ${bad.map((b) => `{${b}}`).join(' ')} – the page can’t be exported until it is fixed.`)] : [];
 };
 
 const ICONS = {
@@ -49,8 +50,8 @@ const ICONS = {
   nudgeDown: '<path d="M3 6l5 5 5-5"/>',
 };
 
-function icon(name: keyof typeof ICONS, label: string, onclick: () => void, opts: { disabled?: boolean; pressed?: boolean; key?: string; class?: string } = {}) {
-  const b = h('button', { type: 'button', class: opts.class ? `icon ${opts.class}` : 'icon', title: label, 'aria-label': label, disabled: opts.disabled, 'data-key': opts.key, onclick });
+function icon(name: keyof typeof ICONS, label: string, onclick: () => void, opts: { disabled?: boolean; pressed?: boolean; key?: string; class?: string; help?: string } = {}) {
+  const b = h('button', { type: 'button', class: opts.class ? `icon ${opts.class}` : 'icon', title: label, 'aria-label': label, disabled: opts.disabled, 'data-key': opts.key, 'data-help': opts.help, onclick });
   b.innerHTML = `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
   if (opts.pressed !== undefined) b.setAttribute('aria-pressed', String(opts.pressed));
   return b;
@@ -70,12 +71,50 @@ export function describe(el: PageElement): string {
   }
 }
 
+/** Read a typed number: a decimal point or comma, optional sign; null for anything that isn't one (yet). */
+export function parseNumber(text: string): number | null {
+  const t = text.trim().replace(',', '.');
+  return /^[+-]?(\d+\.?\d*|\.\d+)$/.test(t) ? Number(t) : null;
+}
+
+/** The reason a refused edit gives, short enough for the line under a field. */
+export function shortProblem(issue: ValidationIssue): string {
+  const key = issue.path.split('.').pop() ?? '';
+  switch (issue.rule) {
+    case 'half-cell': return `${key} must be a multiple of 0.5.`;
+    case 'every': return 'Spacing must be a positive multiple of 0.5.';
+    case 'count': return 'Count must be a whole number, 1 or more.';
+    case 'size': return key === 'size' ? 'Size must be from 0.5 to 1.' : 'It needs a width, a height or a length above 0.';
+    case 'bounds':
+    case 'header-row': return 'That doesn’t fit on the grid, below the header row.';
+    case 'diagonal': return 'A rule must be horizontal or vertical.';
+    default: return issue.message;
+  }
+}
+
 export type PanelTab = 'properties' | 'layers' | 'page';
 const TABS: [PanelTab, string][] = [['properties', 'Properties'], ['layers', 'Layers'], ['page', 'Page']];
+
+/** How long after the last keystroke a typed number is taken as meant. */
+const PAUSE_MS = 900;
+/** Holding a stepper: wait this long, then repeat at this rate. */
+const HOLD_MS = 420;
+const REPEAT_MS = 90;
+
+/** A control in the panel that follows the page: `sync` brings it up to date without replacing it. */
+interface Ctl { sync(): void; flush(): void }
+interface Built { node: HTMLElement; ctl: Ctl }
+
+/** How far a stepper moves a number: a cell (or half a cell with Half on), or a fixed amount. */
+type StepBy = 'cell' | number;
 
 /**
  * The side panel: page settings, the layers list, and the selected element's properties. On a wide screen all
  * three show at once; on a narrow one (the bottom sheet) the tabs pick one.
+ *
+ * The panel is built once and then updated in place. A field being typed in is never replaced (a phone drops its
+ * keyboard when that happens): only the properties section is rebuilt, and only when the selection changes to a
+ * different element.
  */
 export class Panel {
   /** Which section the tabs show on a narrow screen. */
@@ -83,41 +122,229 @@ export class Panel {
   /** Called when a tab is picked, so the sheet can open or grow. */
   onTab: ((tab: PanelTab) => void) | null = null;
 
-  /** Where the reason the last typed value was refused is shown. */
-  private problemEl: HTMLElement | null = null;
-
   /** In a spread the side belongs to the slot the page is in, so the field is replaced by a note. */
   lockedSide: 'left' | 'right' | null = null;
 
-  constructor(private root: HTMLElement, public store: Store) {}
+  private tabButtons = new Map<PanelTab, HTMLElement>();
+  private pageEl = h('section', { 'data-tab': 'page' });
+  private layersEl = h('section', { 'data-tab': 'layers' });
+  private propsEl = h('section', { 'data-tab': 'properties' });
+  private pageCtls: Ctl[] = [];
+  private sideSlot = h('div');
+  private sideKey = '';
+  private identityWarn = h('div');
+  private layersSig = '';
+  private layersFor: { store: Store; selected: number | null } | null = null;
+  private propsKey = '';
+  private propCtls: Ctl[] = [];
+  private lockedHint = h('p', { class: 'hint', hidden: true }, 'Locked: unlock it in the layers list to edit.');
+  private fieldset: HTMLFieldSetElement | null = null;
+  private stepId = 0;
+
+  constructor(private root: HTMLElement, public store: Store) {
+    this.buildPage();
+    root.replaceChildren(this.tabBar(), this.pageEl, this.layersEl, this.propsEl);
+  }
 
   render() {
-    const { root } = this;
-    // Rebuilding the panel must not steal focus from the field being typed in.
-    const active = document.activeElement as HTMLInputElement | null;
-    const focusKey = active && root.contains(active) ? active.dataset.key : undefined;
-    const caret = focusKey ? [active!.selectionStart, active!.selectionEnd] : null;
-    const scroll = root.querySelector('.layers')?.scrollTop ?? 0;
+    this.root.dataset.tab = this.tab;
+    for (const [id, b] of this.tabButtons) { b.setAttribute('aria-selected', String(this.tab === id)); b.setAttribute('aria-pressed', String(this.tab === id)); }
+    this.syncPage();
+    this.syncLayers();
+    this.syncProps();
+  }
 
-    root.dataset.tab = this.tab;
-    root.replaceChildren(this.tabBar(), this.pageSection(), this.layersSection(), this.propertiesSection());
-    const layers = root.querySelector('.layers');
-    if (layers) layers.scrollTop = scroll;
-    root.querySelector('.layer.selected')?.scrollIntoView({ block: 'nearest' });
-
-    if (focusKey) {
-      const el = root.querySelector<HTMLInputElement>(`[data-key="${focusKey}"]`);
-      el?.focus();
-      if (el && caret && el.type === 'text') el.setSelectionRange(caret[0], caret[1]);
-    }
+  /** Take whatever has been typed but not yet applied (when the modal closes, say). */
+  flush() {
+    for (const c of [...this.pageCtls, ...this.propCtls]) c.flush();
   }
 
   private tabBar(): HTMLElement {
-    return h('div', { class: 'tabs', role: 'tablist' }, ...TABS.map(([id, label]) =>
-      h('button', {
-        type: 'button', role: 'tab', 'data-tab-button': id, 'aria-selected': this.tab === id, 'aria-pressed': this.tab === id, 'data-key': `tab-${id}`,
+    return h('div', { class: 'tabs', role: 'tablist' }, ...TABS.map(([id, label]) => {
+      const b = h('button', {
+        type: 'button', role: 'tab', 'data-tab-button': id, 'data-key': `tab-${id}`, 'data-help': `tab-${id}`,
         onclick: () => { this.tab = id; this.onTab?.(id); this.render(); },
-      }, label)));
+      }, label);
+      this.tabButtons.set(id, b);
+      return b;
+    }));
+  }
+
+  // ---- fields ---------------------------------------------------------------
+
+  private select(key: string, help: string, options: readonly (string | number)[], value: string | number, onchange: (v: string) => void) {
+    return h('select', { 'data-key': key, 'data-help': help, onchange: (e: Event) => onchange((e.target as HTMLSelectElement).value) },
+      ...options.map((o) => h('option', { value: o, selected: o === value }, String(o))));
+  }
+
+  /** The small line under a field that says why a value was refused. */
+  private message() {
+    const el = h('span', { class: 'fmsg', role: 'status', hidden: true });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    return {
+      el,
+      show(text: string) { el.textContent = text; el.hidden = false; clearTimeout(timer); timer = setTimeout(() => { el.hidden = true; }, 5000); },
+      hide() { el.hidden = true; clearTimeout(timer); },
+    };
+  }
+
+  /**
+   * A text field that applies what is typed as it is typed, without ever being replaced. A value the page refuses
+   * stays in the field, with the reason beside it, until the field is left; then it reverts.
+   */
+  private textField(o: { label: string; key: string; help: string; read: () => string; write: (v: string) => string | null }): Built {
+    const msg = this.message();
+    let dirty = false;
+    const input = h('input', {
+      type: 'text', id: o.key, 'data-key': o.key, 'data-help': o.help, value: o.read(), autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', enterkeyhint: 'done',
+      oninput: () => {
+        dirty = true;
+        const problem = o.write(input.value);
+        if (problem) msg.show(problem); else { msg.hide(); dirty = false; }
+      },
+      onblur: () => flush(),
+      onkeydown: (e: KeyboardEvent) => { if (e.key === 'Enter' && matchMedia('(pointer: coarse)').matches) input.blur(); },
+    });
+    const flush = () => { if (dirty) { dirty = false; input.value = o.read(); } };
+    const sync = () => { if (!dirty && input.value !== o.read()) input.value = o.read(); };
+    return { node: h('div', { class: 'field' }, h('label', { for: o.key }, o.label), input, msg.el), ctl: { sync, flush } };
+  }
+
+  /** Commit an edit of the element at `i` (which must still be the one with `id`); returns why it was refused, if it was. */
+  private edit(store: Store, i: number, id: number, key: string | null, fn: (el: PageElement) => void): string | null {
+    if (store.idAt(i) !== id) return null; // that element is gone; there is nothing to change
+    if (store.isLocked(i)) return 'Locked: unlock it in the layers list to edit.';
+    const el = structuredClone(store.page.elements[i]);
+    fn(el);
+    const issues = validateElement(el);
+    if (issues.length) return shortProblem(issues[0]);
+    const next = structuredClone(store.page);
+    next.elements[i] = el;
+    store.commit(next, key === null ? undefined : `${key}:${id}`);
+    return null;
+  }
+
+  /**
+   * A number: a − button, the value, a + button. Typing in the value applies it on Enter, on leaving the field or
+   * after a pause, never mid-keystroke; a value the page can't take reverts with a message. Each tap of a stepper is
+   * one undo step; holding one repeats, and the whole hold is one undo step.
+   */
+  private numberField(store: Store, i: number, id: number, o: { key: string; label: string; help: string; by: StepBy }): Built {
+    const { key } = o;
+    const read = (): number | undefined => {
+      if (store.idAt(i) !== id) return undefined;
+      const rec = store.page.elements[i] as unknown as Record<string, number | undefined>;
+      return rec[key] ?? (key === 'size' ? DEFAULTS.checkSize : key === 'every' ? DEFAULTS.every : undefined);
+    };
+    const stepSize = () => (o.by === 'cell' ? nudgeStep(store) : o.by);
+    const apply = (v: number, group: string | null): string | null => this.edit(store, i, id, group ?? key, (x) => { (x as unknown as Record<string, number>)[key] = v; });
+    const msg = this.message();
+    let dirty = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const revert = (problem: string | null) => {
+      dirty = false;
+      const v = read();
+      input.value = v === undefined ? '' : fmt(v);
+      if (problem) msg.show(problem);
+    };
+    /** Apply what is typed. While typing (`pause`), half-typed text is left alone; leaving the field settles it. */
+    const settle = (how: 'pause' | 'done') => {
+      clearTimeout(timer);
+      if (!dirty) return;
+      const v = parseNumber(input.value);
+      if (v === null) { if (how === 'done') revert('Type a number, like 1.5.'); return; }
+      const problem = apply(v, null);
+      if (problem) { revert(problem); return; }
+      dirty = false;
+      msg.hide();
+      if (how === 'done') input.value = fmt(v);
+    };
+
+    const input = h('input', {
+      type: 'text', id: `prop-${key}`, inputmode: 'decimal', enterkeyhint: 'done', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false',
+      'data-key': `prop-${key}`, 'data-help': o.help, value: fmt(read() ?? 0),
+      oninput: () => { dirty = true; msg.hide(); clearTimeout(timer); timer = setTimeout(() => settle('pause'), PAUSE_MS); },
+      onblur: () => settle('done'),
+      onkeydown: (e: KeyboardEvent) => { if (e.key === 'Enter') { settle('done'); if (matchMedia('(pointer: coarse)').matches) input.blur(); else input.select(); } },
+    });
+
+    const step = (dir: 1 | -1, group: string): boolean => {
+      settle('done'); // a typed value goes in first
+      const v = read();
+      if (v === undefined) return false;
+      const problem = apply(Math.round((v + dir * stepSize()) * 100) / 100, group);
+      if (problem) { msg.show(problem); return false; }
+      msg.hide();
+      return true;
+    };
+    const canStep = (dir: 1 | -1) => {
+      const v = read();
+      if (v === undefined || store.idAt(i) !== id) return false;
+      const el = structuredClone(store.page.elements[i]) as unknown as Record<string, number>;
+      el[key] = Math.round((v + dir * stepSize()) * 100) / 100;
+      return validateElement(el).length === 0;
+    };
+    const stepper = (dir: 1 | -1) => {
+      let held = false, swallow = false;
+      let delay: ReturnType<typeof setTimeout> | undefined, every: ReturnType<typeof setInterval> | undefined;
+      const stop = (e: Event) => {
+        clearTimeout(delay); clearInterval(every);
+        document.removeEventListener('pointerup', stop); document.removeEventListener('pointercancel', stop);
+        swallow = held && e.type === 'pointerup'; // the click that follows a hold is not a tap
+      };
+      const sign = dir > 0 ? '+' : '−';
+      const b = h('button', {
+        type: 'button', class: 'step', 'data-help': dir > 0 ? 'step-inc' : 'step-dec', 'data-key': `step-${dir > 0 ? 'inc' : 'dec'}-${key}`,
+        'aria-label': `${dir > 0 ? 'Increase' : 'Decrease'} ${o.label}`,
+        onpointerdown: (e: PointerEvent) => {
+          if (e.button !== 0) return;
+          held = false; swallow = false;
+          const group = `step${++this.stepId}`;
+          delay = setTimeout(() => {
+            held = true;
+            if (!step(dir, group)) return stop(e);
+            every = setInterval(() => { if (!step(dir, group)) stop(e); }, REPEAT_MS);
+          }, HOLD_MS);
+          document.addEventListener('pointerup', stop); document.addEventListener('pointercancel', stop);
+        },
+        onclick: () => { if (swallow) { swallow = false; return; } step(dir, `step${++this.stepId}`); },
+        // Keep the field's focus (and the keyboard) where it is; and a long press is not a context menu.
+        onmousedown: (e: Event) => e.preventDefault(),
+        oncontextmenu: (e: Event) => e.preventDefault(),
+      }, sign);
+      return b;
+    };
+    const dec = stepper(-1), inc = stepper(1);
+
+    const sync = () => {
+      const v = read();
+      // Compare as numbers: "1." is already 1, and writing "1" over it would eat the point being typed.
+      if (!dirty && v !== undefined && parseNumber(input.value) !== v) input.value = fmt(v);
+      dec.disabled = !canStep(-1);
+      inc.disabled = !canStep(1);
+      dec.setAttribute('title', `− ${fmt(stepSize())}`);
+      inc.setAttribute('title', `+ ${fmt(stepSize())}`);
+    };
+    sync();
+    return {
+      node: h('div', { class: 'field num' }, h('label', { for: `prop-${key}` }, o.label), h('div', { class: 'stepper' }, dec, input, inc), msg.el),
+      ctl: { sync, flush: () => settle('done') },
+    };
+  }
+
+  private choice<T extends string | number>(store: Store, i: number, id: number, el: PageElement, o: { key: string; label: string; help: string; options: readonly T[]; dflt: T }): Built {
+    const rec = (e: PageElement) => e as unknown as Record<string, T | undefined>;
+    const select = this.select(`prop-${o.key}`, o.help, o.options, rec(el)[o.key] ?? o.dflt, (v) => {
+      const problem = this.edit(store, i, id, null, (x) => { (x as unknown as Record<string, T>)[o.key] = (typeof o.dflt === 'number' ? Number(v) : v) as T; });
+      if (problem) sync();
+    });
+    const sync = () => {
+      if (store.idAt(i) !== id) return;
+      const v = String(rec(store.page.elements[i])[o.key] ?? o.dflt);
+      if (select.value !== v) select.value = v;
+    };
+    return { node: h('label', { class: 'field' }, o.label, select), ctl: { sync, flush() {} } };
   }
 
   // ---- page ---------------------------------------------------------------
@@ -126,43 +353,62 @@ export class Panel {
     const next = structuredClone(this.store.page);
     fn(next);
     this.store.commit(next, key);
+    return null;
   }
 
-  private pageSection(): HTMLElement {
-    const page = this.store.page;
-    return h('section', { 'data-tab': 'page' },
-      h('h2', {}, 'Page'),
-      h('label', {}, 'Name',
-        h('input', {
-          type: 'text', 'data-key': 'page-name', value: page.name,
-          oninput: (e: Event) => this.editPage('page-name', (p) => { p.name = (e.target as HTMLInputElement).value; }),
-        })),
-      h('label', {}, 'Identity',
-        h('input', {
-          type: 'text', 'data-key': 'page-identity', value: page.identity ?? '',
-          oninput: (e: Event) => this.editPage('page-identity', (p) => {
-            const v = (e.target as HTMLInputElement).value;
-            if (v) p.identity = v; else delete p.identity;
-          }),
-        })),
-      warnUnknownTokens(page.identity ?? ''),
-      this.lockedSide
-        ? h('p', { class: 'hint' }, `This is the ${this.lockedSide} page of the spread.`)
-        : h('label', {}, 'Side',
-          this.select('page-side', PAGE_SIDES, page.side ?? DEFAULTS.side, (v) => this.editPage('page-side', (p) => {
-            if (v === 'either') delete p.side; else p.side = v as Page['side'];
-          }))),
+  private buildPage() {
+    const name = this.textField({
+      label: 'Name', key: 'page-name', help: 'page-name', read: () => this.store.page.name,
+      write: (v) => this.editPage('page-name', (p) => { p.name = v; }),
+    });
+    const identity = this.textField({
+      label: 'Identity', key: 'page-identity', help: 'page-identity', read: () => this.store.page.identity ?? '',
+      write: (v) => this.editPage('page-identity', (p) => { if (v) p.identity = v; else delete p.identity; }),
+    });
+    this.pageCtls = [name.ctl, identity.ctl];
+    this.pageEl.replaceChildren(
+      h('h2', {}, 'Page'), name.node, identity.node, this.identityWarn, this.sideSlot,
       h('p', { class: 'hint' }, `Tokens: ${TOKENS.map((t) => `{${t}}`).join(' ')}`),
       h('p', { class: 'hint' }, 'The spine is right of a left page, left of a right page; “either” shows as a right page.'),
     );
   }
 
+  private syncPage() {
+    const { store } = this;
+    for (const c of this.pageCtls) c.sync();
+    this.identityWarn.replaceChildren(...warnNodes(store.page.identity ?? ''));
+    const side = store.page.side ?? DEFAULTS.side;
+    const key = `${this.lockedSide ?? 'free'}`;
+    if (key !== this.sideKey) {
+      this.sideKey = key;
+      this.sideSlot.replaceChildren(this.lockedSide
+        ? h('p', { class: 'hint' }, `This is the ${this.lockedSide} page of the spread.`)
+        : h('label', {}, 'Side',
+          this.select('page-side', 'page-side', PAGE_SIDES, side, (v) => this.editPage('page-side', (p) => {
+            if (v === 'either') delete p.side; else p.side = v as Page['side'];
+          }))));
+    }
+    const sel = this.sideSlot.querySelector('select');
+    if (sel && sel.value !== side) sel.value = side;
+  }
+
   // ---- layers -------------------------------------------------------------
 
-  private layersSection(): HTMLElement {
+  private syncLayers() {
     const { store } = this;
     const els = store.page.elements;
-    const rows = els.map((el, i) => {
+    const rows = els.map((el, i) => [describe(el), store.isHidden(i), store.isLocked(i)]);
+    const sig = JSON.stringify([rows, store.selected]);
+    const same = this.layersFor?.store === store;
+    if (same && sig === this.layersSig) return;
+    this.layersSig = sig;
+
+    const old = this.layersEl.querySelector('.layers');
+    const scroll = old?.scrollTop ?? 0;
+    const active = document.activeElement as HTMLElement | null;
+    const focusKey = active && this.layersEl.contains(active) ? active.dataset.key : undefined;
+
+    const list = els.map((el, i) => {
       const hidden = store.isHidden(i), locked = store.isLocked(i);
       const row = h('li', {
         class: `layer${store.selected === i ? ' selected' : ''}${hidden ? ' is-hidden' : ''}`,
@@ -176,161 +422,193 @@ export class Panel {
           if (Number.isInteger(from)) reorderElement(store, from, i);
         },
       },
-        h('button', { type: 'button', class: 'layer-name', 'aria-current': store.selected === i, onclick: () => store.select(i) }, describe(el)),
-        icon(hidden ? 'hide' : 'show', hidden ? 'Show' : 'Hide', () => store.toggleHidden(i), { pressed: hidden }),
-        icon(locked ? 'lock' : 'unlock', locked ? 'Unlock' : 'Lock', () => store.toggleLocked(i), { pressed: locked }),
-        icon('up', 'Move up (toward the front)', () => reorderElement(store, i, i + 1), { disabled: i === els.length - 1 }),
-        icon('down', 'Move down (toward the back)', () => reorderElement(store, i, i - 1), { disabled: i === 0 }),
-        icon('trash', 'Delete', () => deleteElement(store, i), { disabled: locked }),
+        h('button', { type: 'button', class: 'layer-name', 'data-key': `layer-${i}-name`, 'data-help': 'layer-select', 'aria-current': store.selected === i, onclick: () => store.select(i) }, describe(el)),
+        icon(hidden ? 'hide' : 'show', hidden ? 'Show' : 'Hide', () => store.toggleHidden(i), { pressed: hidden, key: `layer-${i}-hide`, help: 'layer-hide' }),
+        icon(locked ? 'lock' : 'unlock', locked ? 'Unlock' : 'Lock', () => store.toggleLocked(i), { pressed: locked, key: `layer-${i}-lock`, help: 'layer-lock' }),
+        icon('up', 'Move up (toward the front)', () => reorderElement(store, i, i + 1), { disabled: i === els.length - 1, key: `layer-${i}-up`, help: 'layer-up' }),
+        icon('down', 'Move down (toward the back)', () => reorderElement(store, i, i - 1), { disabled: i === 0, key: `layer-${i}-down`, help: 'layer-down' }),
+        icon('trash', 'Delete', () => deleteElement(store, i), { disabled: locked, key: `layer-${i}-delete`, help: 'layer-delete' }),
       );
       return row;
     });
-    return h('section', { 'data-tab': 'layers' },
+    this.layersEl.replaceChildren(
       h('h2', {}, 'Layers'),
       els.length
         ? h('div', {},
           h('p', { class: 'hint end' }, 'Top: drawn last'),
-          h('ol', { class: 'layers' }, ...rows.reverse()),
+          h('ol', { class: 'layers' }, ...list.reverse()),
           h('p', { class: 'hint end' }, 'Bottom: drawn first'))
         : h('p', { class: 'hint' }, 'Nothing on the page yet. Pick a tool and draw on the page.'),
-      els.length ? h('p', { class: 'hint' }, 'Use the arrows to reorder (or drag a row). Hiding affects only this editor.') : null,
+      ...(els.length ? [h('p', { class: 'hint' }, 'Use the arrows to reorder (or drag a row). Hiding affects only this editor.')] : []),
     );
+    const layers = this.layersEl.querySelector<HTMLElement>('.layers');
+    if (layers) {
+      layers.scrollTop = scroll;
+      const row = layers.querySelector<HTMLElement>('.layer.selected');
+      // Only when the selection moved: bring its row into the list, without scrolling the panel around it.
+      if (row && (!same || this.layersFor?.selected !== store.selected)) {
+        if (row.offsetTop < layers.scrollTop) layers.scrollTop = row.offsetTop;
+        else if (row.offsetTop + row.offsetHeight > layers.scrollTop + layers.clientHeight) layers.scrollTop = row.offsetTop + row.offsetHeight - layers.clientHeight;
+      }
+    }
+    this.layersFor = { store, selected: store.selected };
+    if (focusKey) this.layersEl.querySelector<HTMLElement>(`[data-key="${focusKey}"]`)?.focus({ preventScroll: true });
   }
 
   // ---- properties ---------------------------------------------------------
 
-  private select(key: string, options: readonly (string | number)[], value: string | number, onchange: (v: string) => void) {
-    return h('select', { 'data-key': key, onchange: (e: Event) => onchange((e.target as HTMLSelectElement).value) },
-      ...options.map((o) => h('option', { value: o, selected: o === value }, String(o))));
-  }
-
-  /** Commit an edit of the selected element, unless it would make the element invalid (then say why). */
-  private edit(key: string | null, fn: (el: PageElement) => void) {
+  private syncProps() {
     const { store } = this;
     const i = store.selected;
-    if (i === null) return;
-    const el = structuredClone(store.page.elements[i]);
-    fn(el);
-    const issues = validateElement(el);
-    if (issues.length) {
-      this.showProblem(issues[0].message);
+    const key = i === null ? 'none' : `${i}:${store.idAt(i)}:${store.page.elements[i].type}:${this.storeNo(store)}`;
+    if (key !== this.propsKey) {
+      // A different element: whatever was typed for the last one goes in first, then the section is built anew.
+      const old = this.propCtls;
+      this.propCtls = [];
+      this.propsKey = key;
+      for (const c of old) c.flush();
+      this.buildProps();
       return;
     }
-    const next = structuredClone(store.page);
-    next.elements[i] = el;
-    store.commit(next, key === null ? undefined : `${key}:${store.idAt(i)}`);
+    for (const c of this.propCtls) c.sync();
+    if (i !== null) {
+      const locked = store.isLocked(i);
+      if (this.fieldset) this.fieldset.disabled = locked;
+      this.lockedHint.hidden = !locked;
+      for (const b of this.propsEl.querySelectorAll<HTMLButtonElement>('[data-lock-aware]')) b.disabled = locked;
+    }
   }
 
-  private showProblem(message: string) {
-    if (this.problemEl) { this.problemEl.textContent = message; this.problemEl.hidden = false; }
+  /** A number per store the panel has shown, so that switching page or spread side counts as a different element. */
+  private stores = new Map<Store, number>();
+  private storeNo(store: Store): number {
+    if (!this.stores.has(store)) this.stores.set(store, this.stores.size + 1);
+    return this.stores.get(store)!;
   }
 
-  private num(el: PageElement, key: string, label: string, opts: { step?: number; min?: number; max?: number } = {}) {
-    const rec = el as unknown as Record<string, number | undefined>;
-    return h('label', { class: 'field' }, label,
-      h('input', {
-        type: 'number', 'data-key': `prop-${key}`, step: opts.step ?? 0.5, min: opts.min, max: opts.max,
-        value: rec[key] ?? (DEFAULTS as unknown as Record<string, number>)[key === 'size' ? 'checkSize' : key] ?? '',
-        oninput: (e: Event) => {
-          const v = parseFloat((e.target as HTMLInputElement).value);
-          if (Number.isFinite(v)) this.edit(key, (x) => { (x as unknown as Record<string, number>)[key] = v; });
-        },
-      }));
-  }
+  private buildProps() {
+    const { store } = this;
+    const i = store.selected;
+    this.fieldset = null;
+    if (i === null) {
+      this.propsEl.replaceChildren(h('h2', {}, 'Properties'),
+        h('p', { class: 'hint' }, 'Tap or click an element to select it. Long-press it (or Alt-click) to reach the ones underneath.'));
+      return;
+    }
+    const el = store.page.elements[i];
+    const id = store.idAt(i);
+    const locked = store.isLocked(i);
+    const ctls: Ctl[] = [];
+    const add = (b: Built) => { ctls.push(b.ctl); return b.node; };
+    const num = (key: string, label: string, by: StepBy = 'cell', help = `prop-${key}`) => add(this.numberField(store, i, id, { key, label, help, by }));
+    const choice = <T extends string | number>(key: string, label: string, options: readonly T[], dflt: T, help = `prop-${key}`) =>
+      add(this.choice(store, i, id, el, { key, label, help, options, dflt }));
 
-  private choice<T extends string | number>(el: PageElement, key: string, label: string, options: readonly T[], dflt: T) {
-    const rec = el as unknown as Record<string, T | undefined>;
-    return h('label', { class: 'field' }, label,
-      this.select(`prop-${key}`, options, rec[key] ?? dflt, (v) => this.edit(null, (x) => {
-        (x as unknown as Record<string, T>)[key] = (typeof dflt === 'number' ? Number(v) : v) as T;
-      })));
-  }
-
-  private fields(el: PageElement): Child[] {
-    const area = [this.num(el, 'x', 'x'), this.num(el, 'y', 'y'), this.num(el, 'w', 'w', { min: 0.5 }), this.num(el, 'h', 'h', { min: 0.5 })];
+    const area = () => [num('x', 'x'), num('y', 'y'), num('w', 'w'), num('h', 'h')];
+    let fields: Child[];
     switch (el.type) {
       case 'shade':
-        return [h('div', { class: 'grid2' }, ...area),
-          this.choice(el, 'tone', 'Tone', TONES, DEFAULTS.tone),
-          this.choice(el, 'stripes', 'Stripes', STRIPES, DEFAULTS.stripes)];
+        fields = [h('div', { class: 'grid2' }, ...area()), choice('tone', 'Tone', TONES, DEFAULTS.tone), choice('stripes', 'Stripes', STRIPES, DEFAULTS.stripes)];
+        break;
       case 'pattern':
-        return [h('div', { class: 'grid2' }, ...area),
-          this.choice(el, 'pattern', 'Pattern', PATTERNS, el.pattern),
-          h('div', { class: 'grid2' }, this.num(el, 'every', 'Every (cells)', { min: 0.5 }))];
+        fields = [h('div', { class: 'grid2' }, ...area()), choice('pattern', 'Pattern', PATTERNS, el.pattern),
+          h('div', { class: 'grid2' }, num('every', 'Every (cells)'))];
+        break;
       case 'box': {
-        const sides = h('div', { class: 'grid2' }, ...SIDES.map((s: BoxSide) =>
-          h('label', { class: 'inline' },
-            h('input', {
-              type: 'checkbox', 'data-key': `prop-side-${s}`, checked: (el.sides ?? SIDES).includes(s),
-              onchange: (e: Event) => this.edit(null, (x) => {
+        const side = (s: BoxSide) => {
+          const input = h('input', {
+            type: 'checkbox', 'data-key': `prop-side-${s}`, 'data-help': 'prop-side', checked: (el.sides ?? SIDES).includes(s),
+            onchange: () => {
+              const problem = this.edit(store, i, id, null, (x) => {
                 const b = x as typeof el;
-                const on = (e.target as HTMLInputElement).checked;
+                const on = input.checked;
                 const next = SIDES.filter((t) => (t === s ? on : (b.sides ?? SIDES).includes(t)));
                 if (next.length === SIDES.length) delete b.sides; else b.sides = next;
-              }),
-            }), s)));
-        return [h('div', { class: 'grid2' }, ...area), h('h3', {}, 'Sides'), sides,
-          this.choice(el, 'weight', 'Weight', WEIGHTS, DEFAULTS.boxWeight)];
+              });
+              if (problem) sync();
+            },
+          });
+          const sync = () => {
+            if (store.idAt(i) !== id) return;
+            const now = (store.page.elements[i] as typeof el).sides ?? SIDES;
+            input.checked = now.includes(s);
+          };
+          ctls.push({ sync, flush() {} });
+          return h('label', { class: 'inline' }, input, s);
+        };
+        fields = [h('div', { class: 'grid2' }, ...area()), h('h3', {}, 'Sides'), h('div', { class: 'grid2' }, ...SIDES.map(side)),
+          choice('weight', 'Weight', WEIGHTS, DEFAULTS.boxWeight)];
+        break;
       }
       case 'rule':
-        return [h('div', { class: 'grid2' }, this.num(el, 'x1', 'x1'), this.num(el, 'y1', 'y1'), this.num(el, 'x2', 'x2'), this.num(el, 'y2', 'y2')),
-          this.choice(el, 'weight', 'Weight', RULE_WEIGHTS, DEFAULTS.ruleWeight)];
+        fields = [h('div', { class: 'grid2' }, num('x1', 'x1'), num('y1', 'y1'), num('x2', 'x2'), num('y2', 'y2')),
+          choice('weight', 'Weight', RULE_WEIGHTS, DEFAULTS.ruleWeight)];
+        break;
       case 'checkboxes':
-        return [h('div', { class: 'grid2' }, this.num(el, 'x', 'x'), this.num(el, 'y', 'y'),
-          this.num(el, 'count', 'Count', { step: 1, min: 1 }), this.num(el, 'every', 'Spacing (cells)', { min: 0.5 })),
-        this.choice(el, 'direction', 'Direction', DIRECTIONS, DEFAULTS.direction),
-        h('div', { class: 'grid2' }, this.num(el, 'size', 'Size (0.5–1)', { step: 0.05, min: 0.5, max: 1 })),
-        this.choice(el, 'weight', 'Weight', WEIGHTS, DEFAULTS.boxWeight)];
-      case 'text':
-        return [
-          h('label', { class: 'field' }, 'Text',
-            h('input', {
-              type: 'text', 'data-key': 'prop-text', value: el.text,
-              oninput: (e: Event) => this.edit('text', (x) => { (x as typeof el).text = (e.target as HTMLInputElement).value; }),
-            })),
-          warnUnknownTokens(el.text),
-          h('div', { class: 'grid2' }, this.num(el, 'x', 'x'), this.num(el, 'y', 'y')),
-          this.choice(el, 'size', 'Size', TEXT_SIZES, DEFAULTS.textSize),
-          this.choice(el, 'style', 'Style', TEXT_STYLES, DEFAULTS.style),
-          this.choice(el, 'tone', 'Tone', TEXT_TONES, DEFAULTS.textTone),
-          this.choice(el, 'align', 'Align', ALIGNS, DEFAULTS.align),
-          this.choice(el, 'rotate', 'Rotate (°)', [0, 90, 270] as const, 0 as 0 | 90 | 270),
-        ];
+        fields = [h('div', { class: 'grid2' }, num('x', 'x'), num('y', 'y'), num('count', 'Count', 1), num('every', 'Spacing (cells)')),
+          choice('direction', 'Direction', DIRECTIONS, DEFAULTS.direction),
+          h('div', { class: 'grid2' }, num('size', 'Size (0.5–1)', 0.05, 'prop-check-size')),
+          choice('weight', 'Weight', WEIGHTS, DEFAULTS.boxWeight)];
+        break;
+      case 'text': {
+        const warn = h('div');
+        const text = this.textField({
+          label: 'Text', key: 'prop-text', help: 'prop-text',
+          read: () => (store.idAt(i) === id ? (store.page.elements[i] as typeof el).text : ''),
+          write: (v) => this.edit(store, i, id, 'text', (x) => { (x as typeof el).text = v; }),
+        });
+        ctls.push(text.ctl, { sync: () => warn.replaceChildren(...warnNodes(store.idAt(i) === id ? (store.page.elements[i] as typeof el).text : '')), flush() {} });
+        fields = [text.node, warn,
+          h('div', { class: 'grid2' }, num('x', 'x'), num('y', 'y')),
+          choice('size', 'Size', TEXT_SIZES, DEFAULTS.textSize, 'prop-text-size'),
+          choice('style', 'Style', TEXT_STYLES, DEFAULTS.style),
+          choice('tone', 'Tone', TEXT_TONES, DEFAULTS.textTone, 'prop-text-tone'),
+          choice('align', 'Align', ALIGNS, DEFAULTS.align),
+          choice('rotate', 'Rotate (°)', [0, 90, 270] as const, 0 as 0 | 90 | 270)];
+        break;
+      }
     }
+
+    const fieldset = h('fieldset', { disabled: locked }, ...fields);
+    this.fieldset = fieldset;
+    const pad = this.nudgePad(i);
+    ctls.push(pad);
+    this.propsEl.replaceChildren(
+      h('h2', {}, `Properties · ${el.type}`),
+      this.lockedHint,
+      pad.node,
+      fieldset,
+      h('div', { class: 'row' },
+        h('button', { type: 'button', 'data-lock-aware': true, 'data-help': 'prop-duplicate', disabled: locked, onclick: () => duplicateElement(store, i) }, 'Duplicate'),
+        h('button', { type: 'button', class: 'danger', 'data-lock-aware': true, 'data-help': 'prop-delete', disabled: locked, onclick: () => deleteElement(store, i) }, 'Delete')),
+    );
+    this.lockedHint.hidden = !locked;
+    this.propCtls = ctls;
+    for (const c of ctls) c.sync();
   }
 
   /** Arrow buttons that move the selection by a cell, or half a cell with the half-cell toggle on. */
-  private nudgePad(i: number): HTMLElement {
+  private nudgePad(i: number): Ctl & { node: HTMLElement } {
     const { store } = this;
-    const arrow = (name: keyof typeof ICONS, label: string, dx: number, dy: number, area: string) =>
-      icon(name, `Nudge ${label}`, () => nudgeButton(store, i, dx, dy), { disabled: !canNudge(store, i, dx, dy), key: `nudge-${label}`, class: `nudge ${area}` });
+    const arrows: [HTMLButtonElement, number, number][] = [];
+    const arrow = (name: keyof typeof ICONS, label: string, dx: number, dy: number, area: string) => {
+      const b = icon(name, `Nudge ${label}`, () => nudgeButton(store, i, dx, dy), { key: `nudge-${label}`, class: `nudge ${area}`, help: `nudge-${label}` });
+      arrows.push([b, dx, dy]);
+      return b;
+    };
     const half = h('button', {
-      type: 'button', class: 'nudge step', 'data-key': 'nudge-half', 'aria-pressed': store.halfCells,
+      type: 'button', class: 'nudge step', 'data-key': 'nudge-half', 'data-help': 'nudge-half', 'aria-pressed': store.halfCells,
       title: 'Nudge by half a cell instead of a whole cell', onclick: () => store.setHalfCells(!store.halfCells),
-    }, nudgeStep(store) === 0.5 ? '½' : '1');
-    return h('div', { class: 'nudge-pad', role: 'group', 'aria-label': 'Nudge' },
+    });
+    const node = h('div', { class: 'nudge-pad', role: 'group', 'aria-label': 'Nudge' },
       arrow('nudgeUp', 'up', 0, -1, 'up'), arrow('left', 'left', -1, 0, 'left'), half, arrow('right', 'right', 1, 0, 'right'), arrow('nudgeDown', 'down', 0, 1, 'down'));
-  }
-
-  private propertiesSection(): HTMLElement {
-    const { store } = this;
-    const i = store.selected;
-    if (i === null) {
-      return h('section', { 'data-tab': 'properties' }, h('h2', {}, 'Properties'),
-        h('p', { class: 'hint' }, 'Tap or click an element to select it. Long-press it (or Alt-click) to reach the ones underneath.'));
-    }
-    const el = store.page.elements[i];
-    const locked = store.isLocked(i);
-    const problemEl = h('p', { class: 'warn', hidden: true });
-    this.problemEl = problemEl;
-    return h('section', { 'data-tab': 'properties' },
-      h('h2', {}, `Properties · ${el.type}`),
-      locked ? h('p', { class: 'hint' }, 'Locked: unlock it in the layers list to edit.') : null,
-      this.nudgePad(i),
-      h('fieldset', { disabled: locked }, ...this.fields(el), problemEl),
-      h('div', { class: 'row' },
-        h('button', { type: 'button', disabled: locked, onclick: () => duplicateElement(store, i) }, 'Duplicate'),
-        h('button', { type: 'button', class: 'danger', disabled: locked, onclick: () => deleteElement(store, i) }, 'Delete')),
-    );
+    const sync = () => {
+      if (store.idAt(i) === undefined) return;
+      for (const [b, dx, dy] of arrows) b.disabled = !canNudge(store, i, dx, dy);
+      half.setAttribute('aria-pressed', String(store.halfCells));
+      half.textContent = nudgeStep(store) === 0.5 ? '½' : '1';
+    };
+    sync();
+    return { node, sync, flush() {} };
   }
 }

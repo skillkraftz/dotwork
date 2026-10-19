@@ -76,6 +76,7 @@ Dotwork's print export follows the same physical rules as journal-system
 - Validate every file the app loads or exports against `docs/page-format.md`.
 - Don't add features beyond the task. When a choice is unclear, take the
   simplest version and list the question in the PR.
+- Every new control gets a help entry with touch and desktop text; the help test enforces it.
 - Include screenshots of UI changes in every PR.
 - Mobile first. Dotwork must be fully usable on a phone (390 x 844) and a
   tablet, not just on a desktop. On every screen, the page being designed gets
@@ -98,4 +99,6 @@ Dotwork's print export follows the same physical rules as journal-system
 7. Touch gestures: nothing happens on touch-down, tap selects, one finger pans unless
    it drags the selection, action bar beside the selection, properties and layers
    in a modal (done).
-8. Later: dials and other components, color, sharing, a page gallery.
+8. Help mode (tap anything to see what it does; all text in `src/help.ts`) and reliable typing on
+   phones: in-place panel, steppers for every number, keyboard-aware layout (done).
+9. Later: dials and other components, color, sharing, a page gallery.

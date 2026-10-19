@@ -10,6 +10,7 @@ import { LongPress } from './longpress';
 import { EDIT_BOX, EDIT_VIEWBOX, FIT_BOX, pageContent } from './render';
 import type { Store } from './store';
 import { compactQuery } from './sheet';
+import { keyboardOpen } from './keyboard';
 import { fitView, panBy, pinchOf, scaleOf, viewRect, zoomAt, type View } from './viewport';
 
 type Drag =
@@ -75,7 +76,7 @@ export class Canvas {
     // `detail` counts the clicks; the dblclick event itself is lost when the first click redraws what was under the mouse.
     svg.addEventListener('mousedown', this.onDoubleClick);
     if (typeof ResizeObserver !== 'undefined') {
-      this.observer = new ResizeObserver(() => { if (this.fitted) this.fit(); else this.applyView(); });
+      this.observer = new ResizeObserver(() => { if (keyboardOpen()) return; if (this.fitted) this.fit(); else this.applyView(); });
       this.observer.observe(svg);
     }
   }

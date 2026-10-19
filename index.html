@@ -18,28 +18,28 @@
       <header class="topbar">
         <h1>Dotwork</h1>
         <div class="group seg" id="view-switch" role="group" aria-label="View">
-          <button id="view-page" type="button" title="Edit one page">Page</button>
-          <button id="view-spread" type="button" title="Edit a left and a right page side by side">Spread</button>
-          <button id="view-book" type="button" title="Arrange pages into a book and export print files">Book</button>
+          <button id="view-page" data-help="view-page" type="button" title="Edit one page">Page</button>
+          <button id="view-spread" data-help="view-spread" type="button" title="Edit a left and a right page side by side">Spread</button>
+          <button id="view-book" data-help="view-book" type="button" title="Arrange pages into a book and export print files">Book</button>
         </div>
         <div class="group" id="group-history" role="group" aria-label="History">
-          <button id="undo" type="button" class="iconbtn" title="Undo (Ctrl/Cmd+Z)" aria-label="Undo"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5L4 10l5 5"/><path d="M4 10h10a6 6 0 010 11h-4"/></svg><span class="label">Undo</span></button>
-          <button id="redo" type="button" class="iconbtn" title="Redo (Shift+Ctrl/Cmd+Z)" aria-label="Redo"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l5 5-5 5"/><path d="M20 10H10a6 6 0 000 11h4"/></svg><span class="label">Redo</span></button>
+          <button id="undo" data-help="undo" type="button" class="iconbtn" title="Undo (Ctrl/Cmd+Z)" aria-label="Undo"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5L4 10l5 5"/><path d="M4 10h10a6 6 0 010 11h-4"/></svg><span class="label">Undo</span></button>
+          <button id="redo" data-help="redo" type="button" class="iconbtn" title="Redo (Shift+Ctrl/Cmd+Z)" aria-label="Redo"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l5 5-5 5"/><path d="M20 10H10a6 6 0 000 11h4"/></svg><span class="label">Redo</span></button>
         </div>
-        <button id="menu-button" type="button" class="iconbtn" aria-label="Menu" aria-haspopup="true" aria-expanded="false" aria-controls="menu"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+        <button id="menu-button" data-help="menu-button" type="button" class="iconbtn" aria-label="Menu" aria-haspopup="true" aria-expanded="false" aria-controls="menu"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
         <div id="menu" role="group" aria-label="Menu">
           <div class="group seg" id="group-mode" role="group" aria-label="Mode">
-            <button id="mode-edit" type="button">Edit</button>
-            <button id="mode-preview" type="button" title="See the page as it prints">Preview</button>
+            <button id="mode-edit" data-help="mode-edit" type="button">Edit</button>
+            <button id="mode-preview" data-help="mode-preview" type="button" title="See the page as it prints">Preview</button>
           </div>
-          <button id="library" type="button" title="Saved pages and spreads">Library</button>
-          <button id="new" type="button">New</button>
-          <select id="examples" aria-label="Load an example"></select>
-          <button id="import" type="button">Import JSON</button>
-          <button id="export-json" type="button">Export JSON</button>
-          <button id="export-png" type="button">Export PNG</button>
-          <input id="spread-name" type="text" aria-label="Spread name" placeholder="Spread name" maxlength="80" />
-          <button id="help" type="button">Help</button>
+          <button id="library" data-help="library" type="button" title="Saved pages and spreads">Library</button>
+          <button id="new" data-help="new" type="button">New</button>
+          <select id="examples" data-help="examples" aria-label="Load an example"></select>
+          <button id="import" data-help="import" type="button">Import JSON</button>
+          <button id="export-json" data-help="export-json" type="button">Export JSON</button>
+          <button id="export-png" data-help="export-png" type="button">Export PNG</button>
+          <input id="spread-name" data-help="spread-name" type="text" aria-label="Spread name" placeholder="Spread name" maxlength="80" />
+          <button id="help" data-help="help" type="button">Help</button>
         </div>
         <input id="import-file" type="file" accept=".json,application/json" hidden />
       </header>
@@ -52,20 +52,20 @@
             <div class="half" data-side="right"><span class="tag">Right page</span><svg id="canvas-right" role="img" aria-label="Right page editor"></svg></div>
           </div>
           <div id="spread-bar" class="floating seg" role="group" aria-label="Spread pages" hidden>
-            <button id="side-left" type="button">Left</button>
-            <button id="side-right" type="button">Right</button>
-            <button id="side-both" type="button" title="See both pages side by side, as they will look open">View spread</button>
+            <button id="side-left" data-help="side-left" type="button">Left</button>
+            <button id="side-right" data-help="side-right" type="button">Right</button>
+            <button id="side-both" data-help="side-both" type="button" title="See both pages side by side, as they will look open">View spread</button>
           </div>
           <div id="canvas-tools" class="floating" role="group" aria-label="Page view">
-            <button id="fit" type="button" class="iconbtn" title="Fit the page to the screen" aria-label="Fit page to screen"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg><span class="label">Fit</span></button>
-            <button id="layers-button" type="button" class="iconbtn" title="Layers and page settings" aria-label="Layers"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/></svg><span class="label">Layers</span></button>
+            <button id="fit" data-help="fit" type="button" class="iconbtn" title="Fit the page to the screen" aria-label="Fit page to screen"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg><span class="label">Fit</span></button>
+            <button id="layers-button" data-help="layers-button" type="button" class="iconbtn" title="Layers and page settings" aria-label="Layers"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/></svg><span class="label">Layers</span></button>
           </div>
         </section>
         <div id="sheet-backdrop" data-state="closed"></div>
         <aside id="sheet" data-state="closed" aria-label="Properties and layers">
           <div class="sheet-head">
             <span class="sheet-title">Edit</span>
-            <button type="button" class="sheet-close" aria-label="Close panel"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg><span>Close</span></button>
+            <button type="button" class="sheet-close" data-help="sheet-close" aria-label="Close panel"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg><span>Close</span></button>
           </div>
           <div id="panel"></div>
         </aside>
@@ -73,14 +73,14 @@
         <div id="notice" role="status" hidden></div>
       </main>
       <nav id="tools" aria-label="Tools">
-      <button type="button" data-tool="select" title="Select (V)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3l12 7-5 1.5L11 17z"/></svg><span class="label">Select</span></button>
-      <button type="button" data-tool="shade" title="Shade (S)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16"/><path d="M4 12l8-8M4 20L20 4M12 20l8-8"/></svg><span class="label">Shade</span></button>
-      <button type="button" data-tool="pattern" title="Pattern (P)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16"/><path d="M4 9.5h16M4 14.5h16M9.5 4v16M14.5 4v16"/></svg><span class="label">Pattern</span></button>
-      <button type="button" data-tool="box" title="Box (B)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="6" width="16" height="12"/></svg><span class="label">Box</span></button>
-      <button type="button" data-tool="rule" title="Rule (R)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h18M3 9v6M21 9v6"/></svg><span class="label">Rule</span></button>
-      <button type="button" data-tool="checkboxes" title="Checkboxes (C)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="7" height="7"/><rect x="4" y="13" width="7" height="7"/><path d="M14 7.5h6M14 16.5h6"/></svg><span class="label">Checks</span></button>
-      <button type="button" data-tool="text" title="Text (T)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7V5h14v2M12 5v14M9 19h6"/></svg><span class="label">Text</span></button>
-        <button type="button" id="half-cells" title="Snap to half cells (or hold Shift)" aria-pressed="false"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><text x="12" y="17" text-anchor="middle" font-size="17" fill="currentColor" stroke="none">½</text></svg><span class="label">Half</span></button>
+      <button type="button" data-tool="select" data-help="tool-select" title="Select (V)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3l12 7-5 1.5L11 17z"/></svg><span class="label">Select</span></button>
+      <button type="button" data-tool="shade" data-help="tool-shade" title="Shade (S)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16"/><path d="M4 12l8-8M4 20L20 4M12 20l8-8"/></svg><span class="label">Shade</span></button>
+      <button type="button" data-tool="pattern" data-help="tool-pattern" title="Pattern (P)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16"/><path d="M4 9.5h16M4 14.5h16M9.5 4v16M14.5 4v16"/></svg><span class="label">Pattern</span></button>
+      <button type="button" data-tool="box" data-help="tool-box" title="Box (B)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="6" width="16" height="12"/></svg><span class="label">Box</span></button>
+      <button type="button" data-tool="rule" data-help="tool-rule" title="Rule (R)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h18M3 9v6M21 9v6"/></svg><span class="label">Rule</span></button>
+      <button type="button" data-tool="checkboxes" data-help="tool-checkboxes" title="Checkboxes (C)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="7" height="7"/><rect x="4" y="13" width="7" height="7"/><path d="M14 7.5h6M14 16.5h6"/></svg><span class="label">Checks</span></button>
+      <button type="button" data-tool="text" data-help="tool-text" title="Text (T)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7V5h14v2M12 5v14M9 19h6"/></svg><span class="label">Text</span></button>
+        <button type="button" id="half-cells" data-help="half-cells" title="Snap to half cells (or hold Shift)" aria-pressed="false"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><text x="12" y="17" text-anchor="middle" font-size="17" fill="currentColor" stroke="none">½</text></svg><span class="label">Half</span></button>
       </nav>
     </div>
     <script type="module" src="/src/main.ts"></script>

@@ -27,7 +27,7 @@ export class ActionBar {
   constructor(private root: HTMLElement, private host: HTMLElement, handlers: BarHandlers) {
     for (const a of ACTIONS) {
       const b = h('button', {
-        type: 'button', 'data-action': a.id, 'aria-label': a.label,
+        type: 'button', 'data-action': a.id, 'data-help': `bar-${a.id}`, 'aria-label': a.label,
         onclick: () => {
           if (a.id === 'more') {
             const r = b.getBoundingClientRect();

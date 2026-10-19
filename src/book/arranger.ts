@@ -76,10 +76,10 @@ export class Arranger {
   constructor(root: HTMLElement, private host: ArrangerHost, book: Book) {
     this.book = book;
     this.picker = h('dialog', { class: 'library picker', 'aria-label': 'Choose a design' },
-      h('header', {}, this.pickerTitle, h('button', { type: 'button', onclick: () => this.picker.close() }, 'Close')),
+      h('header', {}, this.pickerTitle, h('button', { type: 'button', 'data-help': 'picker-close', onclick: () => this.picker.close() }, 'Close')),
       this.pickerBody) as HTMLDialogElement;
     this.apply = h('dialog', { class: 'library apply', 'aria-label': 'Apply to more pages' },
-      h('header', {}, h('h2', {}, 'Apply to more pages'), h('button', { type: 'button', onclick: () => this.apply.close() }, 'Close')),
+      h('header', {}, h('h2', {}, 'Apply to more pages'), h('button', { type: 'button', 'data-help': 'apply-close', onclick: () => this.apply.close() }, 'Close')),
       this.applyBody) as HTMLDialogElement;
     for (const d of [this.picker, this.apply]) d.addEventListener('click', (e) => { if (e.target === d) d.close(); });
     document.body.append(this.picker, this.apply);
@@ -181,44 +181,44 @@ export class Arranger {
     this.markCurrent();
   }
 
-  private num(label: string, value: number, attrs: Record<string, unknown>, set: (v: number) => void) {
-    const input = h('input', { type: 'number', value, 'aria-label': label, ...attrs });
+  private num(help: string, label: string, value: number, attrs: Record<string, unknown>, set: (v: number) => void) {
+    const input = h('input', { type: 'number', value, 'aria-label': label, 'data-help': help, ...attrs });
     input.onchange = () => { const v = Number(input.value); if (Number.isFinite(v)) set(v); else this.render(); };
     return h('label', { class: 'compact' }, label, input);
   }
 
   private renderBar() {
     const b = this.book;
-    const name = h('input', { type: 'text', value: b.name, 'aria-label': 'Book name', placeholder: 'Book name', maxlength: 80 });
+    const name = h('input', { type: 'text', value: b.name, 'aria-label': 'Book name', 'data-help': 'book-name', placeholder: 'Book name', maxlength: 80 });
     name.oninput = () => { b.name = name.value; this.host.changed(b); };
-    const pages = h('input', { type: 'number', value: b.page_count, min: MIN_PAGES, max: MAX_PAGES, step: 4, 'aria-label': 'Pages' });
+    const pages = h('input', { type: 'number', value: b.page_count, min: MIN_PAGES, max: MAX_PAGES, step: 4, 'aria-label': 'Pages', 'data-help': 'book-pages' });
     pages.onchange = () => {
       const count = roundPageCount(Number(pages.value));
       const lost = pagesLostByResize(b, count);
       if (lost && !confirm(`Shortening the book to ${count} pages drops ${lost} designed page${lost > 1 ? 's' : ''}. Continue?`)) { pages.value = String(b.page_count); return; }
       this.edit(() => { resizeBook(b, count); this.slot = Math.min(this.slot, count + 1); this.expanded.clear(); });
     };
-    const numbers = h('input', { type: 'checkbox', checked: b.page_numbers, 'aria-label': 'Page numbers' });
+    const numbers = h('input', { type: 'checkbox', checked: b.page_numbers, 'aria-label': 'Page numbers', 'data-help': 'book-numbers' });
     numbers.onchange = () => this.edit(() => { b.page_numbers = numbers.checked; });
     const p = b.print;
     const settings = h('details', { class: 'print-settings' },
-      h('summary', {}, 'Settings'),
+      h('summary', { 'data-help': 'book-settings' }, 'Settings'),
       h('div', { class: 'print-fields' },
         name,
         h('label', { class: 'compact' }, 'Pages', pages),
         h('label', { class: 'toggle' }, numbers, ' Page numbers'),
-        this.num('Paper thickness (mm)', p.paper_thickness_mm, { min: 0, max: 1, step: 0.01 }, (v) => this.edit(() => { p.paper_thickness_mm = v; })),
-        this.num('Back offset x (mm)', p.back_offset_x_mm, { min: -10, max: 10, step: 0.1 }, (v) => this.edit(() => { p.back_offset_x_mm = v; })),
-        this.num('Back offset y (mm)', p.back_offset_y_mm, { min: -10, max: 10, step: 0.1 }, (v) => this.edit(() => { p.back_offset_y_mm = v; })),
-        this.num('Signatures', p.signatures, { min: 1, max: 20, step: 1 }, (v) => this.edit(() => { p.signatures = Math.round(v); })),
+        this.num('book-thickness', 'Paper thickness (mm)', p.paper_thickness_mm, { min: 0, max: 1, step: 0.01 }, (v) => this.edit(() => { p.paper_thickness_mm = v; })),
+        this.num('book-offset-x', 'Back offset x (mm)', p.back_offset_x_mm, { min: -10, max: 10, step: 0.1 }, (v) => this.edit(() => { p.back_offset_x_mm = v; })),
+        this.num('book-offset-y', 'Back offset y (mm)', p.back_offset_y_mm, { min: -10, max: 10, step: 0.1 }, (v) => this.edit(() => { p.back_offset_y_mm = v; })),
+        this.num('book-signatures', 'Signatures', p.signatures, { min: 1, max: 20, step: 1 }, (v) => this.edit(() => { p.signatures = Math.round(v); })),
         h('p', { class: 'hint' }, 'Creep shifts each sheet’s pages toward the fold by the sheets outside it × the paper thickness. The back offset moves everything on print-second.pdf (+x right, +y up) to match your printer.')));
     const open = this.bar.querySelector('details')?.open;
     if (open) settings.open = true;
-    const undo = h('button', { type: 'button', disabled: this.undoStack.length === 0, onclick: () => this.undo(), title: 'Undo the last change to the book' }, 'Undo');
+    const undo = h('button', { type: 'button', disabled: this.undoStack.length === 0, onclick: () => this.undo(), 'data-help': 'book-undo', title: 'Undo the last change to the book' }, 'Undo');
     this.bar.replaceChildren(
       settings,
       undo,
-      h('button', { type: 'button', class: 'primary', onclick: () => this.host.exportFiles(this.book) }, 'Export print files…'),
+      h('button', { type: 'button', class: 'primary', 'data-help': 'book-export', onclick: () => this.host.exportFiles(this.book) }, 'Export print files…'),
     );
     this.updateWarning();
   }
@@ -239,11 +239,11 @@ export class Arranger {
     const sub = this.spreads ? 'Tap a page to pick it' : `${slotSide(this.slot) === 'left' ? 'Left' : 'Right'}-hand page`;
     const prevAt = this.spreads ? left : this.slot, nextAt = this.spreads ? right : this.slot;
     this.nav.replaceChildren(
-      h('button', { type: 'button', class: 'nav-step', 'aria-label': this.spreads ? 'Previous spread' : 'Previous page', disabled: prevAt <= 0, onclick: () => this.step(-1) }, '‹'),
+      h('button', { type: 'button', class: 'nav-step', 'data-help': 'nav-prev', 'aria-label': this.spreads ? 'Previous spread' : 'Previous page', disabled: prevAt <= 0, onclick: () => this.step(-1) }, '‹'),
       h('div', { class: 'where', 'aria-live': 'polite' }, h('strong', {}, where), h('span', { class: 'hint' }, sub)),
-      h('button', { type: 'button', class: 'nav-step', 'aria-label': this.spreads ? 'Next spread' : 'Next page', disabled: nextAt >= last, onclick: () => this.step(1) }, '›'),
-      h('button', { type: 'button', class: 'view-toggle', 'aria-pressed': String(this.spreads), title: 'Show two facing pages side by side', onclick: () => this.setSpreads(!this.spreads) }, 'Spreads'),
-      h('button', { type: 'button', class: 'contents-toggle', onclick: () => this.contents.classList.add('open') }, 'Contents'),
+      h('button', { type: 'button', class: 'nav-step', 'data-help': 'nav-next', 'aria-label': this.spreads ? 'Next spread' : 'Next page', disabled: nextAt >= last, onclick: () => this.step(1) }, '›'),
+      h('button', { type: 'button', class: 'view-toggle', 'data-help': 'book-spreads', 'aria-pressed': String(this.spreads), title: 'Show two facing pages side by side', onclick: () => this.setSpreads(!this.spreads) }, 'Spreads'),
+      h('button', { type: 'button', class: 'contents-toggle', 'data-help': 'book-contents', onclick: () => this.contents.classList.add('open') }, 'Contents'),
     );
   }
 
@@ -255,7 +255,7 @@ export class Arranger {
       const el = h('button', {
         type: 'button', class: `stage-page${this.spreads && n === this.slot ? ' current' : ''}`,
         'aria-label': `${slotLabel(this.book, n)}, ${designName(getSlot(this.book, n))}`, 'aria-pressed': this.spreads ? String(n === this.slot) : null,
-        tabindex: this.spreads ? 0 : -1, 'data-slot': n,
+        tabindex: this.spreads ? 0 : -1, 'data-slot': n, 'data-help': 'book-stage-page',
       });
       el.innerHTML = slotSvg(this.book, n, outline, ` preserveAspectRatio="${align} meet"`);
       el.onclick = () => { if (this.spreads) this.go(n); };
@@ -268,9 +268,9 @@ export class Arranger {
     this.actions.replaceChildren(
       h('p', { class: 'design-name' }, h('span', { class: 'hint' }, `${slotLabel(this.book, this.slot)}: `), h('strong', {}, designName(here))),
       h('div', { class: 'row' },
-        h('button', { type: 'button', class: 'primary', onclick: () => this.openPicker() }, 'Choose design…'),
-        h('button', { type: 'button', onclick: () => this.openApply() }, 'Apply to more pages…'),
-        h('button', { type: 'button', disabled: !here, onclick: () => this.edit(() => setSlot(this.book, this.slot, null)), title: 'Make this page blank' }, 'Clear'),
+        h('button', { type: 'button', class: 'primary', 'data-help': 'book-choose', onclick: () => this.openPicker() }, 'Choose design…'),
+        h('button', { type: 'button', 'data-help': 'book-apply', onclick: () => this.openApply() }, 'Apply to more pages…'),
+        h('button', { type: 'button', disabled: !here, 'data-help': 'book-clear', onclick: () => this.edit(() => setSlot(this.book, this.slot, null)), title: 'Make this page blank' }, 'Clear'),
       ),
     );
   }
@@ -285,7 +285,7 @@ export class Arranger {
       thumb.innerHTML = slotSvg(b, from, outline);
       const open = this.expanded.has(from);
       const row = h('button', {
-        type: 'button', class: 'crow', 'data-from': from, 'data-to': to, 'aria-expanded': expandable ? String(open) : null,
+        type: 'button', class: 'crow', 'data-help': 'contents-row', 'data-from': from, 'data-to': to, 'aria-expanded': expandable ? String(open) : null,
         onclick: () => {
           if (expandable) { if (open) this.expanded.delete(from); else this.expanded.add(from); this.renderContents(); return; }
           this.go(from);
@@ -306,7 +306,7 @@ export class Arranger {
       }
     }
     this.contents.replaceChildren(
-      h('header', {}, h('h2', {}, 'Contents'), h('button', { type: 'button', class: 'contents-close', onclick: () => this.contents.classList.remove('open') }, 'Close')),
+      h('header', {}, h('h2', {}, 'Contents'), h('button', { type: 'button', class: 'contents-close', 'data-help': 'contents-close', onclick: () => this.contents.classList.remove('open') }, 'Close')),
       h('ul', { class: 'crows' }, ...rows),
     );
     this.markCurrent();
@@ -350,7 +350,7 @@ export class Arranger {
       const pages = c.kind === 'spread' ? [(c.data as Spread).left, (c.data as Spread).right] : [withSide(c.data ? (c.data as Page) : blankPage(side), side)];
       thumb.innerHTML = thumbnailSvg(pages);
       return h('button', {
-        type: 'button', class: `design${c.kind === 'spread' ? ' wide' : ''}`, 'data-kind': c.kind,
+        type: 'button', class: `design${c.kind === 'spread' ? ' wide' : ''}`, 'data-kind': c.kind, 'data-help': 'picker-design',
         onclick: () => this.choose(c),
       }, thumb, h('span', { class: 'design-title' }, c.name), h('span', { class: 'hint' }, c.kind === 'blank' ? 'Empty page' : c.kind === 'spread' ? 'Spread: fills this page and the next' : 'Page'));
     };
@@ -397,7 +397,7 @@ export class Arranger {
     const thumb = h('div', { class: 'thumb small' });
     thumb.innerHTML = thumbnailSvg([bookPage(b, this.slot)]);
     const summary = h('p', { class: 'apply-summary', role: 'status' });
-    const go = h('button', { type: 'button', class: 'primary' });
+    const go = h('button', { type: 'button', class: 'primary', 'data-help': 'apply-go' });
     const fromField = this.field('From page', 'from', () => update());
     const toField = this.field('To page', 'to', () => update());
     const update = () => {
@@ -413,7 +413,7 @@ export class Arranger {
       go.onclick = () => this.applyTo(changed, design);
     };
     const radios = SCOPE_MODES.map(({ mode, label }) => {
-      const input = h('input', { type: 'radio', name: 'scope', checked: this.scope.mode === mode, 'aria-label': label });
+      const input = h('input', { type: 'radio', name: 'scope', checked: this.scope.mode === mode, 'aria-label': label, 'data-help': 'apply-scope' });
       input.onchange = () => {
         const { from, to } = { from: 'from' in this.scope ? this.scope.from : this.scopeFrom, to: this.scope.to };
         this.scope = mode === 'from' ? { mode, to } : { mode, from, to };
@@ -427,7 +427,7 @@ export class Arranger {
       h('div', { class: 'choices', role: 'radiogroup', 'aria-label': 'Which pages' }, ...radios),
       h('div', { class: 'row' }, fromField, toField),
       summary,
-      h('div', { class: 'row' }, go, h('button', { type: 'button', onclick: () => this.apply.close() }, 'Cancel')),
+      h('div', { class: 'row' }, go, h('button', { type: 'button', 'data-help': 'apply-cancel', onclick: () => this.apply.close() }, 'Cancel')),
     );
     update();
   }
@@ -435,7 +435,7 @@ export class Arranger {
   /** A page-number field bound to the scope's `from` or `to`. */
   private field(label: string, key: 'from' | 'to', changed: () => void) {
     const value = key === 'to' ? this.scope.to : this.scopeFrom;
-    const input = h('input', { type: 'number', value, min: 1, max: this.book.page_count, 'aria-label': label });
+    const input = h('input', { type: 'number', value, min: 1, max: this.book.page_count, 'aria-label': label, 'data-help': `apply-${key}` });
     const read = () => {
       const v = Math.round(Number(input.value));
       if (!input.value || !Number.isFinite(v)) return;
