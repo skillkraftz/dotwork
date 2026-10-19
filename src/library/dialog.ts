@@ -5,6 +5,7 @@ import { readSpread, type Spread, type SpreadSide } from '../format/spread';
 import { readBook, bookPage, type Book } from '../book/book';
 import { h } from '../panel';
 import { thumbnailSvg } from '../render';
+import oflUrl from '../fonts/OFL.txt?url';
 import type { Library, LibraryItem } from './library';
 
 /** What can be saved from the editor right now. */
@@ -50,15 +51,17 @@ export class LibraryDialog {
     this.dialog = h('dialog', { class: 'library', 'aria-label': 'Library' },
       h('header', {},
         h('h2', {}, 'Library'),
-        h('button', { type: 'button', onclick: () => this.dialog.close() }, 'Close')),
+        h('button', { type: 'button', 'data-help': 'library-close', onclick: () => this.dialog.close() }, 'Close')),
       this.saveRow,
       this.msgEl,
       this.listEl,
       h('footer', {},
-        h('button', { type: 'button', onclick: () => this.exportBackup() }, 'Export library'),
-        h('button', { type: 'button', onclick: () => file.click() }, 'Import library'),
+        h('button', { type: 'button', 'data-help': 'library-export', onclick: () => this.exportBackup() }, 'Export library'),
+        h('button', { type: 'button', 'data-help': 'library-import', onclick: () => file.click() }, 'Import library'),
         file,
-        h('span', { class: 'hint' }, 'Kept in this browser. Export a backup file to keep it safe.')),
+        h('span', { class: 'hint' }, 'Kept in this browser. Export a backup file to keep it safe.'),
+        h('span', { class: 'hint' }, 'Courier Prime © The Courier Prime Project Authors, ',
+          h('a', { href: oflUrl, target: '_blank', rel: 'noopener', 'data-help': 'credits-link' }, 'SIL OFL 1.1'), '.')),
     );
     this.dialog.addEventListener('click', (e) => { if (e.target === this.dialog) this.dialog.close(); });
     this.dialog.addEventListener('close', () => host.closed?.());
@@ -87,15 +90,15 @@ export class LibraryDialog {
   private renderSave(selected?: SaveWhat) {
     const options = this.host.saveOptions();
     const current = options.find((o) => o.what === selected) ?? options[0];
-    const name = h('input', { type: 'text', value: current.name, 'aria-label': 'Name', maxlength: 80 });
+    const name = h('input', { type: 'text', value: current.name, 'aria-label': 'Name', 'data-help': 'library-save-name', maxlength: 80 });
     name.oninput = () => { this.nameEdited = true; };
-    const what = h('select', { 'aria-label': 'What to save' },
+    const what = h('select', { 'aria-label': 'What to save', 'data-help': 'library-save-what' },
       ...options.map((o) => h('option', { value: o.what, selected: o === current }, o.label)));
     what.onchange = () => {
       const o = options.find((x) => x.what === what.value)!;
       if (!this.nameEdited) name.value = o.name;
     };
-    const save = h('button', { type: 'button', class: 'primary' }, 'Save to library');
+    const save = h('button', { type: 'button', class: 'primary', 'data-help': 'library-save' }, 'Save to library');
     save.onclick = () => this.save(what.value as SaveWhat, name.value);
     name.onkeydown = (e) => { if (e.key === 'Enter') save.click(); };
     this.saveRow.replaceChildren(what, name, save);
@@ -138,11 +141,11 @@ export class LibraryDialog {
     const title = this.renaming === item.id
       ? this.renameField(item)
       : h('strong', { class: 'lib-name', title: item.name }, item.name);
-    const btn = (label: string, fn: () => void | Promise<void>, title?: string) =>
-      h('button', { type: 'button', title, onclick: () => void fn() }, label);
+    const btn = (help: string, label: string, fn: () => void | Promise<void>, title?: string) =>
+      h('button', { type: 'button', title, 'data-help': `library-${help}`, onclick: () => void fn() }, label);
 
     const actions: HTMLElement[] = [
-      btn('Open', () => {
+      btn('open', 'Open', () => {
         if (item.kind === 'page') this.host.openPage(item.data);
         else if (item.kind === 'spread') this.host.openSpread(item.data);
         else this.host.openBook(item.data);
@@ -151,12 +154,12 @@ export class LibraryDialog {
     ];
     if (item.kind === 'page') {
       const place = (side: SpreadSide) => () => { this.host.placePage(item.data, side); this.close(); };
-      actions.push(btn('→ Left', place('left'), 'Use as the left page of the spread'), btn('→ Right', place('right'), 'Use as the right page of the spread'));
+      actions.push(btn('left', '→ Left', place('left'), 'Use as the left page of the spread'), btn('right', '→ Right', place('right'), 'Use as the right page of the spread'));
     }
     actions.push(
-      btn('Rename', () => { this.renaming = item.id; return this.renderList(); }),
-      btn('Duplicate', async () => { await this.library.duplicate(item.id); await this.renderList(); }),
-      btn('Delete', async () => {
+      btn('rename', 'Rename', () => { this.renaming = item.id; return this.renderList(); }),
+      btn('duplicate', 'Duplicate', async () => { await this.library.duplicate(item.id); await this.renderList(); }),
+      btn('delete', 'Delete', async () => {
         if (!confirm(`Delete the saved ${item.kind} “${item.name}”? This can’t be undone.`)) return;
         await this.library.remove(item.id);
         await this.renderList();
@@ -168,7 +171,7 @@ export class LibraryDialog {
   }
 
   private renameField(item: LibraryItem): HTMLElement {
-    const input = h('input', { type: 'text', value: item.name, 'aria-label': 'New name', maxlength: 80 });
+    const input = h('input', { type: 'text', value: item.name, 'aria-label': 'New name', 'data-help': 'library-rename-field', maxlength: 80 });
     let done = false;
     const finish = async (commit: boolean) => {
       if (done) return;

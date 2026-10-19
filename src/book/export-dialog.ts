@@ -19,7 +19,7 @@ export class ExportDialog {
 
   constructor(private download: (blob: Blob, filename: string) => void) {
     this.dialog = h('dialog', { class: 'library export', 'aria-label': 'Export print files' },
-      h('header', {}, h('h2', {}, 'Print files'), h('button', { type: 'button', onclick: () => this.dialog.close() }, 'Close')),
+      h('header', {}, h('h2', {}, 'Print files'), h('button', { type: 'button', 'data-help': 'export-close', onclick: () => this.dialog.close() }, 'Close')),
       this.body);
     this.dialog.addEventListener('click', (e) => { if (e.target === this.dialog) this.dialog.close(); });
     document.body.append(this.dialog);
@@ -57,15 +57,15 @@ export class ExportDialog {
     const img = h('img', { src: previewUrl, alt: `Contact sheet of ${book.name}`, class: 'contact' });
     const rows = files.map((f) => h('li', {},
       h('span', { class: 'file' }, f.name), h('span', { class: 'hint' }, kb(f.bytes.length)),
-      h('button', { type: 'button', onclick: () => this.download(blob(f), f.name) }, 'Download')));
+      h('button', { type: 'button', 'data-help': 'export-download', onclick: () => this.download(blob(f), f.name) }, 'Download')));
     const all = h('button', {
-      type: 'button', class: 'primary',
+      type: 'button', class: 'primary', 'data-help': 'export-zip',
       onclick: () => this.download(new Blob([zip(files) as BlobPart], { type: 'application/zip' }), `${slug(book.name)}-print.zip`),
     }, 'Download all (.zip)');
     // Phone browsers often refuse several downloads at once, so there the zip is the way and the files are tucked away.
     const list = h('ul', { class: 'export-files' }, ...rows);
     const individual = isCompact()
-      ? h('details', { class: 'export-individual' }, h('summary', {}, 'Download files one at a time'), list)
+      ? h('details', { class: 'export-individual' }, h('summary', { 'data-help': 'export-individual' }, 'Download files one at a time'), list)
       : list;
     this.body.replaceChildren(
       h('div', { class: 'export-actions' }, all),

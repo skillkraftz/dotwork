@@ -17,7 +17,7 @@ export function showContextMenu(at: { x: number; y: number }, actions: ContextAc
   const shownAt = Date.now();
   const el = h('div', { class: 'ctx-menu', role: 'menu', 'aria-label': 'Element actions' },
     ...actions.map((a) => h('button', {
-      type: 'button', role: 'menuitem', 'data-action': a.id, disabled: !a.enabled,
+      type: 'button', role: 'menuitem', 'data-action': a.id, 'data-help': `ctx-${a.id}`, disabled: !a.enabled,
       // The finger that opened the menu may still be lifting off: ignore it.
       onclick: () => { if (Date.now() - shownAt < GUARD_MS) return; close(); a.run(); },
     }, a.label)));

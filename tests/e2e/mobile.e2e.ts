@@ -59,7 +59,7 @@ describe('phone layout (390 x 844, touch)', () => {
     expect(await smallControls(app)).toEqual([]);
     await shot(app, 'phone-menu');
     await page.tap('#help');
-    expect(await page.locator('dialog.help').isVisible()).toBe(true);
+    expect(await page.locator('#help-card').isVisible()).toBe(true); // help mode, not a window
     expect(await page.locator('#menu').isVisible()).toBe(false); // choosing something closes the menu
     await shot(app, 'phone-help');
     noErrors(app);

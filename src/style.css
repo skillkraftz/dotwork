@@ -96,10 +96,20 @@ main { flex: 1; display: flex; min-height: 0; position: relative; order: 2; }
 #panel h3 { font-size: 13px; margin: 14px 0 6px; }
 #panel label { display: block; margin-bottom: 8px; color: var(--gray-4); }
 #panel label input[type='text'], #panel label input[type='number'], #panel label select { display: block; width: 100%; color: var(--ink); margin-top: 2px; }
+#panel .field > label { margin-bottom: 0; }
+#panel .field > input[type='text'] { display: block; width: 100%; color: var(--ink); margin-top: 2px; }
+.layers { position: relative; }
+
+/* numbers: a minus, the value, a plus */
+.stepper { display: flex; align-items: stretch; margin-top: 2px; }
+.stepper input[type='text'] { flex: 1; min-width: 0; width: 0; margin: 0 -1px; text-align: center; color: var(--ink); }
+.stepper button.step { flex: none; width: var(--tap); min-width: var(--tap); min-height: var(--tap); padding: 0; font-size: 22px; line-height: 1;
+  user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: manipulation; }
+.fmsg { display: block; font-weight: 700; font-size: 12px; margin: 2px 0 4px; color: var(--ink); }
 #panel label.inline { display: flex; align-items: center; gap: 6px; margin: 0; }
 #panel label.inline select { width: auto; margin: 0; flex: 1; }
 #panel .tabs { display: none; }
-.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; }
+.grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px 10px; }
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
 .hint { color: var(--gray-4); font-size: 12px; margin: 4px 0 8px; }
 .warn { font-weight: 700; font-size: 12px; margin: 4px 0 8px; }
@@ -254,11 +264,20 @@ dialog.export { width: min(780px, calc(100% - 28px)); }
 .export-files .hint { margin: 0; }
 .contact { max-width: 100%; border: 1px solid var(--gray-2); }
 
-/* ---- help window ---- */
-.help-body { padding: 4px 14px 20px; overflow-y: auto; }
-.help-body h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; margin: 16px 0 6px; }
-.help-body ul { margin: 0; padding-left: 18px; }
-.help-body li { margin-bottom: 4px; }
+/* the on-screen keyboard is up: the page and the modal keep their places, and the tool bar steps aside */
+body.keyboard-open #tools { display: none; }
+
+/* ---- help mode ---- */
+#help-card { order: 0; flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 8px 4px 14px;
+  background: var(--gray-1); border-bottom: 1px solid #000; position: relative; z-index: 39; }
+#help-card[hidden] { display: none; }
+#help-pop { position: fixed; z-index: 300; width: min(320px, calc(100vw - 16px)); padding: 10px 12px; background: #000; color: #fff;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4); pointer-events: none; font-size: 13px; }
+#help-pop[hidden] { display: none; }
+#help-pop strong { display: block; text-transform: uppercase; letter-spacing: 0.08em; font-size: 12px; margin-bottom: 4px; }
+#help-pop p { margin: 0 0 6px; }
+#help-pop p.how { margin: 8px 0 0; padding-top: 6px; border-top: 1px solid #666; color: #ddd; }
+body.help-mode button, body.help-mode select, body.help-mode input, body.help-mode summary, body.help-mode #canvas, body.help-mode .half svg { cursor: help !important; }
 
 /* ---- touch sizes: any narrow screen, and any touch screen ---- */
 @media (max-width: 999px), (pointer: coarse) {
@@ -301,7 +320,7 @@ dialog.export { width: min(780px, calc(100% - 28px)); }
   #tools button[aria-pressed='true'] { border-color: #000; }
 
   /* the properties and layers modal */
-  #sheet { position: absolute; left: 8px; right: 8px; top: 8px; bottom: 8px; width: auto; z-index: 41; border: 1px solid #000;
+  #sheet { position: absolute; left: 8px; right: 8px; top: 8px; bottom: calc(8px + var(--kb, 0px)); width: auto; z-index: 41; border: 1px solid #000;
     border-radius: 10px; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35); overflow: hidden; }
   #sheet[data-state='closed'], #sheet-backdrop[data-state='closed'] { display: none; }
   #sheet-backdrop { display: block; position: absolute; inset: 0; z-index: 40; background: rgba(0, 0, 0, 0.35); }

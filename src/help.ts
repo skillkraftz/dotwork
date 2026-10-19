@@ -1,0 +1,183 @@
+/**
+ * All the help text, in one place. Every control carries a `data-help` key (see index.html and the views), and help
+ * mode (helpmode.ts) shows that key's entry when the control is tapped or clicked.
+ *
+ * Each entry says what the control is and does, then how to use it with a touch screen and with a mouse and keyboard.
+ * The help test (tests/e2e/help.e2e.ts) walks every view and fails for any visible button, menu item, input or select
+ * whose key is missing here, so a new control needs an entry before it can ship.
+ */
+export interface HelpEntry {
+  name: string;
+  what: string;
+  /** How to use it with fingers. */
+  touch: string;
+  /** How to use it with a mouse and keyboard, shortcuts included. */
+  desktop: string;
+}
+
+const e = (name: string, what: string, touch: string, desktop: string): HelpEntry => ({ name, what, touch, desktop });
+
+export const HELP: Record<string, HelpEntry> = {
+  // ---- top bar and menu -----------------------------------------------------
+  'view-page': e('Page', 'Design one page on its own.', 'Tap to edit a single page.', 'Click to edit a single page.'),
+  'view-spread': e('Spread', 'Design a left page and a right page that sit side by side in the book.', 'Tap to edit a spread. Use Left and Right to switch pages, or View spread to see both.', 'Click to edit a spread: the left and right pages show side by side. Click a page to work on it.'),
+  'view-book': e('Book', 'Arrange pages into a book and export print-ready files.', 'Tap to arrange a 52-page book, one page at a time.', 'Click to arrange a book, then export the print files.'),
+  'undo': e('Undo', 'Takes back the last change.', 'Tap to undo. Tap again to go back further.', 'Click, or press Ctrl/Cmd+Z.'),
+  'redo': e('Redo', 'Puts back a change you undid.', 'Tap to redo what Undo took back.', 'Click, or press Shift+Ctrl/Cmd+Z (or Ctrl/Cmd+Y).'),
+  'menu-button': e('Menu', 'Opens the rest of the controls: Library, New, examples, import and export, Help.', 'Tap to open or close the menu. Tap a menu item here to learn what it does.', 'Click to open or close the menu.'),
+  'mode-edit': e('Edit', 'Shows the page with its grid and handles, ready to change.', 'Tap to go back to editing after a Preview.', 'Click to go back to editing after a Preview.'),
+  'mode-preview': e('Preview', 'Shows the page as it prints: no grid, sample values for tokens like the date.', 'Tap to see the printed look. Tap Edit to return.', 'Click to see the printed look. Click Edit to return.'),
+  'library': e('Library', 'Your saved pages, spreads and books, kept in this browser.', 'Tap to save the current work or open something you saved.', 'Click to save the current work or open something you saved.'),
+  'new': e('New', 'Starts over with a blank page, spread or book.', 'Tap for a blank page. Undo brings the old one back.', 'Click for a blank page. Undo brings the old one back.'),
+  'examples': e('Load example', 'Replaces the page with one of the built-in example pages.', 'Tap, then pick an example from the list.', 'Pick an example from the list.'),
+  'import': e('Import JSON', 'Opens a page, spread or book file that you exported before.', 'Tap, then choose the file on your device.', 'Click, then choose a .json file.'),
+  'export-json': e('Export JSON', 'Saves the page, spread or book as a file you can keep, share or import again.', 'Tap to download the file.', 'Click to download the file.'),
+  'export-png': e('Export PNG', 'Saves a picture of the page.', 'Tap to download a picture of the current page.', 'Click to download a picture of the current page.'),
+  'spread-name': e('Spread name', 'The name the spread is saved and exported under.', 'Tap to type a name.', 'Click and type a name.'),
+  'help': e('Help', 'Turns on help mode: tap anything to see what it does.', 'Tap to start help mode. Close its card at the top to stop.', 'Click to start help mode. Close its card at the top to stop.'),
+  'help-close': e('Close help', 'Ends help mode, so the controls work again.', 'Tap to end help mode.', 'Click, or press Escape, to end help mode.'),
+  'notice-dismiss': e('Dismiss', 'Hides this message.', 'Tap to hide the message.', 'Click to hide the message.'),
+
+  // ---- spreads ----------------------------------------------------------------
+  'side-left': e('Left page', 'Works on the left page of the spread.', 'Tap to edit the left page.', 'Click to edit the left page.'),
+  'side-right': e('Right page', 'Works on the right page of the spread.', 'Tap to edit the right page.', 'Click to edit the right page.'),
+  'side-both': e('View spread', 'Shows both pages side by side, as they look when the book is open.', 'Tap to see both pages; tap again to go back to editing one.', 'Click to see both pages; click again to go back.'),
+
+  // ---- over the page ----------------------------------------------------------
+  'fit': e('Fit page', 'Zooms so the whole page is on screen.', 'Tap after pinching or panning to see the whole page again.', 'Click to see the whole page again after zooming or scrolling.'),
+  'layers-button': e('Layers', 'Opens the list of everything on the page, and the page settings.', 'Tap to open Layers; tap again to close it.', 'Click to open or close the layers and page settings.'),
+  'sheet-close': e('Close', 'Closes this window and returns to the page.', 'Tap to close.', 'Click to close, or press Escape.'),
+
+  // ---- tools ------------------------------------------------------------------
+  'tool-select': e('Select', 'Picks, moves and resizes what is on the page.', 'Tap an element to select it. Drag the selected one to move it, or a square handle to resize it. Drag anywhere else to pan.', 'Click an element to select it and drag to move it; drag a handle to resize. Press V.'),
+  'tool-shade': e('Shade', 'Fills an area with light, medium or dark gray, plain or striped.', 'Tap, then drag on the page to shade an area.', 'Click, then drag on the page. Press S.'),
+  'tool-pattern': e('Pattern', 'Fills an area with dots, lines or a grid.', 'Tap, then drag on the page to cover an area.', 'Click, then drag on the page. Press P.'),
+  'tool-box': e('Box', 'Draws a rectangle outline.', 'Tap, then drag from one corner to the opposite one.', 'Click, then drag from corner to corner. Press B.'),
+  'tool-rule': e('Rule', 'Draws a straight line along a grid line.', 'Tap, then drag along a row or a column.', 'Click, then drag along a row or a column. Press R.'),
+  'tool-checkboxes': e('Checkboxes', 'Draws a strip of checkboxes, one per cell.', 'Tap, then drag the length you want.', 'Click, then drag the length you want. Press C.'),
+  'tool-text': e('Text', 'Puts a line of text on the page.', 'Tap, then tap on the page where the text goes. Type it in Properties.', 'Click, then click on the page where the text goes. Press T.'),
+  'half-cells': e('Half', 'Makes drawing, nudging and the − and + buttons move by half a cell instead of a whole one.', 'Tap to turn on; tap again to turn off.', 'Click to turn on or off, or hold Shift while drawing.'),
+
+  // ---- the bar beside a selection ---------------------------------------------
+  'bar-properties': e('Properties', 'Opens the settings of the selected element: position, size, tone and more.', 'Tap to open the properties window.', 'Click, or double-click the element.'),
+  'bar-duplicate': e('Duplicate', 'Makes a copy of the selected element, one cell over.', 'Tap to copy it.', 'Click, or press Ctrl/Cmd+D.'),
+  'bar-remove': e('Delete', 'Removes the selected element.', 'Tap to delete it. Undo brings it back.', 'Click, or press Delete.'),
+  'bar-more': e('More', 'Opens the menu with bring forward, send backward and select the one underneath.', 'Tap to open the menu.', 'Click to open the menu, or right-click the element.'),
+
+  // ---- the menu on an element -------------------------------------------------
+  'ctx-duplicate': e('Duplicate', 'Makes a copy of the element, one cell over.', 'Tap to copy it.', 'Click, or press Ctrl/Cmd+D.'),
+  'ctx-delete': e('Delete', 'Removes the element.', 'Tap to delete it. Undo brings it back.', 'Click, or press Delete.'),
+  'ctx-forward': e('Bring forward', 'Moves the element one step toward the front, over what is behind it.', 'Tap to move it forward.', 'Click to move it forward.'),
+  'ctx-backward': e('Send backward', 'Moves the element one step toward the back, behind what is in front of it.', 'Tap to move it back.', 'Click to move it back.'),
+  'ctx-beneath': e('Select the one underneath', 'Selects the next element under the same spot, when several overlap.', 'Tap to select the one below.', 'Click, or Alt-click the page to step down through the stack.'),
+
+  // ---- the page itself --------------------------------------------------------
+  'page-select': e('The page: Select tool', 'Pick and change what is on the page.', 'Tap an element to select it; tap empty space to clear. Double-tap an element for its properties. Drag the selected element to move it, or a handle to resize it. Drag anywhere else to pan. Pinch to zoom, or use two fingers to pan. Long-press an element for its menu.', 'Click an element to select it and drag to move it; drag a handle to resize. Double-click for properties. Right-click for the menu, Alt-click to step down through overlapping elements. Scroll to pan, Ctrl/Cmd+scroll to zoom. Arrow keys nudge.'),
+  'page-shade': e('The page: Shade tool', 'Shade an area.', 'Drag across the page to shade an area; it snaps to cells (half cells with Half on). Pinch to zoom, or use two fingers to pan.', 'Drag across the page to shade an area; hold Shift for half cells. Scroll to pan, Ctrl/Cmd+scroll to zoom.'),
+  'page-pattern': e('The page: Pattern tool', 'Fill an area with a pattern.', 'Drag across the page to cover an area. Pinch to zoom, or use two fingers to pan.', 'Drag across the page to cover an area; hold Shift for half cells. Scroll to pan, Ctrl/Cmd+scroll to zoom.'),
+  'page-box': e('The page: Box tool', 'Draw a box.', 'Drag from one corner to the opposite one. Pinch to zoom, or use two fingers to pan.', 'Drag from corner to corner; hold Shift for half cells. Scroll to pan, Ctrl/Cmd+scroll to zoom.'),
+  'page-rule': e('The page: Rule tool', 'Draw a straight line.', 'Drag along a row or column to draw a rule. Pinch to zoom, or use two fingers to pan.', 'Drag along a row or column; hold Shift for half cells. Scroll to pan, Ctrl/Cmd+scroll to zoom.'),
+  'page-checkboxes': e('The page: Checkboxes tool', 'Draw a strip of checkboxes.', 'Drag the length of the strip you want. Pinch to zoom, or use two fingers to pan.', 'Drag the length of the strip; hold Shift for half cells. Scroll to pan, Ctrl/Cmd+scroll to zoom.'),
+  'page-text': e('The page: Text tool', 'Place a line of text.', 'Tap where the text should go, then type it in Properties. Pinch to zoom, or use two fingers to pan.', 'Click where the text should go, then type it in Properties. Scroll to pan, Ctrl/Cmd+scroll to zoom.'),
+  'page-preview': e('The page: Preview', 'This is the page as it prints. Nothing here can be changed.', 'Pinch to zoom, or use two fingers to pan. To change the page, tap Edit in the menu.', 'Scroll to pan, Ctrl/Cmd+scroll to zoom. To change the page, choose Edit in the menu.'),
+  'page-both': e('The pages side by side', 'Both pages as they look when the book is open. Nothing here can be changed.', 'Tap Left or Right at the top to edit one page.', 'Click Left or Right at the top to edit one page.'),
+
+  // ---- properties and layers --------------------------------------------------
+  'tab-properties': e('Properties', 'Shows the settings of the selected element.', 'Tap to show them.', 'Click to show them.'),
+  'tab-layers': e('Layers', 'Shows everything on the page, front to back.', 'Tap to show the list.', 'Click to show the list.'),
+  'tab-page': e('Page', 'Shows the page’s name, identity and side.', 'Tap to show them.', 'Click to show them.'),
+  'page-name': e('Page name', 'What the page is called in the Library and in file names.', 'Tap, type a name, then tap Done.', 'Click and type a name.'),
+  'page-identity': e('Identity', 'The text printed in the header row by the spine, such as MON {date}. Tokens in braces are filled in when it prints.', 'Tap and type. Tokens like {weekday} and {date} are replaced when the page prints.', 'Click and type. Tokens like {weekday} and {date} are replaced when the page prints.'),
+  'page-side': e('Side', 'Which side of the book the page is for: it decides which corner holds the page number and which edge is the spine.', 'Tap and pick left, right or either.', 'Pick left, right or either.'),
+  'layer-select': e('Layer', 'One element on the page. Higher in the list is drawn on top.', 'Tap to select that element.', 'Click to select that element.'),
+  'layer-hide': e('Show or hide', 'Hides the element in the editor only, to see what is under it. It still prints.', 'Tap to hide or show it.', 'Click to hide or show it.'),
+  'layer-lock': e('Lock or unlock', 'A locked element can’t be selected, moved or deleted by accident.', 'Tap to lock or unlock it.', 'Click to lock or unlock it.'),
+  'layer-up': e('Move up', 'Draws the element over more of the page: one step toward the front.', 'Tap to move it up.', 'Click to move it up, or drag the row.'),
+  'layer-down': e('Move down', 'Draws the element behind more of the page: one step toward the back.', 'Tap to move it down.', 'Click to move it down, or drag the row.'),
+  'layer-delete': e('Delete layer', 'Removes the element from the page.', 'Tap to delete it. Undo brings it back.', 'Click to delete it. Undo brings it back.'),
+
+  'prop-x': e('x', 'How far the element is from the left edge of the grid, in cells (3 mm each).', 'Tap − or + to step by 1 cell (½ with Half on); hold to repeat. Tap the number to type one, then Done.', 'Click − or + to step by 1 cell (½ with Half on). Click the number and type a value, then press Enter.'),
+  'prop-y': e('y', 'How far the element is from the top of the grid, in cells. Row 0 is the header, so y starts at 1.', 'Tap − or + to step by 1 cell (½ with Half on); hold to repeat. Tap the number to type one, then Done.', 'Click − or + to step by 1 cell (½ with Half on). Click the number and type a value, then press Enter.'),
+  'prop-w': e('w (width)', 'How wide the element is, in cells.', 'Tap − or + to step by 1 cell (½ with Half on); hold to repeat. Tap the number to type one, then Done.', 'Click − or + to step by 1 cell (½ with Half on). Click the number and type a value, then press Enter.'),
+  'prop-h': e('h (height)', 'How tall the element is, in cells.', 'Tap − or + to step by 1 cell (½ with Half on); hold to repeat. Tap the number to type one, then Done.', 'Click − or + to step by 1 cell (½ with Half on). Click the number and type a value, then press Enter.'),
+  'prop-x1': e('x1', 'Where the rule starts, across, in cells from the left edge of the grid.', 'Tap − or + to step by 1 cell (½ with Half on); hold to repeat. Tap the number to type one, then Done.', 'Click − or + to step by 1 cell (½ with Half on). Click the number and type a value, then press Enter.'),
+  'prop-y1': e('y1', 'Where the rule starts, down, in cells from the top of the grid.', 'Tap − or + to step by 1 cell (½ with Half on); hold to repeat. Tap the number to type one, then Done.', 'Click − or + to step by 1 cell (½ with Half on). Click the number and type a value, then press Enter.'),
+  'prop-x2': e('x2', 'Where the rule ends, across, in cells from the left edge of the grid.', 'Tap − or + to step by 1 cell (½ with Half on); hold to repeat. Tap the number to type one, then Done.', 'Click − or + to step by 1 cell (½ with Half on). Click the number and type a value, then press Enter.'),
+  'prop-y2': e('y2', 'Where the rule ends, down, in cells from the top of the grid. A rule is horizontal or vertical, so x1 = x2 or y1 = y2.', 'Tap − or + to step by 1 cell (½ with Half on); hold to repeat. Tap the number to type one, then Done.', 'Click − or + to step by 1 cell (½ with Half on). Click the number and type a value, then press Enter.'),
+  'prop-every': e('Spacing', 'The distance between repeats, in cells: between pattern lines or dots, or between checkboxes.', 'Tap − or + to step by 1 cell (½ with Half on); hold to repeat. Tap the number to type one, such as 1.5, then Done.', 'Click − or + to step by 1 cell (½ with Half on). Click the number and type a value such as 1.5, then press Enter.'),
+  'prop-count': e('Count', 'How many checkboxes are in the strip.', 'Tap − or + to add or remove one; hold to repeat. Tap the number to type one, then Done.', 'Click − or + to add or remove one. Click the number and type a count, then press Enter.'),
+  'prop-check-size': e('Checkbox size', 'How much of its cell each checkbox fills, from 0.5 to 1.', 'Tap − or + to step by 0.05; hold to repeat. Tap the number to type one, then Done.', 'Click − or + to step by 0.05. Click the number and type a value, then press Enter.'),
+  'step-dec': e('Decrease', 'Makes this number smaller by one step.', 'Tap for one step; hold to keep going. A hold is one undo.', 'Click for one step; hold the mouse button to keep going. A hold is one undo.'),
+  'step-inc': e('Increase', 'Makes this number bigger by one step.', 'Tap for one step; hold to keep going. A hold is one undo.', 'Click for one step; hold the mouse button to keep going. A hold is one undo.'),
+  'prop-tone': e('Tone', 'How dark the shading is: light, medium or dark.', 'Tap and pick a tone.', 'Pick a tone.'),
+  'prop-stripes': e('Stripes', 'Adds diagonal stripes to the shading, in either direction.', 'Tap and pick none, forward or back.', 'Pick none, forward or back.'),
+  'prop-pattern': e('Pattern', 'What the area is filled with: dots, lines or a grid.', 'Tap and pick a pattern.', 'Pick a pattern.'),
+  'prop-weight': e('Weight', 'How heavy the line is: thin (0.5 pt) or thick (1.5 pt).', 'Tap and pick thin or thick.', 'Pick thin or thick.'),
+  'prop-direction': e('Direction', 'Whether the checkboxes run down the page or across it.', 'Tap and pick down or across.', 'Pick down or across.'),
+  'prop-side': e('Sides', 'Which sides of the box are drawn. Turn some off for a bracket or a single line.', 'Tap a side to draw or hide it.', 'Click a side to draw or hide it.'),
+  'prop-text': e('Text', 'What the text says. Tokens in braces, like {date}, are filled in when the page prints.', 'Tap and type; it changes on the page as you go. Typing a burst is one undo.', 'Click and type; it changes on the page as you go. Typing a burst is one undo.'),
+  'prop-text-size': e('Text size', 'Label (6.5 pt) fits in one 3 mm row; heading (9 pt) is bigger.', 'Tap and pick label or heading.', 'Pick label or heading.'),
+  'prop-style': e('Style', 'Regular or bold lettering.', 'Tap and pick a style.', 'Pick a style.'),
+  'prop-text-tone': e('Text tone', 'How dark the text is: gray or black.', 'Tap and pick a tone.', 'Pick a tone.'),
+  'prop-align': e('Align', 'Which end of the text sits on the x position: left, center or right.', 'Tap and pick an alignment.', 'Pick an alignment.'),
+  'prop-rotate': e('Rotate', 'Turns the text to read up the page (90°) or down it (270°).', 'Tap and pick an angle.', 'Pick an angle.'),
+  'nudge-up': e('Nudge up', 'Moves the element up one cell, or half a cell with Half on.', 'Tap to move it; the arrow dims at the grid edge.', 'Click to move it, or press the up arrow on the page.'),
+  'nudge-down': e('Nudge down', 'Moves the element down one cell, or half a cell with Half on.', 'Tap to move it; the arrow dims at the grid edge.', 'Click to move it, or press the down arrow on the page.'),
+  'nudge-left': e('Nudge left', 'Moves the element left one cell, or half a cell with Half on.', 'Tap to move it; the arrow dims at the grid edge.', 'Click to move it, or press the left arrow on the page.'),
+  'nudge-right': e('Nudge right', 'Moves the element right one cell, or half a cell with Half on.', 'Tap to move it; the arrow dims at the grid edge.', 'Click to move it, or press the right arrow on the page.'),
+  'nudge-half': e('Half step', 'Switches nudging, drawing and the − and + buttons between whole cells (1) and half cells (½).', 'Tap to switch.', 'Click to switch, or hold Shift.'),
+  'prop-duplicate': e('Duplicate', 'Makes a copy of the element, one cell over.', 'Tap to copy it.', 'Click, or press Ctrl/Cmd+D.'),
+  'prop-delete': e('Delete', 'Removes the element from the page.', 'Tap to delete it. Undo brings it back.', 'Click, or press Delete. Undo brings it back.'),
+
+  // ---- library ----------------------------------------------------------------
+  'library-close': e('Close', 'Closes the Library.', 'Tap to close.', 'Click to close, or press Escape.'),
+  'library-save-what': e('What to save', 'Chooses what goes into the Library: the whole page, spread or book, or one page of a spread.', 'Tap and pick.', 'Pick what to save.'),
+  'library-save-name': e('Name', 'The name it is saved under. Saving under an existing name replaces it, after asking.', 'Tap and type a name.', 'Click and type a name; Enter saves.'),
+  'library-save': e('Save to library', 'Keeps a copy in this browser.', 'Tap to save.', 'Click to save.'),
+  'library-export': e('Export library', 'Downloads everything in the Library as one backup file.', 'Tap to download the backup.', 'Click to download the backup.'),
+  'library-import': e('Import library', 'Adds the contents of a library backup file to the Library.', 'Tap, then choose the backup file.', 'Click, then choose the backup file.'),
+  'library-open': e('Open', 'Opens the saved page, spread or book for editing.', 'Tap to open it.', 'Click to open it.'),
+  'library-left': e('→ Left', 'Puts the saved page on the left of the spread you are editing.', 'Tap to use it as the left page.', 'Click to use it as the left page.'),
+  'library-right': e('→ Right', 'Puts the saved page on the right of the spread you are editing.', 'Tap to use it as the right page.', 'Click to use it as the right page.'),
+  'library-rename': e('Rename', 'Changes the saved name.', 'Tap, type the new name, then tap Done.', 'Click, type the new name, then press Enter.'),
+  'library-rename-field': e('New name', 'The new name for the saved item.', 'Type, then tap Done to keep it.', 'Type, then press Enter to keep it or Escape to cancel.'),
+  'library-duplicate': e('Duplicate', 'Saves a copy next to the original.', 'Tap to copy it.', 'Click to copy it.'),
+  'library-delete': e('Delete', 'Removes it from the Library for good, after asking.', 'Tap to delete it.', 'Click to delete it.'),
+  'credits-link': e('Font credit', 'Courier Prime is © The Courier Prime Project Authors, under the SIL Open Font License 1.1.', 'Tap to read the licence.', 'Click to read the licence.'),
+
+  // ---- the book ---------------------------------------------------------------
+  'book-settings': e('Settings', 'Book name, number of pages, page numbers and the printing settings: paper thickness, back-side offset, signatures.', 'Tap to show or hide them.', 'Click to show or hide them.'),
+  'book-name': e('Book name', 'What the book is called in the Library and in the exported files.', 'Tap and type a name.', 'Click and type a name.'),
+  'book-pages': e('Pages', 'How many pages the book has, a multiple of 4 (52 is 13 sheets).', 'Tap, type a number, then tap Done.', 'Click and type a number, then press Enter.'),
+  'book-numbers': e('Page numbers', 'Prints each page’s number in its outer top corner.', 'Tap to turn on or off.', 'Click to turn on or off.'),
+  'book-thickness': e('Paper thickness', 'How much each sheet pushes the ones inside it outward when folded, in mm. Pages shift toward the fold by this × the sheets outside them (creep). About 0.14 here.', 'Tap, type a number, then tap Done.', 'Click and type a number, then press Enter.'),
+  'book-offset-x': e('Back offset x', 'Moves everything on print-second.pdf right (+) or left (−), in mm, for printers that shift on the second pass.', 'Tap, type a number, then tap Done.', 'Click and type a number, then press Enter.'),
+  'book-offset-y': e('Back offset y', 'Moves everything on print-second.pdf up (+) or down (−), in mm, for printers that shift on the second pass.', 'Tap, type a number, then tap Done.', 'Click and type a number, then press Enter.'),
+  'book-signatures': e('Signatures', 'How many folded bundles the book is split into. One signature of 13 sheets is the usual book.', 'Tap, type a number, then tap Done.', 'Click and type a number, then press Enter.'),
+  'book-undo': e('Undo', 'Takes back the last change to the book.', 'Tap to undo.', 'Click to undo.'),
+  'book-export': e('Export print files', 'Builds the PDFs for printing and binding: print-first, print-second and the covers.', 'Tap to build the files, then download them.', 'Click to build the files, then download them.'),
+  'nav-prev': e('Previous', 'Goes to the previous page, or spread.', 'Tap to go back one page. You can also swipe the page right.', 'Click, or press the left arrow.'),
+  'nav-next': e('Next', 'Goes to the next page, or spread.', 'Tap to go forward one page. You can also swipe the page left.', 'Click, or press the right arrow.'),
+  'book-spreads': e('Spreads', 'Shows two facing pages at a time instead of one.', 'Tap to switch between one page and spreads.', 'Click to switch between one page and spreads.'),
+  'book-contents': e('Contents', 'Lists every page of the book with a thumbnail.', 'Tap to open the list, then tap a page to go to it.', 'Click to open the list, then click a page to go to it.'),
+  'book-stage-page': e('Page', 'A page of the book. In spreads, the one you pick is the page you design.', 'Tap a page to pick it.', 'Click a page to pick it.'),
+  'book-choose': e('Choose design', 'Picks a design for this page: blank, a saved page or spread, or an example.', 'Tap to see the designs.', 'Click to see the designs.'),
+  'book-apply': e('Apply to more pages', 'Copies this page’s design onto other pages.', 'Tap to choose which pages.', 'Click to choose which pages.'),
+  'book-clear': e('Clear', 'Makes this page blank.', 'Tap to clear it. Undo brings it back.', 'Click to clear it. Undo brings it back.'),
+  'contents-row': e('Page in the list', 'One page of the book, or a run of pages with the same design.', 'Tap a page to go to it. Tap a run to open it out.', 'Click a page to go to it. Click a run to open it out.'),
+  'contents-close': e('Close', 'Closes the list of pages.', 'Tap to close.', 'Click to close.'),
+  'picker-close': e('Close', 'Closes the design list without changing anything.', 'Tap to close.', 'Click to close, or press Escape.'),
+  'picker-design': e('Design', 'A design for this page.', 'Tap to use it. A spread fills this page and the next.', 'Click to use it. A spread fills this page and the next.'),
+  'apply-close': e('Close', 'Closes this window without changing anything.', 'Tap to close.', 'Click to close, or press Escape.'),
+  'apply-scope': e('Which pages', 'Chooses how the pages to change are picked: a range, a range counted from here, or every page from here on.', 'Tap one.', 'Click one.'),
+  'apply-from': e('From page', 'The first page to change.', 'Tap, type a page number, then tap Done.', 'Click and type a page number.'),
+  'apply-to': e('To page', 'The last page to change.', 'Tap, type a page number, then tap Done.', 'Click and type a page number.'),
+  'apply-go': e('Apply', 'Copies the design onto the pages listed above. Undo takes it back.', 'Tap to apply.', 'Click to apply.'),
+  'apply-cancel': e('Cancel', 'Closes this window without changing anything.', 'Tap to cancel.', 'Click to cancel.'),
+
+  // ---- exporting --------------------------------------------------------------
+  'export-close': e('Close', 'Closes the print files window.', 'Tap to close.', 'Click to close, or press Escape.'),
+  'export-zip': e('Download all', 'Downloads every print file together in one zip.', 'Tap to download the zip. Best on a phone.', 'Click to download the zip.'),
+  'export-download': e('Download', 'Downloads this one file.', 'Tap to download it.', 'Click to download it.'),
+  'export-individual': e('One at a time', 'Shows the files so you can download them one by one.', 'Tap to show or hide the list.', 'Click to show or hide the list.'),
+};

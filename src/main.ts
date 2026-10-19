@@ -1,11 +1,12 @@
 import './style.css';
+import { keyboardOpen } from './keyboard';
 import { emptyPage, type Page } from './format/types';
 import { buildSpread, emptySpread, readSpread, withSide, type Spread, type SpreadSide } from './format/spread';
 import { formatIssue, validatePage } from './format/validate';
 import { readPage } from './format/read';
 import { Canvas, type CanvasHooks } from './canvas';
 import { contextActions, deleteElement, duplicateElement, nudgeElement } from './actions';
-import { h, Panel } from './panel';
+import { Panel } from './panel';
 import { closeContextMenu, showContextMenu } from './ctxmenu';
 import { isCompact, Sheet } from './sheet';
 import { ActionBar } from './actionbar';
@@ -17,7 +18,7 @@ import { LibraryDialog, type SaveOption, type SaveWhat } from './library/dialog'
 import { Arranger } from './book/arranger';
 import { emptyBook, readBook, type Book } from './book/book';
 import { ExportDialog } from './book/export-dialog';
-import oflUrl from './fonts/OFL.txt?url';
+import { HelpMode } from './helpmode';
 
 const KEYS = { page: 'dotwork.page', left: 'dotwork.spread.left', right: 'dotwork.spread.right' } as const;
 const VIEW_KEY = 'dotwork.view';
@@ -86,6 +87,7 @@ function notify(message: string | string[] | null) {
     body.textContent = message;
   }
   const close = Object.assign(document.createElement('button'), { type: 'button', textContent: 'Dismiss' });
+  close.dataset.help = 'notice-dismiss';
   close.onclick = () => notify(null);
   noticeEl.replaceChildren(body, close);
   noticeEl.hidden = false;
@@ -173,7 +175,7 @@ function refresh() {
   updateBar();
 }
 
-const sheet = new Sheet($('sheet'), $('sheet-backdrop'), () => updateBar());
+const sheet = new Sheet($('sheet'), $('sheet-backdrop'), () => { if (sheet.state === 'closed') panel.flush(); updateBar(); });
 panel.onTab = () => sheet.open();
 
 /** Properties for the selection: the modal on a narrow screen, the side panel's fields on a wide one. */
@@ -366,7 +368,8 @@ document.addEventListener('pointerdown', (e) => {
 }, true);
 addEventListener('keydown', (e) => { if (e.key === 'Escape') setMenu(false); });
 // Leaving the narrow layout (rotating, resizing) must not leave the menu stuck open or the spread read-only.
-addEventListener('resize', () => { if (!isCompact()) setMenu(false); refresh(); });
+// The on-screen keyboard also resizes the window; that changes nothing here (see keyboard.ts).
+addEventListener('resize', () => { if (keyboardOpen()) return; if (!isCompact()) setMenu(false); refresh(); });
 
 const setMode = (m: 'edit' | 'preview') => all.forEach((s) => s.setMode(m));
 $('mode-edit').onclick = () => setMode('edit');
@@ -516,32 +519,10 @@ $('library').onclick = () => { notify(null); void libraryDialog.show(); };
 
 // ---- help ------------------------------------------------------------------
 
-const helpList = (...items: string[]) => h('ul', {}, ...items.map((t) => h('li', {}, t)));
-const helpDialog = h('dialog', { class: 'library help', 'aria-label': 'Help' },
-  h('header', {}, h('h2', {}, 'Help'), h('button', { type: 'button', onclick: () => helpDialog.close() }, 'Close')),
-  h('div', { class: 'help-body' },
-    h('h3', {}, 'Drawing'),
-    helpList(
-      'Pick a tool along the bottom (or the keys V S P B R C T), then drag on the page: shade or pattern an area, draw a box, a rule along a grid line, or a strip of checkboxes. With Text, tap where the text should go, then type it in the panel.',
-      'Drawing snaps to whole cells. Turn on Half to snap to half cells (on a keyboard, hold Shift).',
-      'Pinch to zoom and drag with two fingers to pan; the Fit button puts the whole page back on the screen.'),
-    h('h3', {}, 'Changing things'),
-    helpList(
-      'Select, then tap an element to select it; a bar beside it offers Properties, Duplicate, Delete and More. Drag the selected element to move it and its square handles to resize it; dragging anywhere else moves the view. Double-tap an element for its properties.',
-      'Long-press an element (or right-click it) for a menu: duplicate, delete, bring forward, send backward, and select the one underneath.',
-      'Properties shows the selected element’s settings, with arrow buttons to nudge it a cell (or half a cell). Layers lists everything on the page: select, hide, lock, delete and reorder with the arrows. On a phone both open in a window with a Close button.',
-      'Keyboard: arrow keys nudge a cell (Shift: half a cell); Ctrl/Cmd+D duplicates; Delete removes; Alt-click steps down through what’s underneath; Ctrl/Cmd+Z undoes, Shift+Ctrl/Cmd+Z redoes.'),
-    h('h3', {}, 'Pages and spreads'),
-    helpList(
-      'Page edits one page. Spread edits a left and a right page; on a phone you edit one at a time with Left and Right, and View spread shows the pair side by side as they will look open.',
-      'Preview (in the menu) shows the page as it prints, with sample values for tokens. Library saves and reopens pages, spreads and books. Everything is kept in this browser; export JSON to keep a copy.',
-      'Book builds a book one page at a time: choose a design for each page, copy it to more pages, and export the print files.'),
-    h('h3', {}, 'Credits'),
-    h('p', {}, 'Courier Prime © The Courier Prime Project Authors, ',
-      Object.assign(document.createElement('a'), { href: oflUrl, textContent: 'SIL OFL 1.1' }), '.'))) as HTMLDialogElement;
-helpDialog.addEventListener('click', (e) => { if (e.target === helpDialog) helpDialog.close(); });
-document.body.append(helpDialog);
-$('help').onclick = () => helpDialog.showModal();
+/** The help entry for the page itself: its gestures depend on the tool, and on whether it can be changed at all. */
+const pageHelpKey = () => (view === 'spread' && isCompact() && showBoth ? 'page-both' : cur().mode === 'preview' ? 'page-preview' : `page-${cur().tool}`);
+const helpMode = new HelpMode({ pageKey: pageHelpKey, after: document.querySelector<HTMLElement>('.topbar')! });
+$('help').onclick = () => { closeContextMenu(); helpMode.start(); };
 
 // ---- keyboard ------------------------------------------------------------
 
