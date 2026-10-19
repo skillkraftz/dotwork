@@ -112,4 +112,6 @@ Dotwork's print export follows the same physical rules as journal-system
 10. Editing overhaul: three-mode bottom bar, drag-select, forgiving taps, groups, properties drawer, Shade tones, pattern
     line weights (done).
 11. Navigation overhaul: Page, Edit and Export menus, a settings window, a library browser with search, tabs and favorites, one import/export window, drawable header row when the identity is empty (done).
-12. Later: dials and other components, color, sharing, a page gallery.
+12. Rotated sequence items, date tokens with day offsets and {months}, dates on book pages, and one Download for
+    pages.pdf, cover.pdf and the print files (done).
+13. Later: dials and other components, color, sharing, a page gallery.

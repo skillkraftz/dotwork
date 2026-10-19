@@ -56,7 +56,7 @@ body {
 .menu-list button[aria-checked='true'] { background: var(--gray-1); font-weight: 700; }
 .menu-list button[aria-checked='true']::before { content: '✓'; position: absolute; left: 10px; }
 
-button, select, input[type='text'], input[type='number'] {
+button, select, input[type='text'], input[type='number'], input[type='date'] {
   font: inherit; color: inherit; background: #fff;
   border: 1px solid var(--gray-3); border-radius: 0; padding: 3px 8px;
 }
@@ -253,7 +253,7 @@ dialog.export { width: min(560px, calc(100% - 28px)); }
 .book-msg { margin: 0; padding: 6px 12px; background: #000; color: #fff; font-size: 12px; }
 .book-main > .warn { margin: 0; padding: 6px 12px; }
 .book-actions { padding: 8px 12px 10px; background: #fff; border-top: 1px solid var(--gray-2); }
-.book-actions .design-name { margin: 0 0 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.book-actions .design-name { margin: 0 0 6px; }
 .book-actions .row, .apply-body .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .book-actions .row .primary { flex: 1 1 auto; }
 .book-bar button, .book-bar summary { white-space: nowrap; }
@@ -293,6 +293,8 @@ dialog.apply { width: min(560px, calc(100% - 28px)); }
 .apply-design .thumb svg { height: 110px; width: auto; display: block; }
 .apply-body label.compact { display: flex; align-items: center; gap: 6px; color: var(--gray-4); }
 .apply-body label.compact input { width: 76px; color: var(--ink); }
+.apply-body label.compact input[type='date'] { width: 160px; }
+.page-date { white-space: nowrap; }
 .apply-summary { padding: 8px 10px; background: var(--gray-1); border-left: 3px solid #000; }
 
 /* the on-screen keyboard is up: the page and the modal keep their places, and the tool bar steps aside */
@@ -312,9 +314,9 @@ body.help-mode button, body.help-mode select, body.help-mode input, body.help-mo
 
 /* ---- touch sizes: any narrow screen, and any touch screen ---- */
 @media (max-width: 999px), (pointer: coarse) {
-  button, select, input[type='text'], input[type='number'] { min-height: var(--tap); }
+  button, select, input[type='text'], input[type='number'], input[type='date'] { min-height: var(--tap); }
   button { min-width: var(--tap); }
-  input[type='text'], input[type='number'], select { font-size: 16px; }
+  input[type='text'], input[type='number'], input[type='date'], select { font-size: 16px; }
   input[type='checkbox'] { width: 22px; height: 22px; }
   button.icon { min-width: var(--tap); }
   .layer { min-height: var(--tap); }

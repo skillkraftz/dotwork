@@ -108,6 +108,12 @@ describe('Advanced on a phone (390 x 844, touch)', () => {
 
     await bar(app, 'properties');
     await page.waitForSelector('#sheet[data-state="open"]');
+    // Rotate items: each number turns about its own cell, and the run stays where it is
+    await page.locator('#panel select[data-key="prop-rotate"]').selectOption('90');
+    expect(await elements(app)).toMatchObject([{ x: 2, y: 8, count: 10, rotate: 90 }]);
+    expect(await page.locator('#canvas g[text-anchor="middle"] text[transform^="rotate(-90"]').count()).toBe(10);
+    await page.locator('#panel select[data-key="prop-rotate"]').selectOption('0');
+    expect(await page.locator('#canvas g[text-anchor="middle"] text[transform]').count()).toBe(0);
     await page.locator('#panel select[data-key="prop-values"]').selectOption('list');
     // the example is a gray placeholder, not a value to delete
     expect(await elements(app)).toMatchObject([{ values: 'list', list: [] }]);

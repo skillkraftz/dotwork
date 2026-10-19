@@ -1,5 +1,7 @@
 import { emptyPage, type Page } from '../format/types';
 import { readPage } from '../format/read';
+import { isDate } from '../format/dates';
+import { expandFor } from '../format/tokens';
 import { withSide, type Spread, type SpreadSide } from '../format/spread';
 import type { ValidationIssue } from '../format/validate';
 import { DEFAULT_PRINT, type PrintSettings } from './impose';
@@ -15,6 +17,8 @@ export interface Book {
   print: PrintSettings;
   /** Index 0 is page 1. null leaves the page blank. */
   pages: (Page | null)[];
+  /** Index 0 is page 1: the date its tokens are filled from, as 'YYYY-MM-DD', or null. Missing means no page has a date. */
+  dates?: (string | null)[];
   cover: { front: Page | null; back: Page | null };
 }
 
@@ -73,6 +77,7 @@ export function fillSlots(book: Book, from: number, to: number, design: Page | S
 export function resizeBook(book: Book, pageCount: number): void {
   const count = roundPageCount(pageCount);
   book.pages = Array.from({ length: count }, (_, i) => book.pages[i] ?? null);
+  if (book.dates) book.dates = Array.from({ length: count }, (_, i) => book.dates![i] ?? null);
   book.page_count = count;
   if (book.cover.back) book.cover.back = withSide(book.cover.back, 'right');
 }
@@ -80,6 +85,21 @@ export function resizeBook(book: Book, pageCount: number): void {
 /** How many pages (not covers) hold a design that would be lost by shrinking to `pageCount`. */
 export const pagesLostByResize = (book: Book, pageCount: number) =>
   book.pages.slice(roundPageCount(pageCount)).filter((p) => p !== null).length;
+
+// ---- dates -----------------------------------------------------------------
+
+/** The date of interior page `slot`, or null (undated pages, and the covers, have none). */
+export const dateOf = (book: Book, slot: number): string | null => (slot >= 1 && slot <= book.page_count ? book.dates?.[slot - 1] ?? null : null);
+
+/** Give consecutive pages starting at `from` these dates (null clears a page). Pages beyond the end are ignored; a book with no dates left drops the list. */
+export function setDates(book: Book, from: number, dates: (string | null)[]): void {
+  const all = Array.from({ length: book.page_count }, (_, i) => book.dates?.[i] ?? null);
+  dates.forEach((d, k) => { if (from + k >= 1 && from + k <= book.page_count) all[from + k - 1] = d; });
+  if (all.some(Boolean)) book.dates = all; else delete book.dates;
+}
+
+/** How the tokens on a slot's page become text: filled from its date, or left blank. */
+export const bookExpand = (book: Book, slot: number) => expandFor(dateOf(book, slot));
 
 // ---- reading ---------------------------------------------------------------
 
@@ -133,6 +153,18 @@ export function readBook(input: unknown): ReadBookResult {
   else if (countOk && input.pages.length !== count) fail('pages-length', 'pages', `"pages" must hold exactly page_count (${count}) entries, got ${input.pages.length}.`);
   else pages = input.pages.map((raw: unknown, i: number) => readSlot(raw, `pages[${i}]`, slotSide(i + 1)));
 
+  let dates: (string | null)[] | undefined;
+  if (input.dates !== undefined) {
+    if (!Array.isArray(input.dates)) fail('dates', 'dates', '"dates" must be a list with one date (YYYY-MM-DD) or null for each page.');
+    else if (countOk && input.dates.length !== count) fail('dates', 'dates', `"dates" must hold exactly page_count (${count}) entries, got ${input.dates.length}.`);
+    else {
+      input.dates.forEach((d: unknown, i: number) => {
+        if (d !== null && !isDate(d)) fail('dates', `dates[${i}]`, `A date must be a real day written YYYY-MM-DD, or null (got ${JSON.stringify(d)}).`);
+      });
+      dates = input.dates as (string | null)[];
+    }
+  }
+
   let cover = { front: null as Page | null, back: null as Page | null };
   if (!isObject(input.cover)) fail('cover', 'cover', '"cover" is required and must be an object with "front" and "back".');
   else {
@@ -143,7 +175,7 @@ export function readBook(input: unknown): ReadBookResult {
   return {
     ok: true,
     converted,
-    book: { format: 'dotwork-book', version: 1, name: input.name as string, page_count: count as number, page_numbers: input.page_numbers as boolean, print: print as unknown as PrintSettings, pages, cover },
+    book: { format: 'dotwork-book', version: 1, name: input.name as string, page_count: count as number, page_numbers: input.page_numbers as boolean, print: print as unknown as PrintSettings, pages, ...(dates ? { dates } : {}), cover },
   };
 }
 

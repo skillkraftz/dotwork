@@ -188,7 +188,7 @@ function validateElementInto(el: unknown, at: string, fail: Fail, header: Header
         usable = false;
       }
       every();
-      choice('direction', DIRECTIONS); choice('values', SEQUENCE_VALUES); choice('tone', TEXT_TONES); choice('size', ICON_SIZES);
+      choice('direction', DIRECTIONS); choice('values', SEQUENCE_VALUES); choice('tone', TEXT_TONES); choice('size', ICON_SIZES); choice('rotate', ROTATIONS);
       const problem = sequenceProblem(el as unknown as Sequence);
       if (problem) { fail('sequence', at, problem); usable = false; }
       break;
@@ -223,6 +223,6 @@ function validateElementInto(el: unknown, at: string, fail: Fail, header: Header
 
 function checkTokens(text: string, path: string, fail: Fail) {
   for (const name of findUnknownTokens(text)) {
-    fail('token', path, `Unknown token {${name}}; known tokens are ${TOKENS.map((t) => `{${t}}`).join(' ')}.`);
+    fail('token', path, `Unknown token {${name}}; known tokens are ${TOKENS.map((t) => `{${t}}`).join(' ')}, each with an optional day offset such as {day+1}.`);
   }
 }

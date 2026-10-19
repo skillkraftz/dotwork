@@ -5,7 +5,7 @@ import fontkit from '@pdf-lib/fontkit';
 import { PAGE_H_MM, PAGE_W_MM, type Page } from '../format/types';
 import { withSide } from '../format/spread';
 import { blankTokens } from '../format/tokens';
-import { bookPage, blankPage, type Book } from '../book/book';
+import { bookExpand, bookPage, blankPage, type Book } from '../book/book';
 import {
   SHEET_H_MM, SHEET_W_MM, checkPrintSettings, duplexOrder, impose, pageOrigin,
   type PageRef, type Sheet, type SheetSide, type Signature,
@@ -29,11 +29,11 @@ type PdfPage = ReturnType<PDFDocument['addPage']>;
 
 /** Draws book pages and covers with their top-left corner at x, y (mm from the PDF page's top-left). */
 function drawer(book: Book, fonts: Fonts, sheetH: number) {
-  const place = (pdf: PdfPage, page: Page, x: number, y: number, pageNumber: string | null) =>
-    drawPage(pdf, page, { x, y, sheetHeight: sheetH, fonts, pageNumber, expand: blankTokens });
+  const place = (pdf: PdfPage, page: Page, x: number, y: number, pageNumber: string | null, expand = blankTokens) =>
+    drawPage(pdf, page, { x, y, sheetHeight: sheetH, fonts, pageNumber, expand });
   return {
     page: (pdf: PdfPage, n: number, x: number, y: number) => {
-      place(pdf, bookPage(book, n), x, y, book.page_numbers ? String(n) : null);
+      place(pdf, bookPage(book, n), x, y, book.page_numbers ? String(n) : null, bookExpand(book, n));
     },
     cover: (pdf: PdfPage, which: 'front' | 'back', x: number, y: number) => {
       place(pdf, withSide(book.cover[which] ?? blankPage(which === 'front' ? 'left' : 'right'), which === 'front' ? 'left' : 'right'), x, y, null);

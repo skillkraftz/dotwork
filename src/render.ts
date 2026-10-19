@@ -139,6 +139,18 @@ export function iconPlacement(e: Sequence, i: number) {
   return { x: o.x * P, y: o.y * P, scale: (size * P) / ICON_GRID, stroke: ICON_STROKE_MM[size as 1 | 2] };
 }
 
+/** The center of item `i`'s cell (or its 1 or 2 cell square), in mm: what a rotated item turns about. */
+export function itemCenter(e: Sequence, i: number) {
+  const o = itemOrigin(e, i), half = (itemSize(e) * P) / 2;
+  return { x: o.x * P + half, y: o.y * P + half };
+}
+
+/** The SVG transform that turns item `i` about its own center, with a trailing space; empty when the run isn't rotated. */
+const turn = (e: Sequence, i: number) => {
+  const r = e.rotate ?? DEFAULTS.rotate, c = itemCenter(e, i);
+  return r ? `rotate(${r === 90 ? -90 : 90} ${n(c.x)} ${n(c.y)}) ` : '';
+};
+
 function sequenceMarkup(e: Sequence): string {
   const color = TEXT_COLORS[e.tone ?? DEFAULTS.sequenceTone];
   const items = sequenceItems(e);
@@ -148,14 +160,14 @@ function sequenceMarkup(e: Sequence): string {
       if (!shape) return '';
       const { x, y, scale, stroke: sw } = iconPlacement(e, i);
       const fill = shape.fill ? `<path d="${shape.fill}" fill="${color}" stroke="none"/>` : '';
-      return `<g transform="translate(${n(x)} ${n(y)}) scale(${n(scale)})" fill="none" stroke="${color}" stroke-width="${n(sw / scale)}" stroke-linecap="round" stroke-linejoin="round">${fill}<path d="${shape.stroke}"/></g>`;
+      return `<g transform="${turn(e, i)}translate(${n(x)} ${n(y)}) scale(${n(scale)})" fill="none" stroke="${color}" stroke-width="${n(sw / scale)}" stroke-linecap="round" stroke-linejoin="round">${fill}<path d="${shape.stroke}"/></g>`;
     }).join('');
   }
   // Each item is centered in its cell by its own width (the font is monospaced), with no inset.
   const size = TEXT_SIZE_MM.label;
   const texts = items.map((text, i) => {
-    const o = itemOrigin(e, i);
-    return `<text x="${n(o.x * P + P / 2)}" y="${n(o.y * P + P - BASELINE_MM)}">${esc(text)}</text>`;
+    const o = itemOrigin(e, i), t = turn(e, i).trim();
+    return `<text${t ? ` transform="${t}"` : ''} x="${n(o.x * P + P / 2)}" y="${n(o.y * P + P - BASELINE_MM)}">${esc(text)}</text>`;
   }).join('');
   return `<g font-size="${size}" text-anchor="middle" fill="${color}" xml:space="preserve">${texts}</g>`;
 }

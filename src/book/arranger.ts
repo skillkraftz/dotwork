@@ -1,13 +1,13 @@
 import { PAGE_H_MM, PAGE_W_MM } from '../format/types';
 import type { Page } from '../format/types';
 import { withSide, type Spread } from '../format/spread';
-import { blankTokens } from '../format/tokens';
+import { addDays, formatDate, parts, sundayOf, weekNumber } from '../format/dates';
 import { pageContent, thumbnailSvg } from '../render';
 import { h } from '../panel';
 import type { Library, LibraryItem } from '../library/library';
-import { blankPage, bookPage, fillSlots, getSlot, setSlot, slotCount, slotSide, type Book } from './book';
+import { blankPage, bookExpand, bookPage, dateOf, fillSlots, getSlot, setDates, setSlot, slotCount, slotSide, type Book } from './book';
 import { checkPrintSettings, signatureSizes } from './impose';
-import { contentsRows, designName, listPages, opening, scopeSlots, slotLabel, whatChanges, type Scope } from './plan';
+import { contentsRows, datesSummary, designName, endOfRun, listPages, opening, planDates, scopeSlots, slotLabel, whatChanges, type DatePlan, type Scope } from './plan';
 
 export interface ArrangerHost {
   library: Library;
@@ -28,7 +28,7 @@ const slotSvg = (book: Book, slot: number, extra = '', attrs = '') => {
   const inner = slot === 0 || slot === book.page_count + 1;
   const number = inner || !book.page_numbers ? null : String(slot);
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${PAGE_W_MM} ${PAGE_H_MM}" aria-hidden="true"${attrs}>` +
-    pageContent(bookPage(book, slot), { mode: 'export', pageNumber: number, expand: blankTokens }) + extra + '</svg>';
+    pageContent(bookPage(book, slot), { mode: 'export', pageNumber: number, expand: bookExpand(book, slot) }) + extra + '</svg>';
 };
 const outline = `<rect class="outline" x="0.15" y="0.15" width="${PAGE_W_MM - 0.3}" height="${PAGE_H_MM - 0.3}" fill="none"/>`;
 
@@ -69,6 +69,10 @@ export class Arranger {
   private scope: Scope = { mode: 'range', from: 1, to: 1 };
   /** The "from" field's value, kept while the mode ("every page from here") has no `from`. */
   private scopeFrom = 1;
+  private datesDialog: HTMLDialogElement;
+  private datesBody = h('div', { class: 'apply-body' });
+  /** What the Dates window is set to; its first and last page are kept apart from the plan. */
+  private dating = { mode: 'week' as 'week' | 'day', year: 2026, week: 1, start: '2026-01-01', from: 1, to: 1 };
 
   constructor(root: HTMLElement, private host: ArrangerHost, book: Book) {
     this.book = book;
@@ -78,8 +82,11 @@ export class Arranger {
     this.apply = h('dialog', { class: 'library apply', 'aria-label': 'Apply to more pages' },
       h('header', {}, h('h2', {}, 'Apply to more pages'), h('button', { type: 'button', 'data-help': 'apply-close', onclick: () => this.apply.close() }, 'Close')),
       this.applyBody) as HTMLDialogElement;
-    for (const d of [this.picker, this.apply]) d.addEventListener('click', (e) => { if (e.target === d) d.close(); });
-    document.body.append(this.picker, this.apply);
+    this.datesDialog = h('dialog', { class: 'library apply dates', 'aria-label': 'Dates' },
+      h('header', {}, h('h2', {}, 'Dates'), h('button', { type: 'button', 'data-help': 'dates-close', onclick: () => this.datesDialog.close() }, 'Close')),
+      this.datesBody) as HTMLDialogElement;
+    for (const d of [this.picker, this.apply, this.datesDialog]) d.addEventListener('click', (e) => { if (e.target === d) d.close(); });
+    document.body.append(this.picker, this.apply, this.datesDialog);
 
     this.stage.addEventListener('pointerdown', (e) => { this.swipe = e.pointerType === 'mouse' ? null : { x: e.clientX, y: e.clientY }; });
     this.stage.addEventListener('pointercancel', () => { this.swipe = null; });
@@ -183,6 +190,7 @@ export class Arranger {
     const undo = h('button', { type: 'button', disabled: this.undoStack.length === 0, onclick: () => this.undo(), 'data-help': 'book-undo', title: 'Undo the last change to the book' }, 'Undo');
     this.bar.replaceChildren(
       undo,
+      h('button', { type: 'button', 'data-help': 'book-dates', onclick: () => this.openDates() }, 'Dates…'),
       h('button', { type: 'button', class: 'primary', 'data-help': 'book-export', onclick: () => this.host.exportFiles(this.book) }, 'Print files…'),
     );
     this.updateWarning();
@@ -230,8 +238,10 @@ export class Arranger {
 
   private renderActions() {
     const here = getSlot(this.book, this.slot);
+    const date = dateOf(this.book, this.slot);
     this.actions.replaceChildren(
-      h('p', { class: 'design-name' }, h('span', { class: 'hint' }, `${slotLabel(this.book, this.slot)}: `), h('strong', {}, designName(here))),
+      h('p', { class: 'design-name' }, h('span', { class: 'hint' }, `${slotLabel(this.book, this.slot)}: `), h('strong', {}, designName(here)),
+        date ? h('span', { class: 'hint page-date' }, ` · ${formatDate(date)}`) : null),
       h('div', { class: 'row' },
         h('button', { type: 'button', class: 'primary', 'data-help': 'book-choose', onclick: () => this.openPicker() }, 'Choose design…'),
         h('button', { type: 'button', 'data-help': 'book-apply', onclick: () => this.openApply() }, 'Apply to more pages…'),
@@ -411,6 +421,73 @@ export class Arranger {
     input.oninput = read;
     input.onchange = () => { read(); input.value = String(key === 'to' ? this.scope.to : this.scopeFrom); };
     return h('label', { class: 'compact' }, label, input);
+  }
+
+  // ---- dates ---------------------------------------------------------------------
+
+  private openDates() {
+    const b = this.book, d = this.dating;
+    const from = Math.max(1, Math.min(b.page_count, this.slot));
+    const known = dateOf(b, from) ?? new Date().toISOString().slice(0, 10);
+    d.from = from;
+    d.to = endOfRun(b, from);
+    d.start = known;
+    d.year = parts(addDays(sundayOf(known), 6)).year; // the year whose week numbers count it
+    d.week = weekNumber(known);
+    this.renderDates();
+    this.datesDialog.showModal();
+  }
+
+  private renderDates() {
+    const b = this.book, d = this.dating;
+    const plan = (): DatePlan => (d.mode === 'week' ? { mode: 'week', year: d.year, week: d.week } : { mode: 'day', start: d.start });
+    const range = (): [number, number] => [Math.min(d.from, d.to), Math.max(d.from, d.to)];
+    const summary = h('p', { class: 'apply-summary', role: 'status' });
+    const set = h('button', { type: 'button', class: 'primary', 'data-key': 'dates-set', 'data-help': 'dates-set' }, 'Set dates');
+    const clear = h('button', { type: 'button', 'data-key': 'dates-clear', 'data-help': 'dates-clear' }, 'Clear dates');
+    const update = () => {
+      const [lo, hi] = range();
+      const dates = planDates(plan(), hi - lo + 1);
+      summary.textContent = datesSummary(plan(), lo, hi);
+      set.disabled = !dates;
+      clear.disabled = !b.dates || b.dates.slice(lo - 1, hi).every((x) => x === null);
+      set.onclick = () => {
+        if (!dates) return;
+        this.datesDialog.close();
+        this.edit(() => setDates(b, lo, dates));
+        this.say(`Dated ${hi - lo + 1} page${hi === lo ? '' : 's'}. Undo takes it back.`);
+      };
+      clear.onclick = () => {
+        this.datesDialog.close();
+        this.edit(() => setDates(b, lo, Array.from({ length: hi - lo + 1 }, () => null)));
+        this.say(`Cleared the dates on ${hi - lo + 1} page${hi === lo ? '' : 's'}. Undo takes it back.`);
+      };
+    };
+    const num = (label: string, key: 'year' | 'week' | 'from' | 'to', help: string, min: number, max: number) => {
+      const input = h('input', { type: 'number', value: d[key], min, max, 'aria-label': label, 'data-key': `dates-${key}`, 'data-help': help });
+      const read = () => { const v = Math.round(Number(input.value)); if (input.value && Number.isFinite(v)) { d[key] = key === 'from' || key === 'to' ? Math.max(1, Math.min(b.page_count, v)) : v; update(); } };
+      input.oninput = read;
+      input.onchange = () => { read(); if (key === 'from' || key === 'to') input.value = String(d[key]); };
+      return h('label', { class: 'compact' }, label, input);
+    };
+    const mode = (value: 'week' | 'day', label: string) => {
+      const input = h('input', { type: 'radio', name: 'dates-mode', checked: d.mode === value, 'aria-label': label, 'data-key': `dates-mode-${value}`, 'data-help': 'dates-mode' });
+      input.onchange = () => { d.mode = value; this.renderDates(); };
+      return h('label', { class: 'choice' }, input, label);
+    };
+    const start = h('input', { type: 'date', value: d.start, 'aria-label': 'Starting date', 'data-key': 'dates-start', 'data-help': 'dates-start' });
+    start.oninput = start.onchange = () => { d.start = start.value; update(); };
+    this.datesBody.replaceChildren(
+      h('p', { class: 'hint' }, 'Dated pages print their {weekday}, {day}, {month} and other tokens with the date; pages without a date leave them blank.'),
+      h('div', { class: 'choices', role: 'radiogroup', 'aria-label': 'Each page is' }, mode('week', 'Each page is one week'), mode('day', 'Each page is one day')),
+      d.mode === 'week'
+        ? h('div', { class: 'row' }, num('Year', 'year', 'dates-year', 1900, 2200), num('Starting week', 'week', 'dates-week', 1, 54))
+        : h('div', { class: 'row' }, h('label', { class: 'compact' }, 'Starting date', start)),
+      h('div', { class: 'row' }, num('From page', 'from', 'dates-from', 1, b.page_count), num('To page', 'to', 'dates-to', 1, b.page_count)),
+      summary,
+      h('div', { class: 'row' }, set, clear, h('button', { type: 'button', 'data-help': 'dates-cancel', onclick: () => this.datesDialog.close() }, 'Cancel')),
+    );
+    update();
   }
 
   private applyTo(pages: number[], design: Page | null) {

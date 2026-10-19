@@ -121,6 +121,7 @@ Rows, columns and cells are counted from the area's top-left corner. Light, medi
 | `icons` | `icons`: icon names from the icon set, repeating. |
 | `tone` | `"black"` (default) or `"gray"`. |
 | `size` | `icons`: how many cells wide and tall each icon is, `1` (default) or `2`. Set `every` to at least the size so the icons do not overlap. |
+| `rotate` | `0` (default), `90` (reads bottom to top) or `270` (reads top to bottom), as for `text`. Every item turns about the center of its own cell (an icon about the center of its 1 or 2 cell square), so the run's position and bounds do not change. |
 
 Text items are at most two characters, so a number that would reach three
 characters (100, or -10) is an error. Each text item is centered in its own cell
@@ -169,8 +170,10 @@ journal-system. Font: Courier Prime.
 
 ## Tokens
 
-Replaced with real values when a page is printed for a date. Dotwork shows
-sample values in previews.
+Replaced with real values when a page is printed for a date (a book can give
+each of its pages a date, see `book-format.md`). A page with no date prints
+tokens blank. Dotwork shows sample values in the editor, for Monday
+2026-10-26.
 
 | Token        | Example   |
 |--------------|-----------|
@@ -180,8 +183,20 @@ sample values in previews.
 | `{day}`      | `26`      |
 | `{year}`     | `2026`    |
 | `{week}`     | `44`      |
+| `{months}`   | `OCT`, or `NOV / DEC` when the 7 days from the date reach the next month |
 
-Identities print in all caps. An unknown token is an error.
+**Day offsets.** Any token may carry a whole-day offset: `{day+1}` is the day
+of the month tomorrow, `{weekday+6}` the weekday six days on, `{day-1}`
+yesterday's. The offset counts from the page's date (from the sample date in
+the editor). So a weekly page dated its Sunday can show `{weekday}` ...
+`{weekday+6}` and `{day}` ... `{day+6}`.
+
+**Weeks** run Sunday to Saturday, and week 1 is the week that holds January 1
+(as in journal-system): 2026-10-18 is week 43, and week 1 of 2027 starts on
+2026-12-27.
+
+Identities print in all caps. An unknown token (or a malformed offset) is an
+error.
 
 ## Spreads
 
