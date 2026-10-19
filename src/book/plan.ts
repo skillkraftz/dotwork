@@ -1,4 +1,5 @@
 import type { Page } from '../format/types';
+import { addDays, isDate, parts, shortDate, weekNumber, weekStart } from '../format/dates';
 import { getSlot, slotCount, type Book } from './book';
 
 /** Which pages "apply to more pages" reaches. Page numbers are 1-based; the covers are never part of a range. */
@@ -79,4 +80,48 @@ export function slotLabel(book: Book, slot: number): string {
   if (slot === 0) return 'Inside front cover';
   if (slot === book.page_count + 1) return 'Inside back cover';
   return `Page ${slot}`;
+}
+
+// ---- dates --------------------------------------------------------------------
+
+/** How a run of pages is dated: a week each (starting week `week` of `year`), or a day each (starting on `start`). */
+export type DatePlan = { mode: 'week'; year: number; week: number } | { mode: 'day'; start: string };
+
+/** The date of the first page: a week's Sunday, or the day itself. Null if the plan isn't a real date. */
+export function firstDate(plan: DatePlan): string | null {
+  if (plan.mode === 'day') return isDate(plan.start) ? plan.start : null;
+  const { year, week } = plan;
+  return Number.isInteger(year) && year >= 1900 && year <= 2200 && Number.isInteger(week) && week >= 1 && week <= 54 ? weekStart(year, week) : null;
+}
+
+/** The dates for `count` pages in a row, or null if the plan isn't a real date. */
+export function planDates(plan: DatePlan, count: number): string[] | null {
+  const first = firstDate(plan);
+  if (!first) return null;
+  const step = plan.mode === 'week' ? 7 : 1;
+  return Array.from({ length: Math.max(0, count) }, (_, k) => addDays(first, k * step));
+}
+
+/** What a plan does to pages from..to, in words: "Pages 1–10 become weeks 43–52: Oct 18 – Dec 26". */
+export function datesSummary(plan: DatePlan, from: number, to: number): string {
+  const count = Math.abs(to - from) + 1;
+  const dates = planDates(plan, count);
+  if (!dates) return plan.mode === 'week' ? 'Enter a year and a week from 1 to 53.' : 'Enter a start date.';
+  const pages = count === 1 ? `Page ${from}` : `Pages ${Math.min(from, to)}–${Math.max(from, to)}`;
+  const last = dates[dates.length - 1];
+  const end = plan.mode === 'week' ? addDays(last, 6) : last;
+  const years = parts(dates[0]).year !== parts(end).year;
+  const range = dates[0] === end ? shortDate(end, true) : `${shortDate(dates[0], years)} – ${shortDate(end, years)}`;
+  if (plan.mode === 'day') return `${pages} ${count === 1 ? 'becomes' : 'become'} ${count === 1 ? 'a day' : 'days'}: ${range}`;
+  const a = weekNumber(dates[0]), b = weekNumber(last);
+  const weeks = count === 1 ? `week ${a}` : b > a ? `weeks ${a}–${b}` : `weeks ${a} … ${b} (into the next year)`;
+  return `${pages} ${count === 1 ? 'becomes' : 'become'} ${weeks}: ${range}`;
+}
+
+/** The last page of the run of pages, from `slot`, that share its design. */
+export function endOfRun(book: Book, slot: number): number {
+  const key = designKey(getSlot(book, slot));
+  let n = slot;
+  while (n < book.page_count && designKey(getSlot(book, n + 1)) === key) n++;
+  return n;
 }

@@ -135,6 +135,8 @@ export interface Sequence {
   tone?: TextTone;
   /** icons: how many cells wide and tall each icon is. */
   size?: IconSize;
+  /** Turns every item about the center of its own cell: 90 reads bottom to top, 270 top to bottom. */
+  rotate?: Rotation;
 }
 
 /** Every element can belong to a group: elements with the same `group` are edited together. Printing ignores it. */

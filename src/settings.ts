@@ -128,7 +128,7 @@ export class SettingsDialog {
       h('label', { class: 'inline' }, numberOn, 'Print the page number'),
       numberMsg,
       labelled('Identity', identity, identityMsg, tokens),
-      h('p', { class: 'hint' }, `Optional text by the spine. Tokens: ${TOKENS.map((t) => `{${t}}`).join(' ')}. With no identity, row 0 (the header row) is free to draw on, except the page number’s corner.`),
+      h('p', { class: 'hint' }, `Optional text by the spine. Tokens: ${TOKENS.map((t) => `{${t}}`).join(' ')}; add +1 or -1 for another day, as in {day+1}. With no identity, row 0 (the header row) is free to draw on, except the page number’s corner.`),
       sideField,
     ].filter(Boolean) as HTMLElement[];
   }

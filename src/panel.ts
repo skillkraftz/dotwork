@@ -740,6 +740,7 @@ export class Panel {
       }));
     }
     out.push(f.choice('tone', 'Tone', TEXT_TONES, DEFAULTS.sequenceTone, 'prop-text-tone'));
+    out.push(f.choice('rotate', 'Rotate items (°)', [0, 90, 270] as const, 0 as 0 | 90 | 270, 'prop-seq-rotate'));
     return out;
   }
 

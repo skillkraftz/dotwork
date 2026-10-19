@@ -40,7 +40,7 @@ export class ExportDialog {
   private body = h('div', { class: 'export-body' });
   private status = h('p', { class: 'lib-msg', role: 'status', hidden: true });
   private png = { scope: 'page' as 'page' | 'spread', dpi: PNG_DPI as number };
-  private pdf = { kind: 'signatures' as 'pages' | 'signatures', cover: true };
+  private pdf = { pages: true, cover: true, signatures: true };
 
   constructor(private host: ExportHost) {
     const tabBar = h('div', { class: 'lib-tabs', role: 'tablist', 'aria-label': 'Export sections' },
@@ -164,30 +164,34 @@ export class ExportDialog {
 
   private pdfTab(): HTMLElement[] {
     const book = this.host.book();
-    const radio = (value: 'pages' | 'signatures', label: string, note: string) => {
-      const input = h('input', { type: 'radio', name: 'pdf-kind', checked: this.pdf.kind === value, 'data-key': `pdf-${value}`, 'data-help': 'export-pdf-kind', 'aria-label': label });
-      input.onchange = () => { this.pdf.kind = value; this.render(); };
+    const box = (key: 'pages' | 'cover' | 'signatures', label: string, note: string) => {
+      const input = h('input', { type: 'checkbox', checked: this.pdf[key], 'data-key': `pdf-${key}`, 'data-help': `export-pdf-${key}`, 'aria-label': label });
+      input.onchange = () => { this.pdf[key] = input.checked; this.render(); };
       return h('label', { class: 'choice stack' }, input, h('span', {}, h('strong', {}, label), h('small', { class: 'hint' }, note)));
     };
-    const cover = h('input', { type: 'checkbox', checked: this.pdf.cover, 'data-key': 'pdf-cover', 'data-help': 'export-pdf-cover' });
-    cover.onchange = () => { this.pdf.cover = cover.checked; this.render(); };
-    const signatures = this.pdf.kind === 'signatures';
-    const files = signatures ? `print-first.pdf and print-second.pdf for each signature${this.pdf.cover ? ', and cover.pdf' : ''}` : `pages.pdf${this.pdf.cover ? ' and cover.pdf' : ''}`;
-    const many = signatures || this.pdf.cover;
+    const { pages, cover, signatures } = this.pdf;
+    const names = [
+      ...(pages ? ['pages.pdf'] : []), ...(cover ? ['cover.pdf'] : []),
+      ...(signatures ? [`print-first.pdf and print-second.pdf for each signature, with preview.png and summary.txt`] : []),
+    ];
+    const single = pages && !cover && !signatures ? `${slug(book.name, 'book')}-pages.pdf` : cover && !pages && !signatures ? 'cover.pdf' : null;
     return [
-      this.what(`Makes PDFs from the book “${book.name || 'Untitled book'}” (${book.page_count} pages; arrange it in Book view). You get `, h('strong', {}, many ? `${slug(book.name, 'book')}-print.zip` : `${slug(book.name, 'book')}-pages.pdf`), `, holding ${files}.`),
-      h('div', { class: 'choices', role: 'radiogroup', 'aria-label': 'What to make' },
-        radio('pages', 'Pages at final size', 'Every page, one after another, 3.5 × 5.5 in. To read, check or print one page at a time.'),
-        radio('signatures', 'Print-ready signatures', 'Pages arranged on letter-cut-in-half sheets, with creep, for printing on both sides and binding.')),
+      names.length === 0
+        ? this.what('Choose at least one file to make.')
+        : this.what(`Makes PDFs from the book “${book.name || 'Untitled book'}” (${book.page_count} pages; arrange it in Book view). You get `,
+          h('strong', {}, single ?? `${slug(book.name, 'book')}-print.zip`), single ? '.' : `, holding ${names.join(', ')}.`),
+      h('div', { class: 'choices', role: 'group', 'aria-label': 'What to make' },
+        box('pages', 'pages.pdf', 'Every page at final size, 3.5 × 5.5 in, one after another. To read, check or print one page at a time.'),
+        box('cover', 'cover.pdf', 'The inside front and back covers on one sheet, printed single-sided.'),
+        box('signatures', 'Print files', 'print-first.pdf (side A) and print-second.pdf (side B): pages arranged on letter-cut-in-half sheets, with creep, for printing on both sides and binding. Also a preview and a summary.')),
       ...(signatures ? [h('h3', {}, 'Printing'), ...printFields(() => this.host.book(), (change) => { this.host.editBook(change); })] : []),
-      h('label', { class: 'inline' }, cover, 'Include the inside covers (cover.pdf)'),
-      this.downloadButton('export-pdf', () => this.buildPdf()),
+      this.downloadButton('export-pdf', () => this.buildPdf(), names.length === 0),
     ];
   }
 
   private async buildPdf() {
     const book = this.host.book();
-    const include: Include = { signatures: this.pdf.kind === 'signatures', pages: this.pdf.kind === 'pages', cover: this.pdf.cover };
+    const include: Include = { ...this.pdf };
     this.say('Building the PDFs…');
     try {
       // The PDF code is loaded only when it is needed.

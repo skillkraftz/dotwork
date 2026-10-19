@@ -137,3 +137,69 @@ describe('book builder', () => {
     await flow(app, 'tablet');
   });
 });
+
+/** Dated weekly pages: choose the dated example for pages 1-10, date them as weeks 43-52, and see it on the page. */
+async function dates(app: App, device: string) {
+  const { page } = app;
+  await openBook(app);
+  await click(app, page.getByRole('button', { name: 'Choose design…' }));
+  await page.waitForSelector('dialog.picker[open] .design');
+  await click(app, page.locator('dialog.picker .design', { hasText: 'Year journal weekly page (dated)' }).first());
+  await click(app, page.getByRole('button', { name: 'Apply to more pages…' }));
+  await click(app, page.getByLabel('Pages … to …'));
+  await page.getByLabel('To page').fill('10');
+  await page.getByLabel('To page').dispatchEvent('change');
+  await click(app, page.getByRole('button', { name: /^Apply to \d+ pages$/ }));
+  expect(await page.locator('.page-date').count()).toBe(0); // undated
+
+  await click(app, page.getByRole('button', { name: 'Dates…' }));
+  await page.waitForSelector('dialog.dates[open]');
+  // From and to default to this page and the end of the run sharing its design
+  expect(await page.locator('[data-key="dates-from"]').inputValue()).toBe('1');
+  expect(await page.locator('[data-key="dates-to"]').inputValue()).toBe('10');
+  await page.locator('[data-key="dates-year"]').fill('2026');
+  await page.locator('[data-key="dates-week"]').fill('43');
+  expect(await page.locator('dialog.dates .apply-summary').innerText()).toBe('Pages 1–10 become weeks 43–52: Oct 18 – Dec 26');
+  if (app.touch) expect(await smallControls(app)).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await shot(app, `${device}-book-dates`);
+  await click(app, page.locator('dialog.dates [data-key="dates-mode-day"]'));
+  await page.locator('[data-key="dates-start"]').fill('2026-10-18');
+  expect(await page.locator('dialog.dates .apply-summary').innerText()).toBe('Pages 1–10 become days: Oct 18 – Oct 27');
+  await click(app, page.locator('dialog.dates [data-key="dates-mode-week"]'));
+  await page.locator('[data-key="dates-year"]').fill('2026');
+  await page.locator('[data-key="dates-week"]').fill('43');
+  await click(app, page.locator('dialog.dates [data-key="dates-set"]'));
+  expect((await saved(app)).dates).toEqual(['2026-10-18', '2026-10-25', '2026-11-01', '2026-11-08', '2026-11-15', '2026-11-22', '2026-11-29', '2026-12-06', '2026-12-13', '2026-12-20', ...Array(42).fill(null)]);
+  expect(await page.locator('.page-date').innerText()).toContain('Sun Oct 18, 2026');
+  // the page shows its own dates, and the NOV / DEC week
+  expect(await page.locator('.stage-page svg').innerHTML()).toContain('>OCT<');
+  await shot(app, `${device}-book-dated`);
+  await click(app, page.getByRole('button', { name: 'Next page' }));
+  expect(await page.locator('.page-date').innerText()).toContain('Sun Oct 25, 2026');
+
+  // Undo takes it back; Clear dates takes them off a range
+  await click(app, page.getByRole('button', { name: 'Undo' }));
+  expect((await saved(app)).dates).toBeUndefined();
+  await click(app, page.getByRole('button', { name: 'Dates…' }));
+  await page.locator('[data-key="dates-from"]').fill('1');
+  await page.locator('[data-key="dates-from"]').dispatchEvent('change');
+  await page.locator('[data-key="dates-year"]').fill('2026');
+  await page.locator('[data-key="dates-week"]').fill('43');
+  await click(app, page.locator('dialog.dates [data-key="dates-set"]'));
+  expect((await saved(app)).dates[0]).toBe('2026-10-18');
+  await click(app, page.getByRole('button', { name: 'Dates…' }));
+  await page.locator('[data-key="dates-from"]').fill('3');
+  await page.locator('[data-key="dates-from"]').dispatchEvent('change');
+  await page.locator('[data-key="dates-to"]').fill('4');
+  await page.locator('[data-key="dates-to"]').dispatchEvent('change');
+  await click(app, page.locator('dialog.dates [data-key="dates-clear"]'));
+  expect((await saved(app)).dates.slice(0, 5)).toEqual(['2026-10-18', '2026-10-25', null, null, '2026-11-15']);
+  noErrors(app);
+}
+
+describe('book dates', () => {
+  for (const device of ['phone', 'tablet', 'desktop'] as const) {
+    it(`sets, shows and clears dates on a ${device}`, async () => { await dates(await open(env, device), device); });
+  }
+});

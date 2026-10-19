@@ -20,6 +20,7 @@ to the page format.
     "signatures": 1
   },
   "pages": [ { "...": "a dotwork-page with side \"right\"" }, null, { "...": "..." } ],
+  "dates": [ "2026-10-18", "2026-10-25", null ],
   "cover": { "front": { "...": "a dotwork-page with side \"left\"" }, "back": null }
 }
 ```
@@ -33,6 +34,7 @@ to the page format.
 | `print.back_offset_x_mm`, `print.back_offset_y_mm` | Added to everything on the back side (`print-second.pdf`). +x moves right, +y moves up, as seen on the back. -10 to 10. |
 | `print.signatures` | How many signatures to split the book into, 1 to 20. Pages are split evenly and each signature rounds up to a multiple of 4, so a short last signature is padded with blank filler pages. |
 | `pages` | Exactly `page_count` entries; entry *i* is page *i* + 1. A page, or `null` for a blank page. |
+| `dates` | Optional. Exactly `page_count` entries; entry *i* is the date of page *i* + 1, as `"YYYY-MM-DD"` (a real calendar day), or `null` for an undated page. A book without `dates` has none. The covers have no date. |
 | `cover.front` | The inside front cover, a left page facing page 1 when the book is open. A page or `null`. |
 | `cover.back` | The inside back cover, a right page facing the last page. A page or `null`. |
 
@@ -41,13 +43,17 @@ pages left-hand. Each page's `side` must match its slot (`cover.front` is
 left, `cover.back` is right). Dotwork sets this when it places a design in a
 slot, so the same saved page can go anywhere.
 
-**Tokens.** `{weekday}`, `{month}` and the other tokens are left blank in print
-files, so the date can be written in by hand. (journal-system fills them in
-when it generates dated books.)
+**Tokens.** A page with a date in `dates` prints its tokens (`{weekday}`,
+`{day+1}`, `{months}` and the rest, see `page-format.md`) filled in from that
+date, in `pages.pdf`, the print files and the previews. A page with no date, and
+the covers, print them blank, so the date can be written in by hand. In
+Dotwork's Book view, **Dates…** gives a run of pages consecutive weeks (each
+dated its Sunday) or consecutive days. Dates stay with the page number, not the
+design, and survive resizing the book (new pages start undated).
 
 **Validation.** A reader rejects the whole file, and says which rule failed and
 where, if the format or version is wrong, `page_count` is not a multiple of 4,
-`pages` has the wrong length, a print setting is out of range, or a page breaks
+`pages` or `dates` has the wrong length, a date is not a real `YYYY-MM-DD` day, a print setting is out of range, or a page breaks
 the page rules or sits on the wrong side.
 
 ## What the print files contain

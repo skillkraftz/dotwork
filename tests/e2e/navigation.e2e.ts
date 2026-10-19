@@ -410,7 +410,7 @@ describe('the export window', () => {
     await tab(app, 'png');
     await page.locator('dialog.export [data-key="png-dpi"]').selectOption('150');
     await tab(app, 'pdf');
-    await page.locator('dialog.export [data-key="pdf-pages"]').check();
+    await page.locator('dialog.export [data-key="pdf-signatures"]').uncheck();
     await page.locator('dialog.export [data-key="pdf-cover"]').uncheck();
     expect(await page.locator('dialog.export .export-what').innerText()).toContain('untitled-book-pages.pdf');
     await page.locator('dialog.export [data-key="pdf-signatures"]').check();
@@ -486,7 +486,7 @@ describe('the export window', () => {
     noErrors(app);
   });
 
-  it('PDF makes pages at final size, or print-ready signatures, with or without the cover', async () => {
+  it('PDF has three checkboxes, all on, and one Download that zips whatever is chosen', async () => {
     const app = await open(env, 'desktop');
     const { page } = app;
     await choose(app, 'page', '#view-book');
@@ -495,18 +495,38 @@ describe('the export window', () => {
     await page.waitForSelector('dialog.export[open]');
     expect(await page.locator('dialog.export [data-tab="pdf"]').getAttribute('aria-selected')).toBe('true'); // the book view opens on PDF
 
-    await page.locator('dialog.export [data-key="pdf-pages"]').check();
-    await page.locator('dialog.export [data-key="pdf-cover"]').uncheck();
+    const box = (key: string) => page.locator(`dialog.export [data-key="pdf-${key}"]`);
+    expect(await page.locator('dialog.export input[type="radio"]').count()).toBe(0);
+    for (const key of ['pages', 'cover', 'signatures']) expect(await box(key).isChecked(), key).toBe(true);
+    expect(await page.locator('dialog.export .export-actions .primary').count()).toBe(1);
+
+    // everything: one zip with all four PDFs, the preview and the summary
+    const all = await download(app);
+    expect(all.suggestedFilename()).toBe('untitled-book-print.zip');
+    const text = (await bytes(all)).toString('latin1');
+    for (const f of ['pages.pdf', 'cover.pdf', 'print-first.pdf', 'print-second.pdf', 'preview.png', 'summary.txt']) expect(text, f).toContain(f);
+
+    // pages only: a single PDF
+    await box('cover').uncheck();
+    await box('signatures').uncheck();
     const pages = await download(app);
     expect(pages.suggestedFilename()).toBe('untitled-book-pages.pdf');
     expect((await bytes(pages)).subarray(0, 4).toString()).toBe('%PDF');
 
-    await page.locator('dialog.export [data-key="pdf-signatures"]').check();
-    const zip = await download(app);
-    expect(zip.suggestedFilename()).toBe('untitled-book-print.zip');
-    const text = (await bytes(zip)).toString('latin1');
-    for (const f of ['print-first.pdf', 'print-second.pdf', 'summary.txt']) expect(text).toContain(f);
-    expect(text).not.toContain('pages.pdf');
+    // the print files and the cover, without pages.pdf
+    await box('pages').uncheck();
+    await box('cover').check();
+    await box('signatures').check();
+    const rest = await download(app);
+    expect(rest.suggestedFilename()).toBe('untitled-book-print.zip');
+    const some = (await bytes(rest)).toString('latin1');
+    for (const f of ['cover.pdf', 'print-first.pdf', 'print-second.pdf']) expect(some, f).toContain(f);
+    expect(some).not.toContain('pages.pdf');
+
+    // nothing chosen: nothing to download
+    await box('cover').uncheck();
+    await box('signatures').uncheck();
+    expect(await page.locator('dialog.export .export-actions .primary').isDisabled()).toBe(true);
     noErrors(app);
   });
 

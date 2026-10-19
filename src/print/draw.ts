@@ -10,10 +10,10 @@ import {
 } from '../format/types';
 import { TEXT_INSET_MM, TEXT_SIZE_MM } from '../format/bounds';
 import {
-  BASELINE_MM, DOT_MM, GRAY_DOT, SHADE_TONES, HEADER_BASELINE_MM, HEADER_COLOR, LINE, TEXT_COLORS, headerItems, iconPlacement, ticks,
+  BASELINE_MM, DOT_MM, GRAY_DOT, SHADE_TONES, HEADER_BASELINE_MM, HEADER_COLOR, LINE, TEXT_COLORS, headerItems, iconPlacement, itemCenter, ticks,
 } from '../render';
 import { shadeRects } from '../format/shade';
-import { isIcons, itemOrigin, sequenceItems } from '../format/sequence';
+import { isIcons, itemSize, sequenceItems } from '../format/sequence';
 import { ICONS } from '../icons/icons';
 
 export const MM_TO_PT = 72 / 25.4;
@@ -125,18 +125,26 @@ export function drawPage(pdf: PDFPage, page: Page, o: PageDrawOptions): void {
 
   const sequence = (e: Sequence) => {
     const c = TEXT_COLORS[e.tone ?? DEFAULTS.sequenceTone];
+    const rotate = e.rotate ?? DEFAULTS.rotate;
     sequenceItems(e).forEach((item, i) => {
+      const center = itemCenter(e, i);
       if (isIcons(e)) {
         const shape = ICONS[item];
         if (!shape) return;
         const { x, y, scale, stroke } = iconPlacement(e, i);
-        const at = { x: X(x), y: Y(y), scale: len(scale) };
+        // An icon turns about its own center, but PDF turns a path about its origin, so the origin moves to where
+        // the icon's top-left corner lands: the bottom-left for 90 and the top-right for 270.
+        const half = (itemSize(e) * P) / 2;
+        const origin = rotate === 90 ? { x: center.x - half, y: center.y + half } : rotate === 270 ? { x: center.x + half, y: center.y - half } : { x, y };
+        const at = { x: X(origin.x), y: Y(origin.y), scale: len(scale), rotate: degrees(rotate === 90 ? 90 : rotate === 270 ? -90 : 0) };
         if (shape.fill) pdf.drawSvgPath(shape.fill, { ...at, color: color(c) });
         pdf.drawSvgPath(shape.stroke, { ...at, borderColor: color(c), borderWidth: len(stroke), borderLineCap: LineCapStyle.Round });
         return;
       }
-      const cell = itemOrigin(e, i);
-      text(item, TEXT_SIZE_MM.label, o.fonts.regular, c, { x: cell.x * P + P / 2, y: cell.y * P + P - BASELINE_MM }, 'middle', 0);
+      // The baseline's midpoint, turned about the cell's center for a rotated run (see render.ts).
+      const down = P - BASELINE_MM - P / 2;
+      const at = rotate === 90 ? { x: center.x + down, y: center.y } : rotate === 270 ? { x: center.x - down, y: center.y } : { x: center.x, y: center.y + down };
+      text(item, TEXT_SIZE_MM.label, o.fonts.regular, c, at, 'middle', rotate);
     });
   };
 
