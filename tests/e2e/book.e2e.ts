@@ -24,6 +24,7 @@ async function smallControls(app: App) {
 }
 
 async function openBook(app: App) {
+  await click(app, app.page.locator('#menu-page'));
   await click(app, app.page.locator('#view-book'));
   await app.page.waitForSelector('.stage-page');
 }

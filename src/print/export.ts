@@ -102,21 +102,31 @@ export function summary(book: Book, sigs: Signature[], files: string[]): string 
   ].join('\n');
 }
 
-/** All the PDFs and the summary for a book. Throws if the print settings can't be printed. */
-export async function exportBookFiles(book: Book, fontBytes: FontBytes): Promise<ExportedFile[]> {
+/** Which of a book's files to build; everything unless told otherwise. */
+export interface Include { signatures?: boolean; cover?: boolean; pages?: boolean }
+
+/** The PDFs and the summary for a book. Throws if the print settings can't be printed. */
+export async function exportBookFiles(book: Book, fontBytes: FontBytes, include: Include = {}): Promise<ExportedFile[]> {
+  const { signatures = true, cover = true, pages = true } = include;
   const sigs = impose(book.page_count, book.print, book.print.signatures);
-  const problem = checkPrintSettings(book.print, Math.max(...sigs.map((g) => g.sheets.length)));
-  if (problem) throw new Error(problem);
+  if (signatures) {
+    const problem = checkPrintSettings(book.print, Math.max(...sigs.map((g) => g.sheets.length)));
+    if (problem) throw new Error(problem);
+  }
   const pdf = (name: string, bytes: Uint8Array): ExportedFile => ({ name, bytes, type: 'application/pdf' });
   const files: ExportedFile[] = [];
-  for (const sig of sigs) {
-    const prefix = sigs.length > 1 ? `sig${sig.number}-` : '';
-    files.push(pdf(`${prefix}print-first.pdf`, await sidesPdf(book, sig, false, fontBytes)));
-    files.push(pdf(`${prefix}print-second.pdf`, await sidesPdf(book, sig, true, fontBytes)));
+  if (signatures) {
+    for (const sig of sigs) {
+      const prefix = sigs.length > 1 ? `sig${sig.number}-` : '';
+      files.push(pdf(`${prefix}print-first.pdf`, await sidesPdf(book, sig, false, fontBytes)));
+      files.push(pdf(`${prefix}print-second.pdf`, await sidesPdf(book, sig, true, fontBytes)));
+    }
   }
-  files.push(pdf('cover.pdf', await coverPdf(book, fontBytes)));
-  files.push(pdf('pages.pdf', await pagesPdf(book, fontBytes)));
-  const names = [...files.map((f) => f.name), 'preview.png'];
-  files.push({ name: 'summary.txt', bytes: new TextEncoder().encode(summary(book, sigs, names)), type: 'text/plain' });
+  if (cover) files.push(pdf('cover.pdf', await coverPdf(book, fontBytes)));
+  if (pages) files.push(pdf('pages.pdf', await pagesPdf(book, fontBytes)));
+  if (signatures) {
+    const names = [...files.map((f) => f.name), 'preview.png'];
+    files.push({ name: 'summary.txt', bytes: new TextEncoder().encode(summary(book, sigs, names)), type: 'text/plain' });
+  }
   return files;
 }

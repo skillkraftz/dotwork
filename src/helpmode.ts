@@ -22,7 +22,7 @@ const BLOCKED = ['pointerdown', 'pointerup', 'pointermove', 'pointercancel', 'mo
 /** A press that moves farther than this is a drag or a scroll, not a tap. */
 const TAP_SLOP = 10;
 /** These still work in help mode, so that what they reveal can be asked about (the menu's items, each mode's buttons); they are explained too. */
-const OPENS_ITSELF = ['menu-button', 'mode-select', 'mode-draw', 'mode-advanced'];
+const OPENS_ITSELF = ['menu-page', 'menu-edit', 'mode-select', 'mode-draw', 'mode-advanced'];
 
 export interface HelpHost {
   /** The key of the help entry for the page itself, for the current tool. */

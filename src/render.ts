@@ -4,7 +4,7 @@ import {
 } from './format/types';
 import { isIcons, itemOrigin, itemSize, sequenceItems } from './format/sequence';
 import { ICON_GRID, ICONS } from './icons/icons';
-import { elementArea, TEXT_INSET_MM, TEXT_SIZE_MM } from './format/bounds';
+import { elementArea, headerOf, TEXT_INSET_MM, TEXT_SIZE_MM } from './format/bounds';
 import { expandTokens } from './format/tokens';
 import { shadeRects } from './format/shade';
 import { boundsOf, handlesFor, type Pt } from './geometry';
@@ -181,7 +181,7 @@ export function headerItems(page: Page, pageNumber: string | null, expand: (t: s
   const items: HeaderItem[] = [];
   const id = expand(page.identity ?? '').toUpperCase();
   if (id.trim()) items.push({ text: id, x: edge(spineRight), bold: true, anchor: spineRight ? 'end' : 'start' });
-  if (pageNumber) items.push({ text: pageNumber, x: edge(!spineRight), bold: false, anchor: spineRight ? 'start' : 'end' });
+  if (pageNumber && page.page_number !== false) items.push({ text: pageNumber, x: edge(!spineRight), bold: false, anchor: spineRight ? 'start' : 'end' });
   return items;
 }
 export const HEADER_BASELINE_MM = 2.1;
@@ -231,7 +231,10 @@ export function pageContent(page: Page, opts: RenderOptions): string {
   out += `<g transform="translate(${GRID_X_MM} ${GRID_Y_MM})" ${FONT_FAMILY}>`;
   if (edit) {
     out += `<rect x="0" y="0" width="${COLS * P}" height="${ROWS * P}" fill="#f7f7f7"/>`;
-    out += `<rect x="0" y="0" width="${COLS * P}" height="${P}" fill="#e4e4e4"/>`;
+    // Row 0 is the printed header: shaded whole when it is taken by the identity, otherwise only the page number's corner.
+    const header = headerOf(page);
+    const shaded = header.top === 1 ? { x: 0, w: COLS } : header.corner;
+    if (shaded) out += `<rect x="${shaded.x * P}" y="0" width="${shaded.w * P}" height="${P}" fill="#e4e4e4"/>`;
     out += gridDots();
   }
   const expand = opts.expand ?? sample;
@@ -269,6 +272,14 @@ export function exportSvg(page: Page, widthPx: number, heightPx: number, fontCss
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${widthPx}" height="${heightPx}" viewBox="0 0 ${PAGE_W_MM} ${PAGE_H_MM}">` +
     `<style>${fontCss}</style>${pageContent(page, { mode: 'export' })}</svg>`
+  );
+}
+
+/** Standalone SVG of a spread as printed: the left page and the right page side by side. */
+export function exportSpreadSvg(left: Page, right: Page, widthPx: number, heightPx: number, fontCss: string): string {
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${widthPx}" height="${heightPx}" viewBox="0 0 ${PAGE_W_MM * 2} ${PAGE_H_MM}">` +
+    `<style>${fontCss}</style>${pageContent(left, { mode: 'export' })}<g transform="translate(${PAGE_W_MM} 0)">${pageContent(right, { mode: 'export' })}</g></svg>`
   );
 }
 

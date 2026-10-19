@@ -147,6 +147,12 @@ export async function hit(app: App, selector: string) {
   await app.page.tap(selector);
 }
 
+/** Open a top-bar menu ('page' or 'edit') and choose an item in it, by its id. */
+export async function choose(app: App, menu: 'page' | 'edit', item: string) {
+  await hit(app, `#menu-${menu}`);
+  await hit(app, item);
+}
+
 /** Tap one of the five context buttons beside the modes (properties, duplicate, remove, group, more, selectAll, half, or a tool's name). */
 export async function bar(app: App, action: string) {
   await hit(app, `#bar-context [data-action="${action}"]`);

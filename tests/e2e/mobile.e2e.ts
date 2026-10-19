@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
-  bar, box, cellToClient, doubleTap, draft, drag, open, pinch, press, shot, stagger, start, stop, tap, twoFingerDrag, viewBoxOf, type App, type Env, tool,
+  bar, box, cellToClient, choose, doubleTap, draft, drag, open, pinch, press, shot, stagger, start, stop, tap, twoFingerDrag, viewBoxOf, type App, type Env, tool,
 } from './harness';
 
 let env: Env;
@@ -30,7 +30,7 @@ describe('phone layout (390 x 844, touch)', () => {
     const app = await open(env, 'phone');
     const { page } = app;
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    const ids = ['#view-page', '#view-spread', '#view-book', '#undo', '#redo', '#menu-button'];
+    const ids = ['#menu-page', '#menu-edit', '#export', '#undo', '#redo', '#help'];
     const tops = await Promise.all(ids.map(async (id) => (await box(app, id))!.y));
     expect(Math.max(...tops) - Math.min(...tops)).toBeLessThan(2);
     expect((await box(app, '.topbar'))!.height).toBeLessThan(64);
@@ -48,19 +48,16 @@ describe('phone layout (390 x 844, touch)', () => {
     noErrors(app);
   });
 
-  it('keeps everything else in the menu, with big targets', async () => {
+  it('keeps the rest in two menus, with big targets', async () => {
     const app = await open(env, 'phone');
     const { page } = app;
     expect(await page.locator('#library').isVisible()).toBe(false);
-    await page.tap('#menu-button');
-    for (const id of ['#library', '#new', '#examples', '#import', '#export-json', '#export-png', '#mode-preview', '#help']) {
-      expect(await page.locator(id).isVisible(), id).toBe(true);
-    }
+    await page.tap('#menu-edit');
+    for (const id of ['#mode-edit', '#mode-preview', '#library', '#new']) expect(await page.locator(id).isVisible(), id).toBe(true);
     expect(await smallControls(app)).toEqual([]);
-    await shot(app, 'phone-menu');
     await page.tap('#help');
     expect(await page.locator('#help-card').isVisible()).toBe(true); // help mode, not a window
-    expect(await page.locator('#menu').isVisible()).toBe(false); // choosing something closes the menu
+    expect(await page.locator('#list-edit').isVisible()).toBe(false); // choosing something closes the menu
     await shot(app, 'phone-help');
     noErrors(app);
   });
@@ -112,17 +109,14 @@ describe('phone layout (390 x 844, touch)', () => {
     expect(await elements(app)).toMatchObject([{ x: 5, y: 8, weight: 'thick' }]);
 
     // save it
-    await page.tap('#menu-button');
-    await page.tap('#library');
+    await choose(app, 'edit', '#library');
     await page.waitForSelector('dialog[aria-label="Library"][open]');
     const dialog = (await box(app, 'dialog[aria-label="Library"]'))!;
     expect([dialog.width, dialog.height]).toEqual([390, 844]); // a full-screen sheet
-    await page.locator('dialog[aria-label="Library"] input[aria-label="Name"]').fill('Phone test');
     await page.tap('dialog[aria-label="Library"] .lib-save .primary');
-    await page.waitForSelector('.lib-card');
-    expect(await page.locator('.lib-card').count()).toBe(1);
-    expect(await page.locator('.lib-card .lib-name').innerText()).toBe('Phone test');
-    expect((await box(app, '.lib-card .thumb svg'))!.height).toBeGreaterThan(200); // large thumbnails
+    await page.waitForSelector('.lib-card:not(:has(.hint:text-is("example")))');
+    expect(await page.locator('.lib-card .lib-name', { hasText: /^Untitled$/ }).count()).toBe(1);
+    expect((await box(app, '.lib-card .thumb svg'))!.height).toBeGreaterThan(90); // a thumbnail you can read
     expect(await smallControls(app)).toEqual([]);
     await shot(app, 'phone-library');
     noErrors(app);
@@ -414,7 +408,7 @@ describe('spreads on a phone', () => {
   it('edits one page at a time with Left and Right (a swipe does not switch), and shows both with View spread', async () => {
     const app = await open(env, 'phone');
     const { page } = app;
-    await page.tap('#view-spread');
+    await choose(app, 'page', '#view-spread');
     expect(await page.locator('#canvas-left').isVisible()).toBe(true);
     expect(await page.locator('#canvas-right').isVisible()).toBe(false);
     const left = (await box(app, '#canvas-left'))!;
@@ -451,15 +445,14 @@ describe('book and export on a phone', () => {
   it('downloads the single zip by default', async () => {
     const app = await open(env, 'phone');
     const { page } = app;
-    await page.tap('#view-book');
+    await choose(app, 'page', '#view-book');
     await page.waitForSelector('.stage-page');
     await shot(app, 'phone-book');
     expect(await smallControls(app)).toEqual([]);
-    await page.getByRole('button', { name: /Export print files/ }).tap();
+    await page.getByRole('button', { name: /Print files/ }).tap();
     await page.waitForSelector('.export-actions .primary', { timeout: 40_000 });
     const dialog = (await box(app, 'dialog.export'))!;
     expect([dialog.width, dialog.height]).toEqual([390, 844]);
-    expect(await page.locator('.export-files').isVisible()).toBe(false); // the single files are tucked away
     await shot(app, 'phone-export');
     const [download] = await Promise.all([page.waitForEvent('download'), page.locator('.export-actions .primary').tap()]);
     expect(download.suggestedFilename()).toMatch(/-print\.zip$/);
@@ -490,7 +483,7 @@ describe('tablet', () => {
   it('portrait uses the phone layout with the page filling the screen', async () => {
     const app = await open(env, 'tablet');
     const { page } = app;
-    expect(await page.locator('#menu-button').isVisible()).toBe(true);
+    expect(await page.locator('#menu-page').isVisible()).toBe(true);
     await tool(app, 'box');
     await drag(app, await cellToClient(app, 3, 4), await cellToClient(app, 12, 12));
     expect(await elements(app)).toHaveLength(1);
@@ -501,8 +494,6 @@ describe('tablet', () => {
 
   it('landscape keeps the side panel and has big targets for touch', async () => {
     const app = await open(env, 'tabletLandscape');
-    const { page } = app;
-    expect(await page.locator('#menu-button').isVisible()).toBe(false);
     expect((await box(app, '#sheet'))!.width).toBeGreaterThan(300);
     await tool(app, 'box');
     await drag(app, await cellToClient(app, 3, 4), await cellToClient(app, 12, 12));

@@ -10,14 +10,16 @@ import { Panel } from './panel';
 import { closeContextMenu, showContextMenu } from './ctxmenu';
 import { isCompact, Sheet } from './sheet';
 import { Toolbar, modeOfTool, type BarMode } from './toolbar';
-import { pageToPng } from './png';
 import { Store, type Tool } from './store';
 import { Library, MemoryBackend } from './library/library';
+import { Favorites } from './library/favorites';
 import { idbBackend } from './library/idb';
 import { LibraryDialog, type SaveOption, type SaveWhat } from './library/dialog';
 import { Arranger } from './book/arranger';
 import { emptyBook, readBook, type Book } from './book/book';
-import { ExportDialog } from './book/export-dialog';
+import { ExportDialog } from './exporter';
+import { SettingsDialog } from './settings';
+import { checkItem, setupMenus } from './menus';
 import { HelpMode } from './helpmode';
 import { AdvancedPicker, type AdvancedChoice } from './advanced';
 import { NameDialog } from './namedialog';
@@ -73,7 +75,6 @@ const widgets = new WidgetStore((() => { try { return localStorage; } catch { re
 const nameDialog = new NameDialog();
 
 const library = new Library(typeof indexedDB === 'undefined' ? new MemoryBackend() : idbBackend);
-const exportDialog = new ExportDialog((blob, name) => download(blob, name));
 
 // ---- notices -------------------------------------------------------------
 
@@ -139,16 +140,15 @@ function refresh() {
   $('canvas').toggleAttribute('hidden', spread); // an SVG element has no `hidden` property, only the attribute
   $('spread').hidden = !spread;
   $('spread').classList.toggle('both', both);
-  $('view-book').setAttribute('aria-pressed', String(book));
-  for (const id of ['group-mode', 'tools', 'group-history', 'export-png', 'examples']) $(id).hidden = book || (id === 'tools' && preview);
+  checkItem({ page: $('view-page'), spread: $('view-spread'), book: $('view-book') }, view);
+  $('menu-page-label').textContent = { page: 'Page', spread: 'Spread', book: 'Book' }[view];
+  for (const id of ['mode-edit', 'mode-preview', 'undo', 'redo']) $(id).hidden = book; // the book has its own undo, and nothing to preview
+  $('tools').hidden = book || preview;
   $('spread-bar').hidden = !spread || preview;
   $('layers-button').hidden = book || preview;
   if (book) {
     ensureArranger();
     $('sheet').hidden = true;
-    $('view-page').setAttribute('aria-pressed', 'false');
-    $('view-spread').setAttribute('aria-pressed', 'false');
-    $<HTMLInputElement>('spread-name').hidden = true;
     updateBar();
     return;
   }
@@ -159,17 +159,11 @@ function refresh() {
     half.classList.toggle('active', half.dataset.side === active);
   }
   panel.store = store;
-  panel.lockedSide = spread ? active : null;
   panel.render();
-  $('view-page').setAttribute('aria-pressed', String(!spread));
-  $('view-spread').setAttribute('aria-pressed', String(spread));
-  $<HTMLInputElement>('spread-name').hidden = !spread;
-  if (document.activeElement !== $('spread-name')) $<HTMLInputElement>('spread-name').value = spreadName;
   $('side-left').setAttribute('aria-pressed', String(!both && active === 'left'));
   $('side-right').setAttribute('aria-pressed', String(!both && active === 'right'));
   $('side-both').setAttribute('aria-pressed', String(both));
-  $('mode-edit').setAttribute('aria-pressed', String(!preview));
-  $('mode-preview').setAttribute('aria-pressed', String(preview));
+  checkItem({ edit: $('mode-edit'), preview: $('mode-preview') }, preview ? 'preview' : 'edit');
   ($('undo') as HTMLButtonElement).disabled = !store.canUndo;
   ($('redo') as HTMLButtonElement).disabled = !store.canRedo;
   $('sheet').hidden = preview;
@@ -181,6 +175,7 @@ const sheet = new Sheet($('sheet'), () => {
   updateBar();
 });
 panel.onTab = () => sheet.open();
+panel.openLayer = () => showProperties();
 
 /** The drawer covers the bottom of the page: slide the page so the selection stays in view above it. */
 function revealSelection() {
@@ -270,7 +265,7 @@ async function saveWidget() {
   const s = cur();
   const chosen = s.selection.map((i) => s.page.elements[i]);
   if (!chosen.length) return;
-  const name = await nameDialog.ask('Save as widget', `Widget ${widgets.list().length + 1}`);
+  const name = await nameDialog.ask('Save as widget', '', `Widget ${widgets.list().length + 1}`);
   if (!name) return;
   widgets.add(name, chosen);
   notify(`Saved “${name}”. Find it under Advanced.`);
@@ -365,7 +360,7 @@ function ensureArranger() {
         notify('This browser can’t keep a draft of the book (storage is full or blocked). Save it to the Library or export it as JSON.');
       }
     },
-    exportFiles: (b) => void exportDialog.show(b),
+    exportFiles: () => exportDialog.show('pdf'),
   }, book);
   void arranger.refreshDesigns();
 }
@@ -385,10 +380,6 @@ function openBook(next: Book) {
 $('view-page').onclick = () => setView('page');
 $('view-spread').onclick = () => setView('spread');
 $('view-book').onclick = () => setView('book');
-$<HTMLInputElement>('spread-name').oninput = (e) => {
-  spreadName = (e.target as HTMLInputElement).value;
-  persistSettings();
-};
 
 const currentSpread = (): Spread => buildSpread(spreadName.trim() || 'Untitled spread', stores.left.page, stores.right.page);
 
@@ -434,26 +425,11 @@ $('layers-button').onclick = () => {
   if (sheet.state === 'closed') sheet.open(); else sheet.set('closed');
 };
 
-// On a narrow screen the top bar's extras live in a menu; on a wide one the same controls sit in the bar.
-const menu = $('menu');
-const menuButton = $('menu-button');
-function setMenu(open: boolean) {
-  menu.classList.toggle('open', open);
-  menuButton.setAttribute('aria-expanded', String(open));
-}
-menuButton.onclick = () => { closeContextMenu(); setMenu(!menu.classList.contains('open')); };
-menu.addEventListener('click', (e) => {
-  // Choosing something closes the menu; the fields in it (example list, spread name) keep it open while used.
-  const t = e.target as HTMLElement;
-  if (t.closest('button')) setMenu(false);
-});
-document.addEventListener('pointerdown', (e) => {
-  if (menu.classList.contains('open') && !menu.contains(e.target as Node) && !menuButton.contains(e.target as Node)) setMenu(false);
-}, true);
-addEventListener('keydown', (e) => { if (e.key === 'Escape') setMenu(false); });
-// Leaving the narrow layout (rotating, resizing) must not leave the menu stuck open or the spread read-only.
+// The top bar's three menus: at most one open; choosing an item, tapping outside or Escape closes it.
+const menus = setupMenus();
+for (const id of ['menu-page', 'menu-edit']) $(id).addEventListener('click', closeContextMenu);
 // The on-screen keyboard also resizes the window; that changes nothing here (see keyboard.ts).
-addEventListener('resize', () => { if (keyboardOpen()) return; if (!isCompact()) setMenu(false); refresh(); });
+addEventListener('resize', () => { if (keyboardOpen()) return; menus.closeAll(); refresh(); });
 
 const setMode = (m: 'edit' | 'preview') => all.forEach((s) => s.setMode(m));
 $('mode-edit').onclick = () => setMode('edit');
@@ -477,15 +453,6 @@ $('new').onclick = () => {
   persistSettings();
 };
 
-const exampleSelect = $<HTMLSelectElement>('examples');
-exampleSelect.append(new Option('Load example…', ''));
-examples.forEach((ex, i) => exampleSelect.append(new Option(ex.name, String(i))));
-exampleSelect.onchange = () => {
-  const ex = examples[Number(exampleSelect.value)];
-  exampleSelect.value = '';
-  if (ex) { notify(null); replacePage(ex); }
-};
-
 function download(blob: Blob, filename: string) {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -493,87 +460,97 @@ function download(blob: Blob, filename: string) {
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
-const slug = (name: string, fallback: string) => name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || fallback;
 
-$('export-json').onclick = () => {
-  const json = (data: unknown, name: string) =>
-    download(new Blob([JSON.stringify(data, null, 2) + '\n'], { type: 'application/json' }), `${slug(name, 'page')}.json`);
+// ---- import and export ---------------------------------------------------
+
+/** The current page, spread or book as JSON data, checked against the format first. */
+function jsonToExport(): { ok: true; data: unknown; name: string } | { ok: false; messages: string[] } {
   if (view === 'book') {
     const b = currentBook();
     const r = readBook(b);
-    if (!r.ok) { notify(['Can’t export: the book breaks the format.', ...r.issues.slice(0, 8).map(formatIssue)]); return; }
-    notify(null);
-    json(b, b.name || 'book');
-    return;
+    return r.ok ? { ok: true, data: b, name: b.name || 'book' } : { ok: false, messages: ['Can’t export: the book breaks the format.', ...r.issues.slice(0, 8).map(formatIssue)] };
   }
   if (view === 'page') {
     const issues = validatePage(stores.page.page);
-    if (issues.length) { notify(['Can’t export: the page breaks the format.', ...issues.map(formatIssue)]); return; }
-    notify(null);
-    json(stores.page.page, stores.page.page.name);
-    return;
+    return issues.length ? { ok: false, messages: ['Can’t export: the page breaks the format.', ...issues.map(formatIssue)] } : { ok: true, data: stores.page.page, name: stores.page.page.name };
   }
   const spread = currentSpread();
   const r = readSpread(spread);
-  if (!r.ok) { notify(['Can’t export: the spread breaks the format.', ...r.issues.map(formatIssue)]); return; }
-  notify(null);
-  json(spread, spread.name);
-};
+  return r.ok ? { ok: true, data: spread, name: spread.name } : { ok: false, messages: ['Can’t export: the spread breaks the format.', ...r.issues.map(formatIssue)] };
+}
 
-$('export-png').onclick = async () => {
-  try {
-    notify(null);
-    const page = cur().page;
-    download(await pageToPng(page), `${slug(page.name, 'page')}.png`);
-  } catch (err) {
-    notify(`PNG export failed: ${(err as Error).message}`);
-  }
-};
-
-const fileInput = $<HTMLInputElement>('import-file');
-$('import').onclick = () => fileInput.click();
-fileInput.onchange = async () => {
-  const file = fileInput.files?.[0];
-  fileInput.value = '';
-  if (!file) return;
+/** Open a chosen file as a page, spread or book. Says why not, in plain words, if it can't be. */
+async function importFromFile(file: File): Promise<{ ok: boolean; messages: string[] }> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(await file.text());
   } catch (err) {
-    notify(`${file.name} is not valid JSON: ${(err as Error).message}`);
-    return;
+    return { ok: false, messages: [`${file.name} is not valid JSON: ${(err as Error).message}`] };
   }
   const format = (parsed as { format?: unknown } | null)?.format;
-  if (format === 'dotwork-library') {
-    notify(`${file.name} is a library backup. Use Library, then Import library.`);
-    return;
-  }
+  if (format === 'dotwork-library') return { ok: false, messages: [`${file.name} is a library backup. Use Library, then Restore backup.`] };
+  const converted = `${file.name} contained version 1 pages and they have been converted to version 2.`;
   if (format === 'dotwork-book') {
     const r = readBook(parsed);
-    if (!r.ok) { notify([`Not imported: ${file.name} breaks the book format.`, ...r.issues.slice(0, 12).map(formatIssue)]); return; }
+    if (!r.ok) return { ok: false, messages: [`Not imported: ${file.name} breaks the book format.`, ...r.issues.slice(0, 12).map(formatIssue)] };
     openBook(r.book);
-    if (r.converted) notify(`${file.name} contained version 1 pages and they have been converted to version 2.`);
-    return;
+    if (r.converted) notify(converted);
+    return { ok: true, messages: [] };
   }
   if (format === 'dotwork-spread') {
     const r = readSpread(parsed);
-    if (!r.ok) { notify([`Not imported: ${file.name} breaks the spread format.`, ...r.issues.map(formatIssue)]); return; }
+    if (!r.ok) return { ok: false, messages: [`Not imported: ${file.name} breaks the spread format.`, ...r.issues.map(formatIssue)] };
     openSpread(r.spread);
-    if (r.converted) notify(`${file.name} contained version 1 pages and they have been converted to version 2.`);
-    return;
+    if (r.converted) notify(converted);
+    return { ok: true, messages: [] };
   }
   const result = readPage(parsed);
-  if (!result.ok) {
-    notify([`Not imported: ${file.name} breaks the page format.`, ...result.issues.map(formatIssue)]);
-    return;
-  }
+  if (!result.ok) return { ok: false, messages: [`Not imported: ${file.name} breaks the page format.`, ...result.issues.map(formatIssue)] };
   notify(result.converted ? `${file.name} was a version 1 file and has been converted to version 2.` : null);
   replacePage(result.page);
-};
+  return { ok: true, messages: [] };
+}
+
+const exportDialog = new ExportDialog({
+  view: () => view,
+  json: jsonToExport,
+  png: () => (view === 'book' ? null
+    : view === 'page' ? { page: stores.page.page }
+      : { page: cur().page, spread: { left: stores.left.page, right: stores.right.page, name: spreadName.trim() || 'Untitled spread' } }),
+  book: currentBook,
+  editBook: (change) => { ensureArranger(); arranger!.edit(() => change(arranger!.current)); },
+  importFile: importFromFile,
+  download,
+});
+$('export').onclick = () => { notify(null); exportDialog.show(); };
+
+// ---- settings ----------------------------------------------------------------
+
+const settingsDialog = new SettingsDialog({
+  view: () => view,
+  pages: () => (view === 'spread' ? [{ store: stores.left, side: 'left' as const }, { store: stores.right, side: 'right' as const }] : [{ store: stores.page, side: null }]),
+  spreadName: () => spreadName,
+  setSpreadName(name) { spreadName = name; persistSettings(); },
+  book: currentBook,
+  editBook: (change) => { ensureArranger(); arranger!.edit(() => change(arranger!.current)); },
+});
+$('settings').onclick = () => { notify(null); settingsDialog.show(); };
 
 // ---- library -------------------------------------------------------------
 
+const favorites = new Favorites((() => { try { return localStorage; } catch { return null; } })());
 const libraryDialog = new LibraryDialog(library, {
+  view: () => view,
+  examples,
+  widgets,
+  favorites,
+  pageTarget: () => (view === 'spread' ? active : null),
+  useWidget(widget) {
+    if (view === 'book') setView('page');
+    all.forEach((s) => s.setWidget(widget));
+    setTools('widget');
+    notify(`Tap the page to put “${widget.name}” there; drag to choose the spot.`);
+  },
   saveOptions(): SaveOption[] {
     if (view === 'book') return [{ what: 'book', label: 'This book', name: currentBook().name }];
     if (view === 'page') return [{ what: 'page', label: 'This page', name: stores.page.page.name }];
@@ -603,7 +580,7 @@ $('library').onclick = () => { notify(null); void libraryDialog.show(); };
 const pageHelpKey = () => (view === 'spread' && isCompact() && showBoth ? 'page-both' : cur().mode === 'preview' ? 'page-preview'
   : cur().tool === 'select' && barMode !== 'select' ? `page-${barMode}` : `page-${cur().tool}`);
 const helpMode = new HelpMode({ pageKey: pageHelpKey, after: document.querySelector<HTMLElement>('.topbar')! });
-$('help').onclick = () => { closeContextMenu(); helpMode.start(); };
+$('help').onclick = () => { closeContextMenu(); menus.closeAll(); helpMode.start(); };
 
 // ---- keyboard ------------------------------------------------------------
 

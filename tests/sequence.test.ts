@@ -47,10 +47,11 @@ describe('sequence rules', () => {
     expect(rules(seq({ values: 'icons', icons: ['sun'], size: 2, every: 2 }))).toEqual([]);
   });
 
-  it('refuses text of more than two characters, an unknown icon and a missing list', () => {
+  it('refuses text of more than two characters and an unknown icon; a list nobody has typed yet is fine', () => {
     expect(rules(seq({ values: 'list', list: ['MON'] }))).toEqual(['sequence']);
-    expect(rules(seq({ values: 'list', list: [] }))).toEqual(['sequence']);
-    expect(rules(seq({ values: 'list' }))).toEqual(['sequence']);
+    expect(rules(seq({ values: 'list', list: [] }))).toEqual([]); // nothing typed yet: nothing drawn
+    expect(rules(seq({ values: 'list' }))).toEqual([]);
+    expect(rules(seq({ values: 'list', list: [''] }))).toEqual(['sequence']);
     expect(rules(seq({ values: 'icons', icons: ['unicorn'] }))).toEqual(['sequence']);
     expect(rules(seq({ values: 'letters', start: '12' }))).toEqual(['sequence']);
     expect(rules(seq({ start: 95, count: 10 }))).toEqual(['sequence']); // reaches 100

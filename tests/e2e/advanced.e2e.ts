@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ICONS, ICON_NAMES } from '../../src/icons/icons';
-import { bar, box, cellToClient, draft, drag, missingHelp, open, shot, start, stop, tap, type App, type Env, tool,
+import { bar, box, cellToClient, choose, draft, drag, missingHelp, open, shot, start, stop, tap, type App, type Env, tool,
 } from './harness';
 
 let env: Env;
@@ -109,7 +109,10 @@ describe('Advanced on a phone (390 x 844, touch)', () => {
     await bar(app, 'properties');
     await page.waitForSelector('#sheet[data-state="open"]');
     await page.locator('#panel select[data-key="prop-values"]').selectOption('list');
-    expect(await elements(app)).toMatchObject([{ values: 'list', list: ['S', 'M', 'T', 'W', 'T', 'F', 'S'] }]);
+    // the example is a gray placeholder, not a value to delete
+    expect(await elements(app)).toMatchObject([{ values: 'list', list: [] }]);
+    expect(await page.locator('#panel [data-key="prop-list"]').inputValue()).toBe('');
+    expect(await page.locator('#panel [data-key="prop-list"]').getAttribute('placeholder')).toBe('S M T W T F S');
     await shot(app, 'phone-sequence-properties');
     const field = page.locator('#panel [data-key="prop-list"]');
     await field.fill('A B C');
@@ -158,8 +161,7 @@ describe('Advanced on a phone (390 x 844, touch)', () => {
     expect(await page.locator('#notice').innerText()).toContain('Notes box');
 
     // another page: a new, blank one
-    await page.tap('#menu-button');
-    await page.tap('#new');
+    await choose(app, 'edit', '#new');
     expect(await elements(app)).toEqual([]);
     await tool(app, 'widget');
     await page.waitForSelector('.widget-row');

@@ -1,4 +1,5 @@
 import type { Page, PageElement } from './format/types';
+import { headerOf } from './format/bounds';
 import { canMove, cycleHit, moveGroup } from './geometry';
 import { dropLoneGroups, newGroupId, regroup } from './groups';
 import type { Store } from './store';
@@ -94,9 +95,9 @@ export function duplicateElement(store: Store, index: number) {
 /** Move elements together by whole or half cells; they stop at the grid edge as a group. */
 export function nudgeElements(store: Store, indexes: readonly number[], dx: number, dy: number) {
   const src = indexes.map((i) => store.page.elements[i]).filter(Boolean);
-  if (!src.length || indexes.some((i) => store.isLocked(i)) || !canMove(src, dx, dy)) return;
+  if (!src.length || indexes.some((i) => store.isLocked(i)) || !canMove(src, dx, dy, headerOf(store.page))) return;
   const next = clone(store.page);
-  moveGroup(src, dx, dy).forEach((el, k) => { next.elements[indexes[k]] = el; });
+  moveGroup(src, dx, dy, headerOf(store.page)).forEach((el, k) => { next.elements[indexes[k]] = el; });
   store.commit(next, `nudge:${indexes.map((i) => store.idAt(i)).join(',')}`);
 }
 
@@ -112,7 +113,7 @@ export const nudgeStep = (store: Store) => (store.halfCells ? 0.5 : 1);
 export function canNudge(store: Store, index: number, dirX: number, dirY: number): boolean {
   const idx = targets(store, index);
   const els = idx.map((i) => store.page.elements[i]);
-  return els.every(Boolean) && !idx.some((i) => store.isLocked(i)) && canMove(els, dirX * nudgeStep(store), dirY * nudgeStep(store));
+  return els.every(Boolean) && !idx.some((i) => store.isLocked(i)) && canMove(els, dirX * nudgeStep(store), dirY * nudgeStep(store), headerOf(store.page));
 }
 
 /** The nudge buttons: one step (see `nudgeStep`) in a direction. */

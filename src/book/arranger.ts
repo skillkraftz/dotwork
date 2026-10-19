@@ -5,10 +5,7 @@ import { blankTokens } from '../format/tokens';
 import { pageContent, thumbnailSvg } from '../render';
 import { h } from '../panel';
 import type { Library, LibraryItem } from '../library/library';
-import {
-  blankPage, bookPage, fillSlots, getSlot, MAX_PAGES, MIN_PAGES, pagesLostByResize, resizeBook, roundPageCount, setSlot, slotCount, slotSide,
-  type Book,
-} from './book';
+import { blankPage, bookPage, fillSlots, getSlot, setSlot, slotCount, slotSide, type Book } from './book';
 import { checkPrintSettings, signatureSizes } from './impose';
 import { contentsRows, designName, listPages, opening, scopeSlots, slotLabel, whatChanges, type Scope } from './plan';
 
@@ -123,7 +120,8 @@ export class Arranger {
 
   // ---- changes ----------------------------------------------------------------
 
-  private edit(change: () => void) {
+  /** Make a change to the book as one undo step, keep the draft and redraw. */
+  edit(change: () => void) {
     this.undoStack.push(JSON.stringify(this.book));
     if (this.undoStack.length > MAX_UNDO) this.undoStack.shift();
     change();
@@ -181,44 +179,11 @@ export class Arranger {
     this.markCurrent();
   }
 
-  private num(help: string, label: string, value: number, attrs: Record<string, unknown>, set: (v: number) => void) {
-    const input = h('input', { type: 'number', value, 'aria-label': label, 'data-help': help, ...attrs });
-    input.onchange = () => { const v = Number(input.value); if (Number.isFinite(v)) set(v); else this.render(); };
-    return h('label', { class: 'compact' }, label, input);
-  }
-
   private renderBar() {
-    const b = this.book;
-    const name = h('input', { type: 'text', value: b.name, 'aria-label': 'Book name', 'data-help': 'book-name', placeholder: 'Book name', maxlength: 80 });
-    name.oninput = () => { b.name = name.value; this.host.changed(b); };
-    const pages = h('input', { type: 'number', value: b.page_count, min: MIN_PAGES, max: MAX_PAGES, step: 4, 'aria-label': 'Pages', 'data-help': 'book-pages' });
-    pages.onchange = () => {
-      const count = roundPageCount(Number(pages.value));
-      const lost = pagesLostByResize(b, count);
-      if (lost && !confirm(`Shortening the book to ${count} pages drops ${lost} designed page${lost > 1 ? 's' : ''}. Continue?`)) { pages.value = String(b.page_count); return; }
-      this.edit(() => { resizeBook(b, count); this.slot = Math.min(this.slot, count + 1); this.expanded.clear(); });
-    };
-    const numbers = h('input', { type: 'checkbox', checked: b.page_numbers, 'aria-label': 'Page numbers', 'data-help': 'book-numbers' });
-    numbers.onchange = () => this.edit(() => { b.page_numbers = numbers.checked; });
-    const p = b.print;
-    const settings = h('details', { class: 'print-settings' },
-      h('summary', { 'data-help': 'book-settings' }, 'Settings'),
-      h('div', { class: 'print-fields' },
-        name,
-        h('label', { class: 'compact' }, 'Pages', pages),
-        h('label', { class: 'toggle' }, numbers, ' Page numbers'),
-        this.num('book-thickness', 'Paper thickness (mm)', p.paper_thickness_mm, { min: 0, max: 1, step: 0.01 }, (v) => this.edit(() => { p.paper_thickness_mm = v; })),
-        this.num('book-offset-x', 'Back offset x (mm)', p.back_offset_x_mm, { min: -10, max: 10, step: 0.1 }, (v) => this.edit(() => { p.back_offset_x_mm = v; })),
-        this.num('book-offset-y', 'Back offset y (mm)', p.back_offset_y_mm, { min: -10, max: 10, step: 0.1 }, (v) => this.edit(() => { p.back_offset_y_mm = v; })),
-        this.num('book-signatures', 'Signatures', p.signatures, { min: 1, max: 20, step: 1 }, (v) => this.edit(() => { p.signatures = Math.round(v); })),
-        h('p', { class: 'hint' }, 'Creep shifts each sheet’s pages toward the fold by the sheets outside it × the paper thickness. The back offset moves everything on print-second.pdf (+x right, +y up) to match your printer.')));
-    const open = this.bar.querySelector('details')?.open;
-    if (open) settings.open = true;
     const undo = h('button', { type: 'button', disabled: this.undoStack.length === 0, onclick: () => this.undo(), 'data-help': 'book-undo', title: 'Undo the last change to the book' }, 'Undo');
     this.bar.replaceChildren(
-      settings,
       undo,
-      h('button', { type: 'button', class: 'primary', 'data-help': 'book-export', onclick: () => this.host.exportFiles(this.book) }, 'Export print files…'),
+      h('button', { type: 'button', class: 'primary', 'data-help': 'book-export', onclick: () => this.host.exportFiles(this.book) }, 'Print files…'),
     );
     this.updateWarning();
   }

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { box, cellToClient, draft, drag, open, shot, start, stop, tap, viewBoxOf, type Env } from './harness';
+import { box, cellToClient, choose, draft, drag, open, shot, start, stop, tap, viewBoxOf, type Env } from './harness';
 
 let env: Env;
 beforeAll(async () => { env = await start(); });
@@ -20,15 +20,15 @@ describe('desktop (1280 x 800, mouse and keyboard)', () => {
     expect(app.errors).toEqual([]);
   });
 
-  it('keeps the side panel, the inline controls and no menu button', async () => {
+  it('keeps the side panel and the three menus, with undo, redo and help beside them', async () => {
     const app = await open(env, 'desktop');
     const { page } = app;
-    expect(await page.locator('#menu-button').isVisible()).toBe(false);
-    for (const id of ['#library', '#export-json', '#export-png', '#mode-preview', '#help', '#undo', '#redo']) expect(await page.locator(id).isVisible(), id).toBe(true);
+    for (const id of ['#menu-page', '#menu-edit', '#export', '#help', '#undo', '#redo']) expect(await page.locator(id).isVisible(), id).toBe(true);
+    for (const id of ['#view-page', '#library', '#mode-preview']) expect(await page.locator(id).isVisible(), `${id} waits in its menu`).toBe(false);
     expect((await box(app, '#sheet'))!.width).toBeCloseTo(320, 0);
     expect(await page.locator('.sheet-head').isVisible()).toBe(false);
     expect(await page.locator('#panel .tabs').isVisible()).toBe(false);
-    for (const h of ['Page', 'Layers', 'Properties']) expect(await page.locator('#panel h2', { hasText: h }).first().isVisible()).toBe(true);
+    for (const h of ['Layers', 'Properties']) expect(await page.locator('#panel h2', { hasText: h }).first().isVisible()).toBe(true);
     await shot(app, 'desktop-page');
     expect(app.errors).toEqual([]);
   });
@@ -99,7 +99,7 @@ describe('desktop (1280 x 800, mouse and keyboard)', () => {
   it('shows both pages of a spread side by side, and edits either', async () => {
     const app = await open(env, 'desktop');
     const { page } = app;
-    await page.click('#view-spread');
+    await choose(app, 'page', '#view-spread');
     expect(await page.locator('#spread-bar').isVisible()).toBe(false);
     const l = (await box(app, '#canvas-left'))!, r = (await box(app, '#canvas-right'))!;
     expect(l.width).toBeGreaterThan(300);
@@ -115,7 +115,7 @@ describe('desktop (1280 x 800, mouse and keyboard)', () => {
 
   it('opens the library as a window, not a full-screen sheet', async () => {
     const app = await open(env, 'desktop');
-    await app.page.click('#library');
+    await choose(app, 'edit', '#library');
     await app.page.waitForSelector('dialog[aria-label="Library"][open]');
     const d = (await box(app, 'dialog[aria-label="Library"]'))!;
     expect(d.width).toBeLessThan(1280);
