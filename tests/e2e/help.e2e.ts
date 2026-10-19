@@ -87,6 +87,7 @@ describe('help mode', () => {
     await page.tap('[data-tool="shade"]');
     await drag(app, await cellToClient(app, 3, 4), await cellToClient(app, 8, 9));
     expect((await draft(app)).elements).toEqual([]);
+    await tap(app, await cellToClient(app, 12, 20));
     const pageHelp = await popupText(app);
     expect(pageHelp).toContain('THE PAGE: SHADE TOOL');
     expect(pageHelp).toContain('Pinch');
@@ -200,8 +201,7 @@ describe('every control has a help entry', () => {
     await page.waitForSelector('.ctx-menu');
     expect(await missingHelp(app)).toEqual([]);
     await page.keyboard.press('Escape');
-    await page.tap('[data-tool="box"]');
-    await drag(app, await cellToClient(app, 3, 0), await cellToClient(app, 6, 3)); // into the header row: refused with a message
+    await page.setInputFiles('#import-file', { name: 'x.json', mimeType: 'application/json', buffer: Buffer.from('not json') }); // refused with a message
     await page.waitForSelector('#notice:not([hidden])');
     expect(await missingHelp(app)).toEqual([]);
 
@@ -270,7 +270,7 @@ describe('every control has a help entry', () => {
       await page.evaluate(() => { document.querySelector<HTMLDetailsElement>('.print-settings')!.open = false; });
       await go('.view-toggle'); // spreads
       expect(await missingHelp(app), `${device} spreads`).toEqual([]);
-      await go('.contents-toggle');
+      if (app.touch) await go('.contents-toggle');
       if (app.touch) expect(await missingHelp(app), `${device} contents`).toEqual([]);
       if (app.touch) await go('.contents-close');
       await go('button[data-help="book-choose"]');
