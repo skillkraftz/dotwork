@@ -184,6 +184,8 @@ export class ExportDialog {
       return h('label', { class: 'choice stack' }, input, h('span', {}, h('strong', {}, label), h('small', { class: 'hint' }, note)));
     };
     const { pages, cover, signatures } = this.pdf;
+    const notice = h('div', { class: 'printer-notice-slot' });
+    this.fillNotice(notice);
     const names = [
       ...(pages ? ['pages.pdf'] : []), ...(cover ? ['cover.pdf'] : []),
       ...(signatures ? [`print-first.pdf and print-second.pdf for each signature, with preview.png and summary.txt`] : []),
@@ -201,26 +203,35 @@ export class ExportDialog {
         type: 'button', 'data-key': 'calibrate-open', 'data-help': 'calibrate-open',
         onclick: () => { this.dialog.close(); this.calibrate.show(); },
       }, 'Calibrate your printer…')),
-      ...(signatures ? [...this.printerNotice(), h('h3', {}, 'Printing'), ...printFields(() => this.host.book(), (change) => { this.host.editBook(change); })] : []),
+      ...(signatures ? [notice, h('h3', {}, 'Printing'), ...printFields(() => this.host.book(), (change) => { this.host.editBook(change); this.fillNotice(notice); })] : []),
       this.downloadButton('export-pdf', () => this.buildPdf(), names.length === 0),
     ];
   }
 
-  /** Says so when the book's print settings differ from the printer's saved ones, and offers to take either. */
-  private printerNotice(): HTMLElement[] {
-    const saved = this.host.printer.saved();
-    if (!saved) return [];
-    const print = this.host.book().print, keys = differing(print, saved);
-    const id = JSON.stringify([printerOf(print), saved]);
-    if (keys.length === 0 || id === this.keptDifference) return [];
+  /** The printer's saved settings and where the book's print settings differ from them: the key of that difference, and what differs. */
+  private printerDifference() {
+    const saved = this.host.printer.saved(), print = this.host.book().print;
+    return { saved, print, keys: saved ? differing(print, saved) : [], id: JSON.stringify([printerOf(print), saved]) };
+  }
+
+  /**
+   * Says so when the book's print settings differ from the printer's saved ones, and offers to take either. A change to a field
+   * only updates the list, never the buttons: a tap that blurs a field and lands on a button must still reach it.
+   */
+  private fillNotice(slot: HTMLElement) {
+    const { saved, print, keys, id } = this.printerDifference();
+    if (!saved || keys.length === 0 || id === this.keptDifference) { slot.replaceChildren(); return; }
+    const items = keys.map((k) => h('li', {}, `${PRINT_LABELS[k]}: ${print[k]} here, ${saved[k]} saved`));
+    const list = slot.querySelector('ul');
+    if (list) { list.replaceChildren(...items); return; }
     const use = h('button', { type: 'button', class: 'primary', 'data-key': 'printer-use-saved', 'data-help': 'printer-use-saved' }, 'Use my printer settings');
-    use.onclick = () => { this.host.editBook((b) => Object.assign(b.print, saved)); this.render(); };
+    use.onclick = () => { this.host.editBook((b) => Object.assign(b.print, this.host.printer.saved()!)); this.render(); };
     const keep = h('button', { type: 'button', 'data-key': 'printer-keep-book', 'data-help': 'printer-keep-book' }, 'Keep this book’s');
-    keep.onclick = () => { this.keptDifference = id; this.render(); };
-    return [h('div', { class: 'printer-notice', role: 'status', 'data-key': 'printer-notice' },
+    keep.onclick = () => { this.keptDifference = this.printerDifference().id; this.fillNotice(slot); };
+    slot.replaceChildren(h('div', { class: 'printer-notice', role: 'status', 'data-key': 'printer-notice' },
       h('p', {}, 'This book’s print settings differ from your printer’s saved settings:'),
-      h('ul', {}, ...keys.map((k) => h('li', {}, `${PRINT_LABELS[k]}: ${print[k]} here, ${saved[k]} saved`))),
-      h('div', { class: 'problem-actions' }, use, keep))];
+      h('ul', {}, ...items),
+      h('div', { class: 'problem-actions' }, use, keep)));
   }
 
   private async buildPdf() {

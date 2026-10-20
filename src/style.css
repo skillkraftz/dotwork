@@ -228,6 +228,8 @@ dialog.calibrate { width: min(640px, calc(100% - 28px)); }
 .export-what { margin: 0; }
 .cal-step { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--gray-2); padding-top: 4px; }
 .cal-progress { margin: 0; padding: 8px 14px 0; font-weight: bold; }
+.calibrate-body { flex: 1 1 auto; min-height: 0; }
+.cal-progress, .cal-nav { flex: none; }
 .cal-nav { display: flex; gap: 10px; padding: 10px 14px; border-top: 1px solid var(--gray-2); }
 .cal-nav button { flex: 1; min-height: 48px; font-size: 16px; }
 .cal-result { display: flex; flex-direction: column; gap: 8px; }
