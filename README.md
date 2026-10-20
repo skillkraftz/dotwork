@@ -129,15 +129,25 @@ cover.
   expands on tap. On a phone it opens from the **Contents** button.
 - **Page numbers** are on by default, in each page's outer top corner. Date
   tokens (`{weekday}` and so on) print blank so the date can be written in.
-- **Book settings** (Page ▾, then Settings, and again in the PDF tab): paper thickness for creep (0.14 mm), the back-side
-  offset (x and y, for printers that shift on the second pass), the number of signatures, and four **tones**: how dark
+- **Book settings** (Page ▾, then Settings, and again in the PDF tab): paper thickness for creep (0.14 mm), the **front
+  and back offsets** (x and y; each side's own error against the paper, so the fold lands on the sheet's centre and the
+  margins are even), the number of signatures, and four **tones**: how dark
   the printed PDFs draw the light, medium and dark shade and the gray text, as a percent of black (the editor and PNGs
   keep their fixed grays). A creep that would cross the fold is refused with the reason.
-- **Calibrate your printer…** (PDF tab) opens the Calibrate page: plain steps for the back offset, the tones and the paper
-  thickness, with each setting's field inline, and a download of a **calibration set**
-  (`calibration-first.pdf` and `calibration-second.pdf`, `creep-test.pdf`, `calibration-cover.pdf`, `calibration.txt`) to
-  print before the whole book. Print them the same way as the book: the first, put the sheet back in the tray the same way, then the
-  second. What the sheets contain and how to read them is in [docs/book-format.md](docs/book-format.md).
+- **Calibrate your printer…** (PDF tab) opens a three-step wizard, one step on screen at a time, with Back and Next:
+  1. **Alignment** downloads `calibration-alignment.pdf` (page 1 the front, page 2 the back). Fold the printed sheet in half edge to edge
+     and read where the crease crosses each side's fold scale, then read the margin where the paper ends on the top and
+     bottom rulers. The wizard turns the readings into the four offsets.
+  2. **Creep and cover** downloads a zip with `creep-test.pdf` (every sheet of your biggest signature, both sides, in
+     manual-duplex order) and `calibration-cover.pdf`, both with margin rulers on every page. After binding and
+     trimming, read the fore-edge margin on the cover, the outermost sheet and the innermost sheet; the wizard gives the
+     new paper thickness (and how far the cover's own thickness pushes the pages in).
+  3. **Check** (optional) prints the corrected creep test again and compares the margins you measure with the targets
+     (3.95 mm at the fore-edge, 3.85 mm top and bottom); it also holds the tone fields.
+
+  Everything you enter there is also kept in the browser as **your printer's settings**: new books start from them, and the
+  PDF tab says when a book's settings differ, with **Use my printer settings** and **Keep this book's**. The book still
+  carries its own copy in `book.json`. What the sheets contain and how to read them is in [docs/book-format.md](docs/book-format.md).
 - **Print files…** (or Export, then PDF) offers **pages at final size** (`pages.pdf`) or **print-ready signatures**
   (`print-first.pdf` and `print-second.pdf`, one pair per signature, with a `preview.png` contact sheet and a
   `summary.txt` in the zip, which lists the print settings that made the files and short printing tips), and **cover.pdf** with either. It always downloads as a zip, with `book.json` (the book it was built from) and, if anything failed, an `error.txt`.

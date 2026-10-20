@@ -26,7 +26,13 @@ export const TRIM_ZONE_MM = FOLD_X_MM - PAGE_W_MM;
 export interface PrintSettings {
   /** Creep: each sheet shifts toward the fold by (sheets outside it) x this. */
   paper_thickness_mm: number;
-  /** Added to everything on the back side (print-second); +x moves right, +y moves up, as seen on the back. */
+  /**
+   * Added to everything on one side of the sheet, to cancel what the printer does to it. Measured against the paper (the fold
+   * at its centre, the margins even), not against the other side. +x moves right and +y moves up, as seen on that side.
+   * The front takes print-first.pdf, cover.pdf and the front calibration page; the back takes print-second.pdf.
+   */
+  front_offset_x_mm: number;
+  front_offset_y_mm: number;
   back_offset_x_mm: number;
   back_offset_y_mm: number;
   /** How many signatures to split the book into. */
@@ -43,7 +49,7 @@ export interface PrintSettings {
 
 /** The defaults are the owner's measured printer and paper; the tones are today's grays (#efefef, #dcdcdc, #bdbdbd, #808080). */
 export const DEFAULT_PRINT: PrintSettings = {
-  paper_thickness_mm: 0.14, back_offset_x_mm: 0, back_offset_y_mm: 0, signatures: 1,
+  paper_thickness_mm: 0.14, front_offset_x_mm: 0, front_offset_y_mm: 0, back_offset_x_mm: 0, back_offset_y_mm: 0, signatures: 1,
   shade_light_pct: 6.3, shade_medium_pct: 13.7, shade_dark_pct: 25.9, gray_text_pct: 49.8,
 };
 
@@ -107,6 +113,10 @@ export function duplexOrder(sheets: number): [number[], number[]] {
   return [[...forward].reverse(), forward];
 }
 
+/** The offset a side of the sheet takes, in mm: +x right, +y up, as seen on that side. */
+export const offsetOf = (s: Pick<PrintSettings, 'front_offset_x_mm' | 'front_offset_y_mm' | 'back_offset_x_mm' | 'back_offset_y_mm'>, side: 'front' | 'back') =>
+  side === 'front' ? { x: s.front_offset_x_mm, y: s.front_offset_y_mm } : { x: s.back_offset_x_mm, y: s.back_offset_y_mm };
+
 /** Sheet position (mm) of a page's top-left corner. Pages shift toward the fold by `creep`: the left page right, the right page left. */
 export function pageOrigin(isRight: boolean, creep: number): { x: number; y: number } {
   const y = (SHEET_H_MM - PAGE_H_MM) / 2;
@@ -116,7 +126,7 @@ export function pageOrigin(isRight: boolean, creep: number): { x: number; y: num
 /** Why these settings can't be printed, or null if they can. `sheets` is the biggest signature, in sheets. */
 export function checkPrintSettings(s: PrintSettings, sheets: number): string | null {
   if (!Number.isFinite(s.paper_thickness_mm) || s.paper_thickness_mm < 0) return 'Paper thickness must be zero or more.';
-  if (!Number.isFinite(s.back_offset_x_mm) || !Number.isFinite(s.back_offset_y_mm)) return 'The back-side offset must be a number.';
+  if (![s.front_offset_x_mm, s.front_offset_y_mm, s.back_offset_x_mm, s.back_offset_y_mm].every(Number.isFinite)) return 'The offsets must be numbers.';
   if (!Number.isInteger(s.signatures) || s.signatures < 1) return 'Signatures must be a whole number, at least 1.';
   for (const key of ['shade_light_pct', 'shade_medium_pct', 'shade_dark_pct', 'gray_text_pct'] as const) {
     if (!Number.isFinite(s[key]) || s[key] < 0 || s[key] > 100) return 'Each tone must be a percentage from 0 to 100.';

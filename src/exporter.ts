@@ -10,7 +10,9 @@ import { svgToPng, pageToPng, spreadToPng, FONT_CSS, PNG_DPI, PNG_DPIS } from '.
 import { printFields } from './settings';
 import { slug } from './slug';
 import { loadFontBytes } from './print/fonts';
-import { CalibrateDialog } from './calibrate';
+import { CalibrateDialog, type CalibrateHost } from './calibrate';
+import { differing, printerOf } from './printer';
+import { PRINT_LABELS } from './print/settingstext';
 
 export type ExportTab = 'import' | 'export' | 'png' | 'pdf';
 const TABS: [ExportTab, string][] = [['import', 'Import'], ['export', 'Export'], ['png', 'PNG'], ['pdf', 'PDF']];
@@ -18,7 +20,7 @@ const TABS: [ExportTab, string][] = [['import', 'Import'], ['export', 'Export'],
 const PREVIEW_DPI = 60;
 
 /** What the export window needs from the editor around it. */
-export interface ExportHost {
+export interface ExportHost extends Pick<CalibrateHost, 'printer'> {
   view(): 'page' | 'spread' | 'book';
   /** The current page, spread or book as a JSON file: its data and a name for the file, or why it can't be saved. */
   json(): { ok: true; data: unknown; name: string } | { ok: false; problem: Problem };
@@ -44,6 +46,8 @@ export class ExportDialog {
   private png = { scope: 'page' as 'page' | 'spread', dpi: PNG_DPI as number };
   private pdf = { pages: true, cover: true, signatures: true };
   private calibrate: CalibrateDialog;
+  /** The book and printer settings whose difference was dismissed with Keep this book's. */
+  private keptDifference = '';
 
   constructor(private host: ExportHost) {
     const tabBar = h('div', { class: 'lib-tabs', role: 'tablist', 'aria-label': 'Export sections' },
@@ -180,6 +184,8 @@ export class ExportDialog {
       return h('label', { class: 'choice stack' }, input, h('span', {}, h('strong', {}, label), h('small', { class: 'hint' }, note)));
     };
     const { pages, cover, signatures } = this.pdf;
+    const notice = h('div', { class: 'printer-notice-slot' });
+    this.fillNotice(notice);
     const names = [
       ...(pages ? ['pages.pdf'] : []), ...(cover ? ['cover.pdf'] : []),
       ...(signatures ? [`print-first.pdf and print-second.pdf for each signature, with preview.png and summary.txt`] : []),
@@ -197,9 +203,35 @@ export class ExportDialog {
         type: 'button', 'data-key': 'calibrate-open', 'data-help': 'calibrate-open',
         onclick: () => { this.dialog.close(); this.calibrate.show(); },
       }, 'Calibrate your printer…')),
-      ...(signatures ? [h('h3', {}, 'Printing'), ...printFields(() => this.host.book(), (change) => { this.host.editBook(change); })] : []),
+      ...(signatures ? [notice, h('h3', {}, 'Printing'), ...printFields(() => this.host.book(), (change) => { this.host.editBook(change); this.fillNotice(notice); })] : []),
       this.downloadButton('export-pdf', () => this.buildPdf(), names.length === 0),
     ];
+  }
+
+  /** The printer's saved settings and where the book's print settings differ from them: the key of that difference, and what differs. */
+  private printerDifference() {
+    const saved = this.host.printer.saved(), print = this.host.book().print;
+    return { saved, print, keys: saved ? differing(print, saved) : [], id: JSON.stringify([printerOf(print), saved]) };
+  }
+
+  /**
+   * Says so when the book's print settings differ from the printer's saved ones, and offers to take either. A change to a field
+   * only updates the list, never the buttons: a tap that blurs a field and lands on a button must still reach it.
+   */
+  private fillNotice(slot: HTMLElement) {
+    const { saved, print, keys, id } = this.printerDifference();
+    if (!saved || keys.length === 0 || id === this.keptDifference) { slot.replaceChildren(); return; }
+    const items = keys.map((k) => h('li', {}, `${PRINT_LABELS[k]}: ${print[k]} here, ${saved[k]} saved`));
+    const list = slot.querySelector('ul');
+    if (list) { list.replaceChildren(...items); return; }
+    const use = h('button', { type: 'button', class: 'primary', 'data-key': 'printer-use-saved', 'data-help': 'printer-use-saved' }, 'Use my printer settings');
+    use.onclick = () => { this.host.editBook((b) => Object.assign(b.print, this.host.printer.saved()!)); this.render(); };
+    const keep = h('button', { type: 'button', 'data-key': 'printer-keep-book', 'data-help': 'printer-keep-book' }, 'Keep this book’s');
+    keep.onclick = () => { this.keptDifference = this.printerDifference().id; this.fillNotice(slot); };
+    slot.replaceChildren(h('div', { class: 'printer-notice', role: 'status', 'data-key': 'printer-notice' },
+      h('p', {}, 'This book’s print settings differ from your printer’s saved settings:'),
+      h('ul', {}, ...items),
+      h('div', { class: 'problem-actions' }, use, keep)));
   }
 
   private async buildPdf() {

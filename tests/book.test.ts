@@ -19,7 +19,7 @@ describe('a book', () => {
     expect(b.pages).toHaveLength(52);
     expect(b.page_numbers).toBe(true);
     expect(b.print).toEqual({
-      paper_thickness_mm: 0.14, back_offset_x_mm: 0, back_offset_y_mm: 0, signatures: 1,
+      paper_thickness_mm: 0.14, front_offset_x_mm: 0, front_offset_y_mm: 0, back_offset_x_mm: 0, back_offset_y_mm: 0, signatures: 1,
       shade_light_pct: 6.3, shade_medium_pct: 13.7, shade_dark_pct: 25.9, gray_text_pct: 49.8,
     });
   });

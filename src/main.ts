@@ -17,6 +17,7 @@ import { idbBackend } from './library/idb';
 import { LibraryDialog, type SaveOption, type SaveWhat } from './library/dialog';
 import { Arranger } from './book/arranger';
 import { emptyBook, readBook, type Book } from './book/book';
+import { loadPrinter, printerOf, savePrinter, startingPrint, type PrinterSettings } from './printer';
 import { ExportDialog } from './exporter';
 import { SettingsDialog } from './settings';
 import { checkItem, setupMenus } from './menus';
@@ -43,6 +44,13 @@ const stored = (key: string) => { try { return localStorage.getItem(key); } catc
 const draftStorage = (): DraftStorage | null => { try { return localStorage; } catch { return null; } };
 /** Drafts that couldn't be read at start-up; shown (with the way to get them back) once the screen exists. */
 const startupProblems: Problem[] = [];
+
+/** The printer's saved settings (the Calibrate page keeps them), or null until there are some. */
+let printerSettings: PrinterSettings | null = (() => {
+  const loaded = loadPrinter(draftStorage());
+  if (loaded.status === 'bad') startupProblems.push(loaded.problem);
+  return loaded.status === 'ok' ? loaded.value : null;
+})();
 
 /** Offer a draft that couldn't be read as a download. It is already kept under a backup key. */
 function badDraft(label: string, filename: string, d: Extract<DraftLoad<unknown>, { status: 'bad' }>) {
@@ -369,7 +377,7 @@ function loadBook(): Book {
     badDraft('book', 'dotwork-book-draft.json', d);
     notifyProblems(startupProblems.slice(-1), true);
   }
-  return emptyBook();
+  return emptyBook(undefined, startingPrint(printerSettings));
 }
 
 /** Keep the book draft, or say why not. A book that breaks the format is never written over the last good draft. */
@@ -393,9 +401,11 @@ function ensureArranger() {
 
 const currentBook = (): Book => arranger?.current ?? (book ??= loadBook());
 
-function openBook(next: Book) {
+/** `fresh` for a book that is just being made (a template): it starts from the printer's saved settings, not the defaults. */
+function openBook(next: Book, fresh = false) {
   notify(null);
   book = structuredClone(next);
+  if (fresh) book.print = { ...book.print, ...printerSettings };
   keepBook(book);
   arranger?.setBook(book);
   view = 'book';
@@ -468,7 +478,7 @@ $('new').onclick = () => {
   notify(null);
   if (view === 'book') {
     if (currentBook().pages.some(Boolean) && !confirm('Start a new book? The current draft is replaced (save it to the Library first to keep it).')) return;
-    openBook(emptyBook());
+    openBook(emptyBook(undefined, startingPrint(printerSettings)));
     return;
   }
   if (view === 'page') { replacePage(emptyPage()); return; }
@@ -546,6 +556,13 @@ const exportDialog = new ExportDialog({
       : { page: cur().page, spread: { left: stores.left.page, right: stores.right.page, name: spreadName.trim() || 'Untitled spread' } }),
   book: currentBook,
   editBook: (change) => { ensureArranger(); arranger!.edit(() => change(arranger!.current)); },
+  printer: {
+    saved: () => printerSettings,
+    save(print) {
+      printerSettings = printerOf(print); // kept for this visit even if the browser refuses to store it
+      return savePrinter(draftStorage(), print);
+    },
+  },
   importFile: importFromFile,
   download,
 });

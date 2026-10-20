@@ -7,7 +7,7 @@ import { withSide } from '../format/spread';
 import { blankTokens } from '../format/tokens';
 import { bookExpand, bookPage, blankPage, type Book } from '../book/book';
 import {
-  SHEET_H_MM, SHEET_W_MM, checkPrintSettings, duplexOrder, impose, pageOrigin,
+  SHEET_H_MM, SHEET_W_MM, checkPrintSettings, duplexOrder, impose, offsetOf, pageOrigin,
   type PageRef, type Sheet, type SheetSide, type Signature,
 } from '../book/impose';
 import { drawPage, mmToPt, type Fonts } from './draw';
@@ -52,13 +52,13 @@ async function pagesPdf(book: Book, fontBytes: FontBytes): Promise<Uint8Array> {
   return doc.save({ useObjectStreams: false });
 }
 
-/** One side of every sheet in the given order. Fronts come in reverse, backs forward; the back side takes the printer offset. */
+/** One side of every sheet in the given order. Fronts come in reverse, backs forward; each side takes its own printer offset. */
 async function sidesPdf(book: Book, sig: Signature, back: boolean, fontBytes: FontBytes): Promise<Uint8Array> {
   const { doc, fonts } = await newDocument(fontBytes);
   const d = drawer(book, fonts, SHEET_H_MM);
   const [fronts, backs] = duplexOrder(sig.sheets.length);
-  const dx = back ? book.print.back_offset_x_mm : 0;
-  const dy = back ? -book.print.back_offset_y_mm : 0; // +y moves up; sheet y runs down
+  const off = offsetOf(book.print, back ? 'back' : 'front');
+  const dx = off.x, dy = -off.y; // +y moves up; sheet y runs down
   for (const i of back ? backs : fronts) {
     const sheet: Sheet = sig.sheets[i];
     const side: SheetSide = back ? sheet.back : sheet.front;
@@ -73,14 +73,15 @@ async function sidesPdf(book: Book, sig: Signature, back: boolean, fontBytes: Fo
   return doc.save({ useObjectStreams: false });
 }
 
-/** The cover spread: inside front cover on the left, inside back cover on the right, single-sided, centered, no creep. */
+/** The cover spread: inside front cover on the left, inside back cover on the right, single-sided, centered, no creep. It takes the front offset. */
 async function coverPdf(book: Book, fontBytes: FontBytes): Promise<Uint8Array> {
   const { doc, fonts } = await newDocument(fontBytes);
   const d = drawer(book, fonts, SHEET_H_MM);
   const pdf = doc.addPage([mmToPt(SHEET_W_MM), mmToPt(SHEET_H_MM)]);
+  const off = offsetOf(book.print, 'front');
   const l = pageOrigin(false, 0), r = pageOrigin(true, 0);
-  d.cover(pdf, 'front', l.x, l.y);
-  d.cover(pdf, 'back', r.x, r.y);
+  d.cover(pdf, 'front', l.x + off.x, l.y - off.y);
+  d.cover(pdf, 'back', r.x + off.x, r.y - off.y);
   return doc.save({ useObjectStreams: false });
 }
 
@@ -91,6 +92,9 @@ export const PRINT_TIPS = [
   '- Then print one signature before the whole book.',
   '- Print at actual size (100%): turn off fit-to-page and scale-to-fit.',
   '- Use the same paper and printer settings for print-first and print-second.',
+  '- Print at your printer\'s best quality. Firefox may not use the quality set in the printer\'s own defaults, and normal',
+  '  quality feeds the paper too fast and misaligns lines. Check the quality in the print dialog\'s printer options, or',
+  '  set the default in CUPS (localhost:631) on Linux.',
 ];
 
 export function summary(book: Book, sigs: Signature[], files: string[], now = new Date()): string {
@@ -104,7 +108,7 @@ export function summary(book: Book, sigs: Signature[], files: string[], now = ne
     '',
     'Print settings used for these files:',
     ...settingsLines(book, now).map((l) => `  ${l}`),
-    '  (back offset: + is right and up; it moves print-second.pdf only. Tones: 0 = white, 100 = black.)',
+    '  (offsets: + is right and up, as seen on that side. Front: print-first.pdf and cover.pdf. Back: print-second.pdf. Tones: 0 = white, 100 = black.)',
     '',
     `Files: ${files.join(', ')}`,
     '',

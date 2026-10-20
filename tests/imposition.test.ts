@@ -120,6 +120,7 @@ describe('creep', () => {
   it('refuses settings that are not numbers', () => {
     expect(checkPrintSettings({ ...S, paper_thickness_mm: -1 }, 13)).toMatch(/thickness/);
     expect(checkPrintSettings({ ...S, back_offset_x_mm: NaN }, 13)).toMatch(/offset/);
+    expect(checkPrintSettings({ ...S, front_offset_y_mm: NaN }, 13)).toMatch(/offset/);
     expect(checkPrintSettings({ ...S, signatures: 0 }, 13)).toMatch(/Signatures/);
   });
 });
