@@ -9,6 +9,7 @@ import { FOLD_X_MM, SHEET_H_MM, SHEET_W_MM } from '../src/book/impose';
 import { GRID_Y_MM, PAGE_H_MM, PAGE_W_MM, PITCH_MM, ROWS, emptyPage } from '../src/format/types';
 import { exportBookFiles } from '../src/print/export';
 import { FOLD_SCALE_Y, SCALE_MM, alignmentFile } from '../src/print/calibrate';
+import { FLAT } from './flat';
 import { readPdf, textPositions, type PageInfo } from './pdf-text';
 
 const fontBytes = { regular: readFileSync('src/fonts/CourierPrime-Regular.ttf'), bold: readFileSync('src/fonts/CourierPrime-Bold.ttf') };
@@ -18,7 +19,7 @@ const texts = textPositions;
 
 /** A book of two sheets whose pages carry a label; sheet 0 (creep 0) carries P8 | P1 on the front and P2 | P7 on the back. */
 function book(tweak: (b: Book) => void = () => {}): Book {
-  const b = emptyBook(8);
+  const b = emptyBook(8, FLAT);
   b.page_numbers = false;
   for (let n = 1; n <= 8; n++) setSlot(b, n, { ...emptyPage(), identity: '', elements: [{ type: 'text', x: 3, y: 10, text: `P${n}` }] });
   tweak(b);

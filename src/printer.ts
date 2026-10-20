@@ -1,4 +1,4 @@
-// The printer's settings: what the Calibrate page finds out about a printer and its paper (offsets, paper thickness, tones),
+// The printer's settings: what the Calibrate page finds out about a printer and its paper (offsets, creep, fore-edge shifts, tones),
 // kept in the browser so every new book starts from them. The book still carries its own copy in book.json.
 import { PRINT_LIMITS } from './book/book';
 import { DEFAULT_PRINT, type PrintSettings } from './book/impose';
@@ -9,7 +9,7 @@ export const PRINTER_KEY = 'dotwork.printer';
 
 /** The print settings that belong to the printer; the number of signatures belongs to the book. */
 export const PRINTER_KEYS = [
-  'paper_thickness_mm', 'front_offset_x_mm', 'front_offset_y_mm', 'back_offset_x_mm', 'back_offset_y_mm',
+  'creep_per_sheet_mm', 'fore_edge_shift_mm', 'cover_fore_edge_shift_mm', 'target_fore_edge_margin_mm', 'front_offset_x_mm', 'front_offset_y_mm', 'back_offset_x_mm', 'back_offset_y_mm',
   'shade_light_pct', 'shade_medium_pct', 'shade_dark_pct', 'gray_text_pct',
 ] as const satisfies readonly (keyof PrintSettings)[];
 export type PrinterSettings = Pick<PrintSettings, (typeof PRINTER_KEYS)[number]>;

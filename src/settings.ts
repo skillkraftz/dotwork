@@ -177,7 +177,10 @@ export class SettingsDialog {
 
 /** How each print setting is labelled and stepped in its field. `help` is the key of its entry in help.ts. */
 const PRINT_FIELDS: Record<keyof PrintSettings, { label: string; help: string; step: number }> = {
-  paper_thickness_mm: { label: 'Paper thickness (mm)', help: 'book-thickness', step: 0.01 },
+  creep_per_sheet_mm: { label: 'Creep per sheet (mm)', help: 'book-creep', step: 0.01 },
+  fore_edge_shift_mm: { label: 'Fore-edge shift (mm)', help: 'book-fore-edge-shift', step: 0.1 },
+  cover_fore_edge_shift_mm: { label: 'Cover shift (mm)', help: 'book-cover-shift', step: 0.1 },
+  target_fore_edge_margin_mm: { label: 'Target fore-edge margin (mm)', help: 'book-target-margin', step: 0.1 },
   front_offset_x_mm: { label: 'Front offset x (mm)', help: 'book-front-offset-x', step: 0.1 },
   front_offset_y_mm: { label: 'Front offset y (mm)', help: 'book-front-offset-y', step: 0.1 },
   back_offset_x_mm: { label: 'Back offset x (mm)', help: 'book-offset-x', step: 0.1 },
@@ -204,12 +207,12 @@ export function printField(book: () => Book, edit: (change: (b: Book) => void) =
   return h('label', { class: 'compact' }, label, input);
 }
 
-/** Paper thickness, back offset, signatures and tones: the settings that shape the print-ready files. Used in the settings and the export window. */
+/** Creep, shifts, offsets, signatures and tones: the settings that shape the print-ready files. Used in the settings and the export window. */
 export function printFields(book: () => Book, edit: (change: (b: Book) => void) => void): HTMLElement[] {
   const field = (key: keyof PrintSettings) => printField(book, edit, key);
   return [
-    field('paper_thickness_mm'), field('front_offset_x_mm'), field('front_offset_y_mm'), field('back_offset_x_mm'), field('back_offset_y_mm'), field('signatures'),
-    h('p', { class: 'hint' }, 'Creep shifts each sheet’s pages toward the fold by the sheets outside it × the paper thickness. The front offset moves everything on print-first.pdf and cover.pdf, the back offset everything on print-second.pdf (+x right, +y up, as seen on that side), to cancel what your printer does to each side.'),
+    field('creep_per_sheet_mm'), field('fore_edge_shift_mm'), field('cover_fore_edge_shift_mm'), field('target_fore_edge_margin_mm'), field('front_offset_x_mm'), field('front_offset_y_mm'), field('back_offset_x_mm'), field('back_offset_y_mm'), field('signatures'),
+    h('p', { class: 'hint' }, 'Creep moves each sheet’s pages toward the fold by the sheets outside it × the creep per sheet (often more than the paper’s thickness; the Calibrate page finds it). The fore-edge shifts move every page away from the fold, so the trimmed fore-edge margin lands on the target. The front offset moves everything on print-first.pdf and cover.pdf, the back offset everything on print-second.pdf (+x right, +y up, as seen on that side), to cancel what your printer does to each side.'),
     field('shade_light_pct'), field('shade_medium_pct'), field('shade_dark_pct'), field('gray_text_pct'),
     h('p', { class: 'hint' }, 'Tones are how dark the light, medium and dark shades and the gray text print: 0 is white, 100 is black. They change the PDFs only, not the editor or PNGs. The Calibrate page helps you choose them and keeps them as your printer’s settings.'),
   ];

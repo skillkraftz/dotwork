@@ -16,7 +16,7 @@ import { FOLD_X_MM, SHEET_H_MM, SHEET_W_MM, checkPrintSettings, duplexOrder, imp
 import { LINE } from '../render';
 import { color, drawPage, mmToPt, type Fonts } from './draw';
 import { newDocument, type ExportedFile, type FontBytes, type PdfPage } from './export';
-import { creepSheets, thicknessFromCreepTest } from '../book/creep';
+import { creepSheets } from '../book/creep';
 import { settingsLines } from './settingstext';
 import { grayHex, tonesOf } from './tones';
 
@@ -35,7 +35,7 @@ export const SCALE_MM = 5;
 /** The fore-edge ruler runs from the box line this far outward: past the trim line, which is GRID_X from it. */
 export const FORE_EDGE_RULER_MM = 7;
 
-export { creepSheets, thicknessFromCreepTest };
+export { creepSheets };
 
 /** Where a page's box starts on the sheet, and its size. */
 const GRID_W = COLS * P, GRID_H = ROWS * P;
@@ -92,14 +92,14 @@ const page = (side: 'left' | 'right', elements: PageElement[]): Page => ({ ...em
 const text = (x: number, y: number, str: string, more: Partial<Text> = {}): PageElement => ({ type: 'text', x, y, text: str, tone: 'black', ...more });
 
 /** Where a page's content area starts on the sheet. */
-const gridAt = (isRight: boolean, creep: number) => {
-  const o = pageOrigin(isRight, creep);
+const gridAt = (isRight: boolean, creep: number, shift = 0) => {
+  const o = pageOrigin(isRight, creep, shift);
   return { page: o, x: o.x + GRID_X_MM, y: o.y + GRID_Y_MM };
 };
 
 /** The page edge, the content-area box and, if asked, a crosshair at each corner of the box and at its center. */
-function frame(c: Canvas, isRight: boolean, creep: number, crosshairs: boolean) {
-  const { page: o, x, y } = gridAt(isRight, creep);
+function frame(c: Canvas, isRight: boolean, creep: number, shift: number, crosshairs: boolean) {
+  const { page: o, x, y } = gridAt(isRight, creep, shift);
   c.outline(o.x, o.y, PAGE_W_MM, PAGE_H_MM, HAIR_MM, '#808080');
   c.outline(x, y, GRID_W, GRID_H, BOX_MM);
   if (!crosshairs) return;
@@ -112,8 +112,8 @@ function frame(c: Canvas, isRight: boolean, creep: number, crosshairs: boolean) 
 }
 
 /** The settings, bottom-aligned inside the box, with any extra lines above them. */
-function footer(c: Canvas, book: Book, now: Date, isRight: boolean, creep: number, extra: string[]) {
-  const { x, y } = gridAt(isRight, creep);
+function footer(c: Canvas, book: Book, now: Date, isRight: boolean, creep: number, shift: number, extra: string[]) {
+  const { x, y } = gridAt(isRight, creep, shift);
   const lines = [...extra, ...settingsLines(book, now)];
   lines.forEach((line, i) => c.text(line, x + 0.8, y + GRID_H - 1 - (lines.length - 1 - i) * FOOTER_LEAD_MM, FOOTER_MM));
 }
@@ -179,23 +179,23 @@ const fmt = (mm: number) => String(Math.round(mm * 100) / 100);
 
 /**
  * A ruler in a page's margin that counts mm outward from the box line, so the number where the paper ends is the margin there.
- * The expected margin is marked. `edge` is the side of the page it measures.
+ * The expected margin is marked (at the fore-edge, the target margin). `edge` is the side of the page it measures.
  */
-function marginRuler(c: Canvas, o: Pt, edge: 'top' | 'bottom' | 'left' | 'right') {
+function marginRuler(c: Canvas, o: Pt, edge: 'top' | 'bottom' | 'left' | 'right', foreEdgeTarget: number) {
   const x0 = o.x + GRID_X_MM, y0 = o.y + GRID_Y_MM; // the box's top left
   const out = { top: { x: 0, y: -1 }, bottom: { x: 0, y: 1 }, left: { x: -1, y: 0 }, right: { x: 1, y: 0 } }[edge];
   const from = { top: { x: o.x + PAGE_W_MM / 2, y: y0 }, bottom: { x: o.x + PAGE_W_MM / 2, y: y0 + GRID_H }, left: { x: x0, y: o.y + PAGE_H_MM / 2 }, right: { x: x0 + GRID_W, y: o.y + PAGE_H_MM / 2 } }[edge];
   const horizontal = edge === 'left' || edge === 'right';
-  const expected = horizontal ? GRID_X_MM : GRID_Y_MM;
+  const expected = horizontal ? foreEdgeTarget : GRID_Y_MM;
   scale(c, from, out, 0, horizontal ? FORE_EDGE_RULER_MM : GRID_Y_MM, { label: (mm) => fmt(mm), mark: { mm: expected, text: fmt(expected) } });
 }
 
-/** The rulers at a page's top and bottom, and at its fore-edge if asked (the outer edge, which is trimmed). */
-function pageRulers(c: Canvas, isRight: boolean, creep: number, foreEdge: boolean) {
-  const o = pageOrigin(isRight, creep);
-  marginRuler(c, o, 'top');
-  marginRuler(c, o, 'bottom');
-  if (foreEdge) marginRuler(c, o, isRight ? 'right' : 'left');
+/** The rulers at a page's top and bottom, and at its fore-edge if asked (the outer edge, which is trimmed; marked at the target margin). */
+function pageRulers(c: Canvas, book: Book, isRight: boolean, creep: number, shift: number, foreEdge: boolean) {
+  const o = pageOrigin(isRight, creep, shift), target = book.print.target_fore_edge_margin_mm;
+  marginRuler(c, o, 'top', target);
+  marginRuler(c, o, 'bottom', target);
+  if (foreEdge) marginRuler(c, o, isRight ? 'right' : 'left', target);
 }
 
 // ---- the alignment sheet -------------------------------------------------------------------------------------
@@ -270,9 +270,9 @@ async function alignmentPdf(book: Book, fontBytes: FontBytes, now: Date): Promis
       hairlines(c);
     } else content(pdf, fonts, book, backLeft(), false, dx, dy);
     for (const right of [false, true]) {
-      frame(c, right, 0, true);
-      pageRulers(c, right, 0, false);
-      footer(c, book, now, right, 0, [`${side.toUpperCase()}, ${right ? 'right' : 'left'} page`]);
+      frame(c, right, 0, 0, true);
+      pageRulers(c, book, right, 0, 0, false);
+      footer(c, book, now, right, 0, 0, [`${side.toUpperCase()}, ${right ? 'right' : 'left'} page`]);
     }
     foldScale(c);
   }
@@ -282,13 +282,13 @@ async function alignmentPdf(book: Book, fontBytes: FontBytes, now: Date): Promis
 // ---- creep test and cover ----------------------------------------------------------------------------------
 
 /**
- * creep-test.pdf: both sides of every sheet of the biggest signature, shifted by their creep and by their side's offset, in
+ * creep-test.pdf: both sides of every sheet of the biggest signature, shifted by their creep, the fore-edge shift and their side's offset, in
  * manual-duplex order: the fronts (last sheet first), then the backs (first sheet first). Page ranges are on every page.
  */
 async function creepTestPdf(book: Book, fontBytes: FontBytes, now: Date): Promise<Uint8Array> {
   const { doc, fonts } = await newDocument(fontBytes);
   const n = creepSheets(book);
-  const sheets: Sheet[] = impose(4 * n, book.print, 1)[0].sheets;
+  const sheets: Sheet[] = impose(4 * n, book.print, 1)[0].sheets, shift = book.print.fore_edge_shift_mm;
   const [fronts, backs] = duplexOrder(n);
   const order: { sheet: number; side: 'front' | 'back' }[] = [...fronts.map((sheet) => ({ sheet, side: 'front' as const })), ...backs.map((sheet) => ({ sheet, side: 'back' as const }))];
   order.forEach(({ sheet: k, side }, i) => {
@@ -297,29 +297,29 @@ async function creepTestPdf(book: Book, fontBytes: FontBytes, now: Date): Promis
     const c = sheetCanvas(pdf, fonts, off.x, -off.y);
     const pass = i < n ? `pass 1: print pages 1-${n}` : `pass 2: print pages ${n + 1}-${2 * n}`;
     for (const right of [false, true]) {
-      frame(c, right, s.creep, false);
-      const { x, y } = gridAt(right, s.creep);
+      frame(c, right, s.creep, shift, false);
+      const { x, y } = gridAt(right, s.creep, shift);
       const ref = (right ? s[side].right : s[side].left);
       c.text(`SHEET ${k + 1} OF ${n}${k === 0 ? ' (OUTERMOST)' : k === n - 1 ? ' (INNERMOST)' : ''}`, x + 0.8, y + 4, 3.2);
       c.text(`${side.toUpperCase()}, ${right ? 'right' : 'left'} page${ref === null ? '' : ` ${ref}`}`, x + 0.8, y + 8, 3.2);
       c.text(`PDF page ${i + 1} of ${2 * n} (${pass})`, x + 0.8, y + 11, 2);
-      pageRulers(c, right, s.creep, true);
-      footer(c, book, now, right, s.creep, [`creep test, shifted ${s.creep.toFixed(2)} mm toward the fold`]);
+      pageRulers(c, book, right, s.creep, shift, true);
+      footer(c, book, now, right, s.creep, shift, [`creep test, ${s.creep.toFixed(2)} mm toward the fold, ${shift} away`]);
     }
   });
   return doc.save({ useObjectStreams: false });
 }
 
-/** calibration-cover.pdf: the inside covers' spread as cover.pdf prints it (front offset), with the box, crosshairs and rulers. */
+/** calibration-cover.pdf: the inside covers' spread as cover.pdf prints it (cover shift, front offset), with the box, crosshairs and rulers. */
 async function coverPdf(book: Book, fontBytes: FontBytes, now: Date): Promise<Uint8Array> {
   const { doc, fonts } = await newDocument(fontBytes);
   const pdf = doc.addPage([mmToPt(SHEET_W_MM), mmToPt(SHEET_H_MM)]);
   const off = offsetOf(book.print, 'front');
-  const c = sheetCanvas(pdf, fonts, off.x, -off.y);
+  const c = sheetCanvas(pdf, fonts, off.x, -off.y), shift = book.print.cover_fore_edge_shift_mm;
   for (const right of [false, true]) {
-    frame(c, right, 0, true);
-    pageRulers(c, right, 0, true);
-    footer(c, book, now, right, 0, [right ? 'COVER, inside back cover' : 'COVER, inside front cover']);
+    frame(c, right, 0, shift, true);
+    pageRulers(c, book, right, 0, shift, true);
+    footer(c, book, now, right, 0, shift, [right ? 'COVER, inside back cover' : 'COVER, inside front cover']);
   }
   return doc.save({ useObjectStreams: false });
 }

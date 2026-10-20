@@ -129,21 +129,24 @@ cover.
   expands on tap. On a phone it opens from the **Contents** button.
 - **Page numbers** are on by default, in each page's outer top corner. Date
   tokens (`{weekday}` and so on) print blank so the date can be written in.
-- **Book settings** (Page ▾, then Settings, and again in the PDF tab): paper thickness for creep (0.14 mm), the **front
+- **Book settings** (Page ▾, then Settings, and again in the PDF tab): creep per sheet and the **fore-edge shifts** (interior and cover) and **target fore-edge margin** that put the trimmed
+  margin where you want it, the **front
   and back offsets** (x and y; each side's own error against the paper, so the fold lands on the sheet's centre and the
   margins are even), the number of signatures, and four **tones**: how dark
   the printed PDFs draw the light, medium and dark shade and the gray text, as a percent of black (the editor and PNGs
-  keep their fixed grays). A creep that would cross the fold is refused with the reason.
+  keep their fixed grays). Settings that would push content past the fold or off the paper are refused with the reason.
 - **Calibrate your printer…** (PDF tab) opens a three-step wizard, one step on screen at a time, with Back and Next:
   1. **Alignment** downloads `calibration-alignment.pdf` (page 1 the front, page 2 the back). Fold the printed sheet in half edge to edge
      and read where the crease crosses each side's fold scale, then read the margin where the paper ends on the top and
      bottom rulers. The wizard turns the readings into the four offsets.
   2. **Creep and cover** downloads a zip with `creep-test.pdf` (every sheet of your biggest signature, both sides, in
      manual-duplex order) and `calibration-cover.pdf`, both with margin rulers on every page. After binding and
-     trimming, read the fore-edge margin on the cover, the outermost sheet and the innermost sheet; the wizard gives the
-     new paper thickness (and how far the cover's own thickness pushes the pages in).
+     trimming, read the fore-edge margin on the cover, the outermost sheet and the innermost sheet. The values the test
+     prints with are editable first (set the creep per sheet before printing); the wizard turns the readings, from the
+     values the test was printed with, into the new creep, fore-edge shift and cover shift, and shows the margins they
+     should give and the spine-side margin of the innermost page.
   3. **Check** (optional) prints the corrected creep test again and compares the margins you measure with the targets
-     (3.95 mm at the fore-edge, 3.85 mm top and bottom); it also holds the tone fields.
+     (your target at the fore-edge, 3.5 mm by default; 3.85 mm top and bottom); it also holds the tone fields.
 
   Everything you enter there is also kept in the browser as **your printer's settings**: new books start from them, and the
   PDF tab says when a book's settings differ, with **Use my printer settings** and **Keep this book's**. The book still

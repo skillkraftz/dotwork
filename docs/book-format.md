@@ -14,11 +14,14 @@ to the page format.
   "page_count": 52,
   "page_numbers": true,
   "print": {
-    "paper_thickness_mm": 0.14,
-    "front_offset_x_mm": 0,
-    "front_offset_y_mm": 0,
-    "back_offset_x_mm": 0,
-    "back_offset_y_mm": 0,
+    "creep_per_sheet_mm": 0.3,
+    "fore_edge_shift_mm": 2,
+    "cover_fore_edge_shift_mm": 2.2,
+    "target_fore_edge_margin_mm": 3.5,
+    "front_offset_x_mm": 1.7,
+    "front_offset_y_mm": -0.05,
+    "back_offset_x_mm": 1.5,
+    "back_offset_y_mm": 0.05,
     "signatures": 1,
     "shade_light_pct": 6.3,
     "shade_medium_pct": 13.7,
@@ -36,9 +39,12 @@ to the page format.
 | `name` | The book's name. |
 | `page_count` | Interior pages: a multiple of 4, from 4 to 400. Usually 52 (13 sheets). |
 | `page_numbers` | Print the page number in each page's outer top corner. On by default. The inside covers never carry one. |
-| `print.paper_thickness_mm` | Creep: every sheet's pages shift toward the fold by (sheets outside it) × this. Default 0.14. 0 to 1. |
-| `print.front_offset_x_mm`, `print.front_offset_y_mm` | Added to everything on the front side: `print-first.pdf`, `cover.pdf` and the front calibration page. +x moves right, +y moves up, as seen on the front. -10 to 10. Measured against the paper, not against the back (see below). |
-| `print.back_offset_x_mm`, `print.back_offset_y_mm` | The same for the back side (`print-second.pdf` and the back calibration page), as seen on the back. -10 to 10. |
+| `print.creep_per_sheet_mm` | Creep: how far each sheet's content must move toward the fold relative to the sheet outside it, so every sheet's content shifts toward the fold by (sheets outside it) × this. Found by the creep test. In a thick book it is often more than the paper's thickness (about 1.5×), because the round spine uses up paper. Default 0.30 (provisional, see below). 0 to 1. |
+| `print.fore_edge_shift_mm` | Moves the content of every interior page away from the fold by this amount (left pages left, right pages right), on top of the creep, so the trimmed fore-edge margin lands on the target. Default 2.0 (provisional). -10 to 10. |
+| `print.cover_fore_edge_shift_mm` | The same for `cover.pdf`. Default 2.2 (provisional). -10 to 10. |
+| `print.target_fore_edge_margin_mm` | The fore-edge margin wanted on the trimmed book, content box to the trimmed edge. The creep test marks it on its rulers and the wizard aims for it. Top and bottom are unchanged (3.85 mm). Default 3.5. 1 to 10. |
+| `print.front_offset_x_mm`, `print.front_offset_y_mm` | Added to everything on the front side: `print-first.pdf`, `cover.pdf` and the front calibration page. +x moves right, +y moves up, as seen on the front. -10 to 10. Measured against the paper, not against the back (see below). Defaults 1.7 and -0.05, the owner's printer. |
+| `print.back_offset_x_mm`, `print.back_offset_y_mm` | The same for the back side (`print-second.pdf` and the back calibration page), as seen on the back. -10 to 10. Defaults 1.5 and 0.05. |
 | `print.signatures` | How many signatures to split the book into, 1 to 20. Pages are split evenly and each signature rounds up to a multiple of 4, so a short last signature is padded with blank filler pages. |
 | `print.shade_light_pct`, `print.shade_medium_pct`, `print.shade_dark_pct`, `print.gray_text_pct` | How dark the printed PDFs draw the light, medium and dark shade tones and the gray text (`"tone": "gray"` on text and sequences), as a percent of black: 0 is white, 100 is black. 0 to 100, fractions allowed. The defaults, 6.3, 13.7, 25.9 and 49.8, are the grays the editor and PNGs always use (#efefef, #dcdcdc, #bdbdbd, #808080), so a default book prints as it always did. They change `pages.pdf`, the print files, `cover.pdf` and the calibration sheets only, never the editor, the preview or PNGs. |
 | `pages` | Exactly `page_count` entries; entry *i* is page *i* + 1. A page, or `null` for a blank page. |
@@ -76,9 +82,9 @@ the page rules or sits on the wrong side. The page-number corner rule is not app
 |------|----------|
 | `pages.pdf` | Every interior page at final size (88.9 × 139.7 mm), in reading order. |
 | `print-first.pdf`, `print-second.pdf` | Half-letter sheets (`print-first.pdf` takes the front offset, `print-second.pdf` the back offset) (215.9 × 139.7 mm, landscape), one spread per side, centered on the fold. `print-first.pdf` holds every sheet's front in reverse order; the stack goes back in the tray the same way; `print-second.pdf` holds the backs in forward order. With more than one signature each gets its own pair: `sig1-print-first.pdf`, `sig1-print-second.pdf`, and so on. |
-| `cover.pdf` | The inside front cover (left) and inside back cover (right) as one centered spread, single-sided, without creep. It takes the front offset. |
+| `cover.pdf` | The inside front cover (left) and inside back cover (right) as one centered spread, single-sided, without creep, moved by the cover shift. It takes the front offset. |
 | `preview.png` | A contact sheet of the whole book, spread by spread. |
-| `summary.txt` | The print settings that made the files (paper thickness, signatures, front and back offset x and y, every tone percentage, page size, app version, date), the printing steps, and short tips: print the calibration set first, one signature before the whole book, at actual size, with the same settings for both passes, and at the printer's best quality. |
+| `summary.txt` | The print settings that made the files (creep per sheet, fore-edge shift, cover shift, target margin, signatures, front and back offset x and y, every tone percentage, page size, app version, date), the printing steps, and short tips: print the calibration set first, one signature before the whole book, at actual size, with the same settings for both passes, and at the printer's best quality. |
 | `book.json` | The book exactly as it was exported from (this format). Always in the zip, so the files can be traced back to their source. |
 | `error.txt` | Only if something went wrong: the export's error and every way the book breaks this format. A failed export still downloads a zip with `book.json` and `error.txt`. |
 
@@ -92,16 +98,16 @@ margins at the top and bottom must be even. The page is the full height of the s
 
 ## The calibration files
 
-The Calibrate wizard (Export, PDF tab, **Calibrate your printer…**) builds these from the book's print settings, at the book's real page size, with the same imposition and drawing code as the print files. Every page prints the settings that made it (five lines in its footer).
+The Calibrate wizard (Export, PDF tab, **Calibrate your printer…**) builds these from the book's print settings, at the book's real page size, with the same imposition and drawing code as the print files. Every page prints the settings that made it (six lines in its footer).
 
 | File | Contents |
 |------|----------|
 | `calibration-alignment.pdf` | One file, two pages. Page 1 is the front (takes the front offset), page 2 the back (takes the back offset); print them with the book's manual-duplex method. Both: the page edge, the content-area box with crosshairs at its corners and centre (which coincide when held to a light once the offsets are right), a **fold scale** across the centre (-5 to +5 mm, ticks every 0.5 mm, 0 where the spread's fold lands) and a **ruler** at the top and bottom of each page. The front also has a gray ramp from 0 to 100% in 5% steps (each with text in that gray), the three shade tones and the gray text as they print now, small and large dots, hair, thin and thick ruled lines, and a hairline weight strip (0.05 to 0.30 mm). |
-| `creep-test.pdf` | Every sheet of the book's biggest signature, **both sides**, in manual-duplex order: pages 1 to *N* are the fronts (last sheet first), pages *N* + 1 to 2*N* the backs (first sheet first), so it follows the real `print-first.pdf` / `print-second.pdf` method. Each page is shifted by its sheet's creep and its side's offset, and says which sheet, side and pages it is, and the print range of its pass. |
-| `calibration-cover.pdf` | One single-sided sheet like `cover.pdf` (front offset): the box and crosshairs of both inside covers. |
+| `creep-test.pdf` | Every sheet of the book's biggest signature, **both sides**, in manual-duplex order: pages 1 to *N* are the fronts (last sheet first), pages *N* + 1 to 2*N* the backs (first sheet first), so it follows the real `print-first.pdf` / `print-second.pdf` method. Each page is shifted by its sheet's creep, the fore-edge shift and its side's offset, and says which sheet, side and pages it is, and the print range of its pass. |
+| `calibration-cover.pdf` | One single-sided sheet like `cover.pdf` (cover shift and front offset): the box and crosshairs of both inside covers. |
 | `calibration.txt`, `book.json`, `error.txt` | The settings that made the files, the book as JSON, and the error log if something went wrong. |
 
-**Rulers.** A margin ruler counts millimetres outward from the page's box line, with a tick every 0.5 mm, so the number where the paper (or the trimmed edge) ends is the margin there. The expected margin is marked with a longer tick: 3.85 mm at the top and bottom (the ruler stops there, at the edge of the unshifted page; if the paper ends past it, measure the extra with a ruler and add it) and 3.95 mm at the fore-edge (the ruler runs to 7 mm, past the trim line). The creep test and the cover sheet have rulers at the top, bottom and fore-edge of every page; the alignment sheet at the top and bottom.
+**Rulers.** A margin ruler counts millimetres outward from the page's box line, with a tick every 0.5 mm, so the number where the paper (or the trimmed edge) ends is the margin there. The expected margin is marked with a longer tick: 3.85 mm at the top and bottom (the ruler stops there, at the edge of the unshifted page; if the paper ends past it, measure the extra with a ruler and add it) and the target margin (`target_fore_edge_margin_mm`, 3.5 by default) at the fore-edge (the ruler runs to 7 mm, past the trim line). The creep test and the cover sheet have rulers at the top, bottom and fore-edge of every page; the alignment sheet at the top and bottom.
 
 **Reading the alignment sheet.** Print page 1, put the sheet back the same way as for `print-second.pdf`, print page 2. Fold the sheet in half edge to edge, crease it hard, open it. On each side:
 
@@ -110,16 +116,28 @@ The Calibrate wizard (Export, PDF tab, **Calibrate your printer…**) builds the
 
 Offsets are clamped to the limits above and rounded to 0.01 mm.
 
-**Reading the creep test and the cover sheet.** Print `calibration-cover.pdf` on the cover stock and `creep-test.pdf` on the real paper (pages 1 to *N*, the stack back the same way, pages *N* + 1 to 2*N*), fold, bind and trim like a book, then read the fore-edge margin on a right-hand page of the cover, of sheet 1 (outermost) and of sheet *N* (innermost). The cut is made 3.5 in from the cover's fold, and the cover wraps outside sheet 0, so with *c* the cover's thickness, *set* the thickness set and *real* the paper's true thickness, the margin at sheet *k* (0 outermost) is 3.95 + *k* × (*set* − *real*) − *c*, and the cover's own is 3.95. So:
+**Reading the creep test and the cover sheet.** Print `calibration-cover.pdf` on the cover stock and `creep-test.pdf` on the real paper (pages 1 to *N*, the stack back the same way, pages *N* + 1 to 2*N*), fold, bind and trim like a book, then read the fore-edge margin on a right-hand page of the cover, of sheet 1 (outermost) and of sheet *N* (innermost): the number on the ruler where the trimmed edge falls. Set the creep per sheet *before* printing (the paper's thickness is a good start); the wizard shows the values the test prints with, and each page's footer and `calibration.txt` record them.
 
-- **new thickness = current thickness − (innermost − outermost) ÷ (sheets − 1).** Compare the middle with the *outermost sheet*, not with the cover: the cover's thickness pushes every sheet in by the same amount, so it cancels between two sheets but not between a sheet and the cover (comparing with the cover would be off by *c* ÷ (sheets − 1)). A positive difference means the thickness set is too high.
-- **cover push = cover − outermost** (= *c*): how far the cover's own thickness pushes all the pages in. It is shown, not applied.
+The cut is made 3.5 in from the cover's fold, and a thick saddle-stitched book has a round spine. Paper going round the curve is used up, so outer pages' content lands about (π/2 − 1) × *r* further from the fore-edge than designed (*r* is the spine's radius, about half the book's thickness), and each sheet's fore-edge creeps out about (π/2) × the caliper per sheet, not 1 ×. So the margin at sheet *k* (0 outermost), printed with creep *c* and fore-edge shift *s*, is
+
+> margin(*k*) = *A* + *k* × (*c* − *g*) − *s*
+
+where *A* is the outermost margin with no shift (more than the page's own 3.95 mm, because of the curve) and *g* is how far each sheet really creeps. The cover is the outermost fold and has no creep: margin = *A*c − (cover shift). A bigger shift moves the content toward the fore-edge, so it makes the margin smaller. The wizard fits *A*, *g* and *A*c to the three readings, from the values the test was **printed** with (never whatever is set now), and sets:
+
+- **new creep = printed creep + (outermost − innermost) ÷ (sheets − 1).** A bigger margin on the innermost sheet than on the outermost means the inner sheets were moved in too far: less creep. Compare the innermost sheet with the *outermost sheet*, not with the cover, which has a different fold.
+- **new fore-edge shift = printed shift + (outermost − target).** A margin bigger than the target means the content must move toward the fore-edge: a bigger shift.
+- **new cover shift = printed cover shift + (cover − target).**
+
+With the new settings, every margin comes out at the target; the wizard shows the predicted margins and the spine-side margin of the innermost page on the paper (3.95 mm less how far its content moved toward the fold), and warns when that is under 2 mm. Worked example: printed with creep 0.14 and no shifts, target 3.5, 13 sheets, readings cover 5.7, outermost 5.5, innermost 3.6 → creep 0.14 + 1.9 ÷ 12 ≈ 0.298, fore-edge shift +2.0, cover shift +2.2.
+
+**The defaults are provisional.** `DEFAULT_PRINT` holds the owner's calibration (offsets 1.7 / -0.05 and 1.5 / 0.05, creep 0.30, shifts 2.0 and 2.2, target 3.5) in case the saved printer profile is cleared. The creep and the two shifts come from the example above, not from a creep test run with them, until the owner's next test confirms them. A saved printer profile always takes precedence.
 
 Page order, creep and centering follow journal-system's
 `pocketjournal/imposition.py` and are tested with the same cases (see
 `tests/imposition.test.ts`): sheet *k* of *n* carries front
 `(4n − 2k, 2k + 1)` and back `(2k + 2, 4n − 2k − 1)`; creep for sheet *k* is
-*k* × paper thickness; the outer 0.75 in of each side is trimmed after binding.
+*k* × creep per sheet (journal-system calls it paper thickness; dotwork's fore-edge shifts have no counterpart there yet); the outer 0.75 in of each side is trimmed after binding.
 Text is real text in the embedded Courier Prime font and lines are vector paths,
-so the PDFs stay sharp at any scale. Creep must stay inside the page margin
-(3.95 mm), or the export is refused.
+so the PDFs stay sharp at any scale. Content must stay on the sheet and off the fold: on every
+sheet and on the cover, the page's 3.95 mm spine-side margin less the content's move toward the fold must stay above
+0, and the fore-edge side must stay on the paper, or the export is refused with the reason.

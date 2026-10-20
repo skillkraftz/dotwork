@@ -223,15 +223,15 @@ describe('the settings window', () => {
     await page.waitForSelector('.stage-page');
     await choose(app, 'page', '#settings');
     await page.waitForSelector('dialog.settings[open]');
-    for (const key of ['settings-book-name', 'settings-book-pages', 'settings-book-numbers', 'book-thickness', 'book-offset-x', 'book-offset-y', 'book-signatures']) {
+    for (const key of ['settings-book-name', 'settings-book-pages', 'settings-book-numbers', 'book-creep', 'book-offset-x', 'book-offset-y', 'book-signatures']) {
       expect(await page.locator(`dialog.settings [data-key="${key}"]`).count(), key).toBe(1);
     }
     await page.locator('[data-key="settings-book-name"]').fill('Field notes');
-    await page.locator('[data-key="book-thickness"]').fill('0.2');
-    await page.locator('[data-key="book-thickness"]').dispatchEvent('change');
+    await page.locator('[data-key="book-creep"]').fill('0.2');
+    await page.locator('[data-key="book-creep"]').dispatchEvent('change');
     await page.locator('[data-key="settings-book-numbers"]').uncheck();
     const book = await page.evaluate(() => JSON.parse(localStorage.getItem('dotwork.book')!));
-    expect(book).toMatchObject({ name: 'Field notes', page_numbers: false, print: { paper_thickness_mm: 0.2 } });
+    expect(book).toMatchObject({ name: 'Field notes', page_numbers: false, print: { creep_per_sheet_mm: 0.2 } });
     expect(await smallControls(app, 'dialog.settings')).toEqual([]);
     await shot(app, 'phone-settings-book');
     noErrors(app);
@@ -417,8 +417,8 @@ describe('the export window', () => {
     await page.locator('dialog.export [data-key="pdf-cover"]').uncheck();
     expect(await page.locator('dialog.export .export-what').innerText()).toContain('untitled-book-print.zip');
     await page.locator('dialog.export [data-key="pdf-signatures"]').check();
-    await page.locator('dialog.export [data-key="book-thickness"]').fill('0.15');
-    await page.locator('dialog.export [data-key="book-thickness"]').dispatchEvent('change');
+    await page.locator('dialog.export [data-key="book-creep"]').fill('0.15');
+    await page.locator('dialog.export [data-key="book-creep"]').dispatchEvent('change');
     await tab(app, 'export');
     await page.waitForTimeout(500);
     expect(downloads).toEqual([]);

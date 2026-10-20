@@ -66,20 +66,20 @@ async function sidesPdf(book: Book, sig: Signature, back: boolean, fontBytes: Fo
     for (const [isRight, ref] of [[false, side.left], [true, side.right]] as [boolean, PageRef][]) {
       if (ref === null) continue;
       if (isRight !== Boolean(ref % 2)) throw new Error(`page ${ref} landed on the wrong side`);
-      const at = pageOrigin(isRight, sheet.creep);
+      const at = pageOrigin(isRight, sheet.creep, book.print.fore_edge_shift_mm);
       d.page(pdf, ref, at.x + dx, at.y + dy);
     }
   }
   return doc.save({ useObjectStreams: false });
 }
 
-/** The cover spread: inside front cover on the left, inside back cover on the right, single-sided, centered, no creep. It takes the front offset. */
+/** The cover spread: inside front cover on the left, inside back cover on the right, single-sided, centered, no creep, moved by the cover shift. It takes the front offset. */
 async function coverPdf(book: Book, fontBytes: FontBytes): Promise<Uint8Array> {
   const { doc, fonts } = await newDocument(fontBytes);
   const d = drawer(book, fonts, SHEET_H_MM);
   const pdf = doc.addPage([mmToPt(SHEET_W_MM), mmToPt(SHEET_H_MM)]);
   const off = offsetOf(book.print, 'front');
-  const l = pageOrigin(false, 0), r = pageOrigin(true, 0);
+  const shift = book.print.cover_fore_edge_shift_mm, l = pageOrigin(false, 0, shift), r = pageOrigin(true, 0, shift);
   d.cover(pdf, 'front', l.x + off.x, l.y - off.y);
   d.cover(pdf, 'back', r.x + off.x, r.y - off.y);
   return doc.save({ useObjectStreams: false });
@@ -100,7 +100,7 @@ export const PRINT_TIPS = [
 export function summary(book: Book, sigs: Signature[], files: string[], now = new Date()): string {
   const p = book.print;
   const sheets = sigs.reduce((n, g) => n + g.sheets.length, 0);
-  const maxCreep = Math.max(...sigs.map((g) => (g.sheets.length - 1) * p.paper_thickness_mm));
+  const maxCreep = Math.max(...sigs.map((g) => (g.sheets.length - 1) * p.creep_per_sheet_mm));
   return [
     `Book: ${book.name}`,
     `Pages: ${book.page_count} interior (${sheets} sheets in ${sigs.length} signature${sigs.length > 1 ? 's' : ''})${book.page_numbers ? ', numbered' : ''}`,
