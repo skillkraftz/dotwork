@@ -235,7 +235,7 @@ async function spreadsPicker(app: App, device: string) {
   // The picker opens on the tab used last
   await click(app, page.getByRole('button', { name: 'Choose design…' }));
   expect(await tabs.nth(1).getAttribute('aria-selected')).toBe('true');
-  await click(app, page.locator('dialog.picker .design', { hasText: /^Weekly spread/ }).first());
+  await click(app, page.locator('dialog.picker .design', { has: page.locator('.design-title', { hasText: /^Weekly spread$/ }) }));
   expect((await names(app)).slice(1, 3)).toEqual(['Year journal weekly page (dated)', 'Year journal weekly page (dated)']);
   await click(app, page.getByRole('button', { name: 'Spreads' }));
   await shot(app, `${device}-book-weekly-spread`);
