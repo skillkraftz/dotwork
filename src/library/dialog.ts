@@ -33,7 +33,8 @@ export interface LibraryHost {
   pageTarget(): SpreadSide | null;
   openPage(page: Page): void;
   openSpread(spread: Spread): void;
-  openBook(book: Book): void;
+  /** `fresh` is for a book made just now from a template, which takes the printer's saved print settings. */
+  openBook(book: Book, fresh?: boolean): void;
   placePage(page: Page, side: SpreadSide): void;
   /** Arm the widget tool, ready to be put on the page. */
   useWidget(widget: Widget): void;
@@ -223,7 +224,7 @@ export class LibraryDialog {
   private use(e: Entry) {
     if (e.kind === 'template') {
       this.close();
-      this.templates.open(e.data, (book) => this.host.openBook(book));
+      this.templates.open(e.data, (book) => this.host.openBook(book, true));
       return;
     }
     // A built-in can't be changed, so what opens or is placed is a copy under its own name plus “copy”.

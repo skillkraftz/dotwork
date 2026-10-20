@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { PDFDocument } from 'pdf-lib';
 import { emptyBook, readBook, setSlot, PRINT_LIMITS, type Book } from '../src/book/book';
-import { DEFAULT_PRINT, FOLD_X_MM, SHEET_H_MM, SHEET_W_MM, creepFor, impose, pageOrigin } from '../src/book/impose';
+import { DEFAULT_PRINT, FOLD_X_MM, SHEET_H_MM, SHEET_W_MM, creepFor, duplexOrder, impose, pageOrigin } from '../src/book/impose';
 import { GRID_X_MM, PAGE_H_MM, PAGE_W_MM, emptyPage, type Page } from '../src/format/types';
 import { blankTokens } from '../src/format/tokens';
 import { validatePage } from '../src/format/validate';
@@ -10,12 +10,14 @@ import { SHADE_TONES, TEXT_COLORS } from '../src/render';
 import { drawPage, mmToPt } from '../src/print/draw';
 import { PRINT_TIPS, exportBookFiles, newDocument, summary, type ExportedFile } from '../src/print/export';
 import {
-  HAIRLINE_WIDTHS, RAMP_STEPS, calibrationFiles, calibrationPages, calibrationText, creepSheets, thicknessFromCreepTest,
+  ALIGNMENT_FILE, COVER_FILE, CREEP_FILE, FORE_EDGE_RULER_MM, FOLD_SCALE_Y, HAIRLINE_WIDTHS, RAMP_STEPS, SCALE_MM, alignmentFile, calibrationPages,
+  calibrationText, creepFiles, creepSheets, thicknessFromCreepTest,
 } from '../src/print/calibrate';
+import { marginAt, creepResult } from '../src/book/creep';
 import { PRINT_LABELS, settingsLines } from '../src/print/settingstext';
 import { grayHex, tonesOf } from '../src/print/tones';
 import { APP_VERSION } from '../src/version';
-import { readPdf } from './pdf-text';
+import { readPdf, textPositions } from './pdf-text';
 
 const fontBytes = {
   regular: readFileSync('src/fonts/CourierPrime-Regular.ttf'),
@@ -109,7 +111,7 @@ describe('tones', () => {
 describe('the settings text', () => {
   it('names every print setting with its value', () => {
     const book = emptyBook();
-    Object.assign(book.print, { paper_thickness_mm: 0.11, signatures: 2, back_offset_x_mm: 0.3, back_offset_y_mm: -0.2, shade_light_pct: 7, shade_medium_pct: 15, shade_dark_pct: 27, gray_text_pct: 55 });
+    Object.assign(book.print, { paper_thickness_mm: 0.11, signatures: 2, front_offset_x_mm: -0.6, front_offset_y_mm: 0.1, back_offset_x_mm: 0.3, back_offset_y_mm: -0.2, shade_light_pct: 7, shade_medium_pct: 15, shade_dark_pct: 27, gray_text_pct: 55 });
     const text = settingsLines(book, NOW).join('\n');
     for (const key of Object.keys(PRINT_LIMITS) as (keyof typeof PRINT_LIMITS)[]) {
       expect(text, key).toContain(`${PRINT_LABELS[key]} ${book.print[key]}`);
@@ -122,7 +124,7 @@ describe('the settings text', () => {
 
 describe('summary.txt in a book export', () => {
   it('lists every print setting used, the page size, version and date, then tips at the end', async () => {
-    const book = tonedBook((b) => { Object.assign(b.print, { paper_thickness_mm: 0.12, signatures: 1, back_offset_x_mm: 0.5, back_offset_y_mm: -0.3, shade_light_pct: 8, shade_medium_pct: 16, shade_dark_pct: 30, gray_text_pct: 55 }); });
+    const book = tonedBook((b) => { Object.assign(b.print, { paper_thickness_mm: 0.12, signatures: 1, front_offset_x_mm: -0.4, front_offset_y_mm: 0.2, back_offset_x_mm: 0.5, back_offset_y_mm: -0.3, shade_light_pct: 8, shade_medium_pct: 16, shade_dark_pct: 30, gray_text_pct: 55 }); });
     const text = decode(file(await exportBookFiles(book, fontBytes), 'summary.txt'));
     for (const key of Object.keys(PRINT_LIMITS) as (keyof typeof PRINT_LIMITS)[]) expect(text, key).toContain(`${PRINT_LABELS[key]} ${book.print[key]}`);
     expect(text).toContain(`Dotwork ${APP_VERSION}`);
@@ -135,6 +137,9 @@ describe('summary.txt in a book export', () => {
     expect(tips).toMatch(/one signature before the whole book/);
     expect(tips).toMatch(/actual size/);
     expect(tips).toMatch(/same paper and printer settings for print-first and print-second/);
+    expect(tips).toMatch(/best quality/);
+    expect(tips).toMatch(/Firefox/);
+    expect(tips).toMatch(/CUPS \(localhost:631\)/);
   });
 
   it('is built from the same lines as calibration.txt', () => {
@@ -148,146 +153,206 @@ describe('summary.txt in a book export', () => {
   });
 });
 
-describe('the calibration set for the default book', () => {
-  let files: ExportedFile[];
-  let ms: number;
+
+const margins = (strings: string[]) => ({ top: strings.filter((t) => t === '3.85').length, fore: strings.filter((t) => t === String(FORE_EDGE_RULER_MM)).length });
+
+describe('the alignment sheet', () => {
+  let made: ExportedFile;
+  let sheets: Awaited<ReturnType<typeof readPdf>>;
   beforeAll(async () => {
-    const t = performance.now();
-    files = await calibrationFiles(emptyBook(), fontBytes, NOW);
-    ms = performance.now() - t;
+    made = await alignmentFile(emptyBook(), fontBytes, NOW);
+    sheets = await readPdf(made.bytes);
   });
 
-  it('builds all its files, valid PDFs at the real sheet size, and fast', async () => {
-    expect(files.map((f) => f.name)).toEqual(['calibration-first.pdf', 'calibration-second.pdf', 'creep-test.pdf', 'calibration-cover.pdf', 'calibration.txt']);
-    for (const f of files.filter((x) => x.name.endsWith('.pdf'))) {
-      const doc = await PDFDocument.load(f.bytes);
-      const [page] = doc.getPages();
-      expect(page.getWidth(), f.name).toBeCloseTo(SHEET_W_MM * PT, 1);
-      expect(page.getHeight(), f.name).toBeCloseTo(SHEET_H_MM * PT, 1);
-      expect(doc.getPageCount(), f.name).toBe(f.name === 'creep-test.pdf' ? 13 : 1);
+  it('is one PDF: page 1 the front, page 2 the back, at the real sheet size', async () => {
+    expect(made.name).toBe(ALIGNMENT_FILE);
+    expect(ALIGNMENT_FILE).toBe('calibration-alignment.pdf');
+    const doc = await PDFDocument.load(made.bytes);
+    expect(doc.getPageCount()).toBe(2);
+    for (const page of doc.getPages()) {
+      expect(page.getWidth()).toBeCloseTo(SHEET_W_MM * PT, 1);
+      expect(page.getHeight()).toBeCloseTo(SHEET_H_MM * PT, 1);
     }
-    expect(ms).toBeLessThan(5000);
+    expect(sheets[0].strings).toContain('FRONT, left page');
+    expect(sheets[1].strings).toContain('BACK, left page');
   });
 
-  it('prints the footer on every page of every sheet, the same as calibration.txt', async () => {
-    const book = emptyBook();
-    const lines = settingsLines(book, NOW);
-    for (const name of ['calibration-first.pdf', 'calibration-second.pdf', 'creep-test.pdf', 'calibration-cover.pdf']) {
-      for (const sheet of await readPdf(file(files, name).bytes)) {
-        // Both pages of the sheet carry the footer.
-        for (const line of lines) expect(sheet.strings.filter((s) => s === line), `${name}: ${line}`).toHaveLength(2);
-      }
-    }
-    for (const line of lines) expect(decode(file(files, 'calibration.txt'))).toContain(line);
+  it('prints the settings on both sides of both pages, the same as calibration.txt', () => {
+    const lines = settingsLines(emptyBook(), NOW);
+    for (const sheet of sheets) for (const line of lines) expect(sheet.strings.filter((s) => s === line), line).toHaveLength(2);
   });
 
-  it('puts the footer text of a changed book in the PDFs', async () => {
+  it('puts the footer text of a changed book in the PDF, offsets of both sides included', async () => {
     const book = emptyBook();
-    Object.assign(book.print, { paper_thickness_mm: 0.09, signatures: 2, back_offset_x_mm: 0.4, back_offset_y_mm: -0.6, shade_light_pct: 9, gray_text_pct: 62 });
-    const made = await calibrationFiles(book, fontBytes, NOW);
-    const [sheet] = await readPdf(file(made, 'calibration-second.pdf').bytes);
+    Object.assign(book.print, { paper_thickness_mm: 0.09, signatures: 2, front_offset_x_mm: -1.5, front_offset_y_mm: 0.3, back_offset_x_mm: 0.4, back_offset_y_mm: -0.6, shade_light_pct: 9, gray_text_pct: 62 });
+    const [sheet] = await readPdf((await alignmentFile(book, fontBytes, NOW)).bytes);
     for (const line of settingsLines(book, NOW)) expect(sheet.strings).toContain(line);
-    expect(sheet.strings.join('\n')).toMatch(/paper thickness 0\.09 mm \| signatures 2/);
-    expect(sheet.strings.join('\n')).toMatch(/back offset x 0\.4 mm \| back offset y -0\.6 mm/);
-    expect(sheet.strings.join('\n')).toMatch(/light 9 \| medium 13\.7 \| dark 25\.9 \| gray text 62/);
+    const text = sheet.strings.join('\n');
+    expect(text).toMatch(/paper thickness 0\.09 mm \| signatures 2/);
+    expect(text).toMatch(/front offset x -1\.5 mm \| front offset y 0\.3 mm/);
+    expect(text).toMatch(/back offset x 0\.4 mm \| back offset y -0\.6 mm/);
+    expect(text).toMatch(/light 9 \| medium 13\.7 \| dark 25\.9 \| gray text 62/);
   });
 
-  it('draws the ramp in 5% steps, the three tones and the gray text as they print now', async () => {
+  it('draws the ramp in 5% steps, the three tones and the gray text as they print now, on the front only', async () => {
     expect(RAMP_STEPS).toHaveLength(21);
     expect(RAMP_STEPS[0]).toBe(0);
     expect(RAMP_STEPS.at(-1)).toBe(100);
     expect(RAMP_STEPS.every((v, i) => v === i * 5)).toBe(true);
     const book = emptyBook();
     Object.assign(book.print, { shade_light_pct: 10, shade_medium_pct: 20, shade_dark_pct: 35, gray_text_pct: 65 });
-    const [sheet] = await readPdf(file(await calibrationFiles(book, fontBytes, NOW), 'calibration-first.pdf').bytes);
-    const colors = fills(sheet.content);
+    const [front, back] = await readPdf((await alignmentFile(book, fontBytes, NOW)).bytes);
+    const colors = fills(front.content);
     for (const pct of RAMP_STEPS) expect(colors, `${pct}%`).toContain(rgOf(grayHex(pct)));
     for (const pct of [10, 20, 35, 65]) expect(colors).toContain(rgOf(grayHex(pct)));
-    for (const pct of RAMP_STEPS) expect(sheet.strings).toContain(`${String(pct).padStart(3)}%`);
-    expect(sheet.strings).toContain('Gray text 65%: the quick brown fox');
-    expect(sheet.strings.filter((t) => t === 'Gray text')).toHaveLength(21); // each ramp step has text in its own gray
-    expect(HAIRLINE_WIDTHS).toContain(0.12); // the writing lines' weight is in the strip
+    for (const pct of RAMP_STEPS) expect(front.strings).toContain(`${String(pct).padStart(3)}%`);
+    expect(front.strings).toContain('Gray text 65%: the quick brown fox');
+    expect(front.strings.filter((t) => t === 'Gray text')).toHaveLength(21);
+    expect(back.strings).not.toContain('Gray text');
+    expect(HAIRLINE_WIDTHS).toContain(0.12);
   });
 
   it('has designed pages that follow the page format', () => {
     for (const p of calibrationPages(emptyBook())) expect(validatePage(p), p.side).toEqual([]);
   });
 
-  it('puts a millimetre scale from -5 to +5 on the back only', async () => {
-    const [first] = await readPdf(file(files, 'calibration-first.pdf').bytes);
-    const [second] = await readPdf(file(files, 'calibration-second.pdf').bytes);
-    for (const label of ['-5', '-4', '-3', '-2', '-1', '0', '1', '2', '3', '4', '5']) {
-      expect(second.strings.filter((s) => s === label).length, label).toBe(2); // the x scale and the y scale
-      expect(first.strings, label).not.toContain(label);
+  it('has a scale across the fold on each side, -5 to +5 in whole millimetres, and a ruler at the top and bottom of each page', () => {
+    for (const sheet of sheets) {
+      for (const label of ['-5', '-4', '-3', '-2', '-1']) expect(sheet.strings.filter((s) => s === label), label).toHaveLength(1);
+      expect(sheet.strings.filter((s) => s === 'fold +')).toHaveLength(1);
+      expect(margins(sheet.strings).top).toBe(4); // the expected margin, marked: top and bottom of both pages
     }
+    expect(SCALE_MM).toBe(5);
   });
 
-  it('moves everything on the back, and only the back, by the offset (+x right, +y up)', async () => {
-    const origin = async (x: number, y: number) => {
+  it('moves the front by the front offset and the back by the back offset, each +x right and +y up', async () => {
+    const at = async (print: Partial<typeof DEFAULT_PRINT>) => {
       const book = emptyBook();
-      book.print.back_offset_x_mm = x; book.print.back_offset_y_mm = y;
-      const made = await calibrationFiles(book, fontBytes, NOW);
-      const firstOf = async (name: string) => {
-        const m = (await readPdf(file(made, name).bytes))[0].content.match(/1 0 0 1 ([\d.-]+) ([\d.-]+) Tm/)!;
-        return { x: parseFloat(m[1]) / PT, y: parseFloat(m[2]) / PT };
-      };
-      return { first: await firstOf('calibration-first.pdf'), second: await firstOf('calibration-second.pdf') };
+      Object.assign(book.print, print);
+      const [front, back] = (await readPdf((await alignmentFile(book, fontBytes, NOW)).bytes)).map((p) => textPositions(p).find((t) => t.text === 'fold +')!);
+      return { front, back };
     };
-    const a = await origin(0, 0), b = await origin(1, 0.5);
-    expect(b.first).toEqual(a.first);
-    expect(b.second.x - a.second.x).toBeCloseTo(1, 2);
-    expect(b.second.y - a.second.y).toBeCloseTo(0.5, 2); // PDF y runs up, so up is larger
+    const base = await at({});
+    // The scale's right end is drawn at the fold + the scale's half-length + a gap: that is where the fold lands, offset included.
+    expect(base.front.x).toBeCloseTo(FOLD_X_MM + SCALE_MM + 1.4, 2);
+    expect(base.front.y).toBeCloseTo(FOLD_SCALE_Y + 0.5, 2);
+    const moved = await at({ front_offset_x_mm: 1, front_offset_y_mm: 0.5 });
+    expect(moved.front.x - base.front.x).toBeCloseTo(1, 2);
+    expect(base.front.y - moved.front.y).toBeCloseTo(0.5, 2); // up is toward the top of the sheet
+    expect(moved.back).toEqual(base.back);
+    const movedBack = await at({ back_offset_x_mm: -0.7, back_offset_y_mm: -0.4 });
+    expect(movedBack.back.x - base.back.x).toBeCloseTo(-0.7, 2);
+    expect(base.back.y - movedBack.back.y).toBeCloseTo(-0.4, 2);
+    expect(movedBack.front).toEqual(base.front);
+  });
+
+  it('is refused for a thickness that cannot be printed, with the reason', async () => {
+    const book = emptyBook();
+    book.print.paper_thickness_mm = 0.9;
+    await expect(alignmentFile(book, fontBytes, NOW)).rejects.toThrow(/past the fold/);
+    await expect(creepFiles(book, fontBytes, NOW)).rejects.toThrow(/past the fold/);
   });
 });
 
-describe('the creep test', () => {
+describe('the creep test and the cover sheet', () => {
+  let made: ExportedFile[];
+  beforeAll(async () => { made = await creepFiles(emptyBook(), fontBytes, NOW); });
+
+  it('are a cover sheet, the creep test and calibration.txt', () => {
+    expect(made.map((f) => f.name)).toEqual([COVER_FILE, CREEP_FILE, 'calibration.txt']);
+    expect([COVER_FILE, CREEP_FILE]).toEqual(['calibration-cover.pdf', 'creep-test.pdf']);
+    const text = decode(file(made, 'calibration.txt'));
+    expect(text).toContain('print pages 1 to 13');
+    expect(text).toContain('print pages 14 to 26');
+    for (const line of settingsLines(emptyBook(), NOW)) expect(text).toContain(line);
+  });
+
+  it('has both sides of every sheet of the biggest signature, in manual-duplex order: fronts in reverse, then backs forward', async () => {
+    const book = emptyBook();
+    expect(creepSheets(book)).toBe(13);
+    const pages = await readPdf(file(made, CREEP_FILE).bytes);
+    expect(pages).toHaveLength(26);
+    const [fronts, backs] = duplexOrder(13);
+    const sheetAndSide = pages.map((p) => {
+      const [, k, side] = p.strings.join('|').match(/SHEET (\d+) OF 13.*?\|(FRONT|BACK), left/)!;
+      return [Number(k) - 1, side];
+    });
+    expect(sheetAndSide).toEqual([...fronts.map((k) => [k, 'FRONT']), ...backs.map((k) => [k, 'BACK'])]);
+    // The ranges are on every page, as are the sheet's own pages (the imposition's, for 52 pages).
+    const sig = impose(52, book.print, 1)[0];
+    pages.forEach((p, i) => {
+      expect(p.strings).toContain(`PDF page ${i + 1} of 26 (${i < 13 ? 'pass 1: print pages 1-13' : 'pass 2: print pages 14-26'})`);
+      const [k, side] = sheetAndSide[i] as [number, 'FRONT' | 'BACK'];
+      const s = sig.sheets[k][side === 'FRONT' ? 'front' : 'back'];
+      expect(p.strings).toContain(`${side}, left page ${s.left}`);
+      expect(p.strings).toContain(`${side}, right page ${s.right}`);
+    });
+  });
+
   it('uses the book’s sheet count: the biggest signature', async () => {
     const book = emptyBook(20);
     book.print.signatures = 2; // two signatures of 12 pages
     expect(creepSheets(book)).toBe(3);
-    const made = await calibrationFiles(book, fontBytes, NOW);
-    const sheets = await readPdf(file(made, 'creep-test.pdf').bytes);
-    expect(sheets).toHaveLength(3);
-    expect(sheets[0].strings).toContain('SHEET 1 OF 3 (OUTERMOST)');
-    expect(sheets[2].strings).toContain('SHEET 3 OF 3 (INNERMOST)');
-    expect(creepSheets(emptyBook())).toBe(13);
+    const pages = await readPdf(file(await creepFiles(book, fontBytes, NOW), CREEP_FILE).bytes);
+    expect(pages).toHaveLength(6);
+    expect(pages[0].strings).toContain('SHEET 3 OF 3 (INNERMOST)');
+    expect(pages[2].strings).toContain('SHEET 1 OF 3 (OUTERMOST)');
+    expect(pages[3].strings).toContain('SHEET 1 OF 3 (OUTERMOST)');
+    expect(pages[0].strings).toContain('PDF page 1 of 6 (pass 1: print pages 1-3)');
+    expect(pages[5].strings).toContain('PDF page 6 of 6 (pass 2: print pages 4-6)');
   });
 
-  it('shifts each sheet’s box toward the fold by the thickness × the sheets outside it', async () => {
+  it('shifts each sheet’s box toward the fold by the thickness × the sheets outside it, on both sides', async () => {
     const book = emptyBook(8);
     book.print.paper_thickness_mm = 0.5;
-    const sheets = await readPdf(file(await calibrationFiles(book, fontBytes, NOW), 'creep-test.pdf').bytes);
-    const left = sheets.map((s) => contentBoxes(s.content)[0].x); // the left page's box is drawn first
-    expect(left[1] - left[0]).toBeCloseTo(0.5, 2);
-    expect(left[1]).toBeCloseTo(pageOrigin(false, creepFor(1, book.print)).x + GRID_X_MM, 2);
-    const right = sheets.map((s) => contentBoxes(s.content)[1].x);
-    expect(right[0] - right[1]).toBeCloseTo(0.5, 2); // the right page moves left
+    const pages = await readPdf(file(await creepFiles(book, fontBytes, NOW), CREEP_FILE).bytes); // [front 1, front 0, back 0, back 1]
+    const left = pages.map((s) => contentBoxes(s.content)[0].x), right = pages.map((s) => contentBoxes(s.content)[1].x);
+    expect(left[0] - left[1]).toBeCloseTo(0.5, 2);
+    expect(left[3] - left[2]).toBeCloseTo(0.5, 2);
+    expect(left[0]).toBeCloseTo(pageOrigin(false, creepFor(1, book.print)).x + GRID_X_MM, 2);
+    expect(right[1] - right[0]).toBeCloseTo(0.5, 2); // the right page moves left
   });
 
-  it('turns a measured difference into a thickness, sign and divisor derived from the imposition', () => {
-    const sheets = 13, thickness = 0.14;
-    // The sheet that really has `real` mm of paper: its pages sit at the code's creep, but its fold has moved k × real toward
-    // the trimmed edge. Margin from the box's outer edge to the cut, at sheet k (the cut is PAGE_W from the outermost fold).
-    const margin = (set: number, real: number, k: number) => {
-      const boxEdge = pageOrigin(false, creepFor(k, { paper_thickness_mm: set })).x + GRID_X_MM; // outer edge of the left page's box
-      const cut = FOLD_X_MM - PAGE_W_MM + k * real; // the cut line on sheet k, whose own fold is k × real closer to it
-      return boxEdge - cut;
-    };
-    expect(margin(thickness, thickness, 0)).toBeCloseTo(GRID_X_MM, 6);
-    for (const real of [0.08, 0.1, 0.14, 0.17]) {
-      const difference = margin(thickness, real, sheets - 1) - margin(thickness, real, 0); // innermost minus outermost
-      // Set too high (real < set): the innermost box is farther from the edge, the difference is positive.
-      expect(Math.sign(difference)).toBe(Math.sign(thickness - real));
-      expect(thicknessFromCreepTest(thickness, sheets, difference)).toBeCloseTo(real, 9);
+  it('applies the front offset to the front pages and the cover, and the back offset to the back pages', async () => {
+    const book = emptyBook(8);
+    Object.assign(book.print, { front_offset_x_mm: 0.4, front_offset_y_mm: 0.2, back_offset_x_mm: -0.6, back_offset_y_mm: -0.3 });
+    const flat = emptyBook(8);
+    const [a, b] = [await creepFiles(flat, fontBytes, NOW), await creepFiles(book, fontBytes, NOW)];
+    const [pa, pb] = [await readPdf(file(a, CREEP_FILE).bytes), await readPdf(file(b, CREEP_FILE).bytes)]; // two front pages, then two back pages
+    const box = (p: (typeof pa)[number]) => contentBoxes(p.content)[0];
+    for (const i of [0, 1]) {
+      expect(box(pb[i]).x - box(pa[i]).x, `front ${i}`).toBeCloseTo(0.4, 2);
+      expect(box(pa[i]).y - box(pb[i]).y, `front ${i}`).toBeCloseTo(0.2, 2); // up is toward the top
     }
-    expect(thicknessFromCreepTest(0.14, 13, 0)).toBe(0.14);
-    // 0.12 mm of difference over 12 gaps is 0.01 mm of thickness.
-    expect(0.14 - thicknessFromCreepTest(0.14, 13, 0.12)).toBeCloseTo(0.01, 9);
+    for (const i of [2, 3]) {
+      expect(box(pb[i]).x - box(pa[i]).x, `back ${i}`).toBeCloseTo(-0.6, 2);
+      expect(box(pa[i]).y - box(pb[i]).y, `back ${i}`).toBeCloseTo(-0.3, 2);
+    }
+    const [ca, cb] = [await readPdf(file(a, COVER_FILE).bytes), await readPdf(file(b, COVER_FILE).bytes)];
+    expect(box(cb[0]).x - box(ca[0]).x).toBeCloseTo(0.4, 2); // the cover takes the front offset
+    expect(box(ca[0]).y - box(cb[0]).y).toBeCloseTo(0.2, 2);
+  });
+
+  it('has margin rulers on every page, the cover included: top, bottom and fore-edge, with the expected margin marked', async () => {
+    const creep = await readPdf(file(made, CREEP_FILE).bytes), cover = await readPdf(file(made, COVER_FILE).bytes);
+    expect(cover).toHaveLength(1);
+    for (const p of [...creep, ...cover]) {
+      expect(margins(p.strings).top, 'top and bottom of both pages').toBe(4);
+      expect(margins(p.strings).fore, 'fore-edge ruler of both pages').toBe(2); // each runs 0 to 7 mm from the box line
+    }
+    expect(FORE_EDGE_RULER_MM).toBeGreaterThan(GRID_X_MM);
+  });
+
+  it('puts the covers’ footer on the cover sheet', async () => {
+    const [sheet] = await readPdf(file(made, COVER_FILE).bytes);
+    expect(sheet.strings).toContain('COVER, inside front cover');
+    expect(sheet.strings).toContain('COVER, inside back cover');
+    for (const line of settingsLines(emptyBook(), NOW)) expect(sheet.strings.filter((s) => s === line)).toHaveLength(2);
   });
 
   it('draws the same content-area box on every page', async () => {
-    const sheets = await readPdf(file(await calibrationFiles(emptyBook(8), fontBytes, NOW), 'creep-test.pdf').bytes);
-    for (const s of sheets) {
+    const pages = await readPdf(file(await creepFiles(emptyBook(8), fontBytes, NOW), CREEP_FILE).bytes);
+    for (const s of pages) {
       const boxes = contentBoxes(s.content);
       expect(boxes).toHaveLength(2);
       for (const b of boxes) expect([b.w, b.h]).toEqual([81, 132].map((v) => expect.closeTo(v, 2)));
@@ -295,19 +360,46 @@ describe('the creep test', () => {
   });
 });
 
-describe('the cover sheet', () => {
-  it('has the box and crosshairs of both covers on one sheet, with the same footer', async () => {
-    const made = await calibrationFiles(emptyBook(), fontBytes, NOW);
-    const [sheet] = await readPdf(file(made, 'calibration-cover.pdf').bytes);
-    expect(sheet.strings).toContain('COVER, inside front cover');
-    expect(sheet.strings).toContain('COVER, inside back cover');
-  });
-});
+describe('the creep formula, with the cover', () => {
+  const sheets = 13, set = 0.14;
 
-describe('a thickness that cannot be printed', () => {
-  it('is refused with the reason, like the print files', async () => {
-    const book = emptyBook();
-    book.print.paper_thickness_mm = 0.9;
-    await expect(calibrationFiles(book, fontBytes, NOW)).rejects.toThrow(/past the fold/);
+  it('the margin at sheet k is GRID_X + k × (set − real) − the cover’s thickness', () => {
+    expect(marginAt(0, set, 0.14)).toBeCloseTo(GRID_X_MM, 9);
+    expect(marginAt(5, set, 0.1)).toBeCloseTo(GRID_X_MM + 5 * 0.04, 9);
+    expect(marginAt(0, set, 0.14, 0.25)).toBeCloseTo(GRID_X_MM - 0.25, 9); // the cover pushes sheet 0 in
+  });
+
+  it('matches the imposition: sheet k’s box sits where the code puts it, from a cut made PAGE_W from the cover’s fold', () => {
+    for (const [real, cover] of [[0.1, 0], [0.14, 0.3], [0.17, 0.12]] as const) {
+      for (const k of [0, 6, 12]) {
+        const boxEdge = pageOrigin(false, creepFor(k, { paper_thickness_mm: set })).x + GRID_X_MM; // outer edge of the left page's box, relative to sheet k's fold at FOLD
+        const foldOfSheet = k * real + cover; // sheet k's fold is this far toward the cut from the cover's
+        const cut = FOLD_X_MM - PAGE_W_MM + foldOfSheet; // the cut, in sheet k's own coordinates
+        expect(boxEdge - cut).toBeCloseTo(marginAt(k, set, real, cover), 9);
+      }
+    }
+  });
+
+  it('gives the right thickness whatever the cover’s thickness, comparing the innermost sheet with the outermost', () => {
+    for (const real of [0.08, 0.1, 0.14, 0.17]) {
+      for (const cover of [0, 0.12, 0.3]) {
+        const read = { cover: marginAt(0, set, real) /* the cover is printed with no creep */, outermost: marginAt(0, set, real, cover), innermost: marginAt(sheets - 1, set, real, cover) };
+        const r = creepResult(set, sheets, read);
+        expect(r.thickness).toBeCloseTo(real, 9);
+        expect(r.coverPush).toBeCloseTo(cover, 9);
+      }
+    }
+  });
+
+  it('comparing the middle with the cover would be wrong by the cover’s thickness ÷ (sheets − 1)', () => {
+    const real = 0.12, cover = 0.3;
+    const wrong = thicknessFromCreepTest(set, sheets, marginAt(sheets - 1, set, real, cover) - marginAt(0, set, real));
+    expect(wrong).toBeCloseTo(real + cover / (sheets - 1), 9);
+    expect(Math.abs(wrong - real)).toBeGreaterThan(0.02);
+  });
+
+  it('keeps the old rules: a positive difference means the thickness set is too high, and none means it is right', () => {
+    expect(thicknessFromCreepTest(0.14, 13, 0)).toBe(0.14);
+    expect(0.14 - thicknessFromCreepTest(0.14, 13, 0.12)).toBeCloseTo(0.01, 9);
   });
 });

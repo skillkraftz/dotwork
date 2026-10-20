@@ -178,6 +178,8 @@ export class SettingsDialog {
 /** How each print setting is labelled and stepped in its field. `help` is the key of its entry in help.ts. */
 const PRINT_FIELDS: Record<keyof PrintSettings, { label: string; help: string; step: number }> = {
   paper_thickness_mm: { label: 'Paper thickness (mm)', help: 'book-thickness', step: 0.01 },
+  front_offset_x_mm: { label: 'Front offset x (mm)', help: 'book-front-offset-x', step: 0.1 },
+  front_offset_y_mm: { label: 'Front offset y (mm)', help: 'book-front-offset-y', step: 0.1 },
   back_offset_x_mm: { label: 'Back offset x (mm)', help: 'book-offset-x', step: 0.1 },
   back_offset_y_mm: { label: 'Back offset y (mm)', help: 'book-offset-y', step: 0.1 },
   signatures: { label: 'Signatures', help: 'book-signatures', step: 1 },
@@ -206,9 +208,9 @@ export function printField(book: () => Book, edit: (change: (b: Book) => void) =
 export function printFields(book: () => Book, edit: (change: (b: Book) => void) => void): HTMLElement[] {
   const field = (key: keyof PrintSettings) => printField(book, edit, key);
   return [
-    field('paper_thickness_mm'), field('back_offset_x_mm'), field('back_offset_y_mm'), field('signatures'),
-    h('p', { class: 'hint' }, 'Creep shifts each sheet’s pages toward the fold by the sheets outside it × the paper thickness. The back offset moves everything on print-second.pdf (+x right, +y up) to match your printer.'),
+    field('paper_thickness_mm'), field('front_offset_x_mm'), field('front_offset_y_mm'), field('back_offset_x_mm'), field('back_offset_y_mm'), field('signatures'),
+    h('p', { class: 'hint' }, 'Creep shifts each sheet’s pages toward the fold by the sheets outside it × the paper thickness. The front offset moves everything on print-first.pdf and cover.pdf, the back offset everything on print-second.pdf (+x right, +y up, as seen on that side), to cancel what your printer does to each side.'),
     field('shade_light_pct'), field('shade_medium_pct'), field('shade_dark_pct'), field('gray_text_pct'),
-    h('p', { class: 'hint' }, 'Tones are how dark the light, medium and dark shades and the gray text print: 0 is white, 100 is black. They change the PDFs only, not the editor or PNGs. The Calibrate page helps you choose them.'),
+    h('p', { class: 'hint' }, 'Tones are how dark the light, medium and dark shades and the gray text print: 0 is white, 100 is black. They change the PDFs only, not the editor or PNGs. The Calibrate page helps you choose them and keeps them as your printer’s settings.'),
   ];
 }

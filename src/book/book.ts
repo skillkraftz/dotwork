@@ -26,6 +26,8 @@ export interface Book {
 /** What a book file may hold for each print setting: the file format's limits, which the settings fields keep to. */
 export const PRINT_LIMITS = {
   paper_thickness_mm: { min: 0, max: 1 },
+  front_offset_x_mm: { min: -10, max: 10 },
+  front_offset_y_mm: { min: -10, max: 10 },
   back_offset_x_mm: { min: -10, max: 10 },
   back_offset_y_mm: { min: -10, max: 10 },
   signatures: { min: 1, max: 20 },
@@ -42,7 +44,8 @@ export const MAX_PAGES = 400;
 /** The nearest multiple of 4 that holds `n` pages, within the limits. */
 export const roundPageCount = (n: number) => Math.min(MAX_PAGES, Math.max(MIN_PAGES, Math.ceil((Number.isFinite(n) ? n : DEFAULT_PAGE_COUNT) / 4) * 4));
 
-export function emptyBook(pageCount = DEFAULT_PAGE_COUNT): Book {
+/** A blank book. New books start from the printer's saved settings when given them (see printer.ts), else the defaults. */
+export function emptyBook(pageCount = DEFAULT_PAGE_COUNT, print: PrintSettings = DEFAULT_PRINT): Book {
   const count = roundPageCount(pageCount);
   return {
     format: 'dotwork-book',
@@ -50,7 +53,7 @@ export function emptyBook(pageCount = DEFAULT_PAGE_COUNT): Book {
     name: 'Untitled book',
     page_count: count,
     page_numbers: true,
-    print: { ...DEFAULT_PRINT },
+    print: { ...print },
     pages: Array.from({ length: count }, () => null),
     cover: { front: null, back: null },
   };

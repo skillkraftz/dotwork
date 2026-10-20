@@ -126,15 +126,27 @@ describe('centering, creep and the back offset in the content', () => {
     expect(Math.abs(thick[0] - flat[0])).toBeCloseTo(1, 2); // sheet 1 moves 1 mm
   });
 
-  it('shifts only the back side by the offset', async () => {
-    const make = async (x: number, y: number) => exportBookFiles(labelledBook(8, (b) => { b.print.back_offset_x_mm = x; b.print.back_offset_y_mm = y; }), fonts);
-    const base = await make(0, 0), moved = await make(1, 2);
-    expect(Buffer.from(file(moved, 'print-first.pdf')).equals(Buffer.from(file(base, 'print-first.pdf')))).toBe(true);
-    const a = await readPdf(file(base, 'print-second.pdf')), b = await readPdf(file(moved, 'print-second.pdf'));
-    const pos = (c: string) => c.match(/1 0 0 1\s+(-?[\d.]+)\s+(-?[\d.]+)\s+Tm/) ?? c.match(/(-?[\d.]+)\s+(-?[\d.]+)\s+Td/)!;
-    const [pa, pb] = [pos(a[0].content), pos(b[0].content)];
-    expect((parseFloat(pb[1]) - parseFloat(pa[1])) / PT).toBeCloseTo(1, 2); // +x moves right
-    expect((parseFloat(pb[2]) - parseFloat(pa[2])) / PT).toBeCloseTo(2, 2); // +y moves up (PDF y runs up)
+  it('shifts each side by its own offset: the front (print-first, cover) by the front offset, the back (print-second) by the back offset', async () => {
+    const make = async (print: Partial<Book['print']>) => exportBookFiles(labelledBook(8, (b) => { setSlot(b, 0, labelled('FRONT')); setSlot(b, 9, labelled('BACK')); Object.assign(b.print, print); }), fonts);
+    const base = await make({}), front = await make({ front_offset_x_mm: 1, front_offset_y_mm: 2 }), back = await make({ back_offset_x_mm: -1, back_offset_y_mm: -2 });
+    const same = (a: ExportedFile[], b: ExportedFile[], name: string) => Buffer.from(file(a, name)).equals(Buffer.from(file(b, name)));
+    const pos = (c: string) => c.match(/1 0 0 1\s+(-?[\d.]+)\s+(-?[\d.]+)\s+Tm/)!;
+    const moved = async (from: ExportedFile[], to: ExportedFile[], name: string) => {
+      const [pa, pb] = [pos((await readPdf(file(from, name)))[0].content), pos((await readPdf(file(to, name)))[0].content)];
+      return { x: (parseFloat(pb[1]) - parseFloat(pa[1])) / PT, y: (parseFloat(pb[2]) - parseFloat(pa[2])) / PT };
+    };
+    // The front offset moves print-first.pdf and cover.pdf (+x right, +y up) and nothing else.
+    expect(same(front, base, 'print-second.pdf')).toBe(true);
+    expect(same(front, base, 'pages.pdf')).toBe(true);
+    for (const name of ['print-first.pdf', 'cover.pdf']) {
+      const m = await moved(base, front, name);
+      expect([m.x, m.y], name).toEqual([expect.closeTo(1, 2), expect.closeTo(2, 2)]);
+    }
+    // The back offset moves print-second.pdf and nothing else.
+    expect(same(back, base, 'print-first.pdf')).toBe(true);
+    expect(same(back, base, 'cover.pdf')).toBe(true);
+    const m = await moved(base, back, 'print-second.pdf');
+    expect([m.x, m.y]).toEqual([expect.closeTo(-1, 2), expect.closeTo(-2, 2)]);
   });
 
   it('refuses a creep that would cross the fold', async () => {
