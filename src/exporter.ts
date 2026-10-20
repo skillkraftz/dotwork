@@ -8,13 +8,13 @@ import type { Page } from './format/types';
 import { readBook, type Book } from './book/book';
 import { svgToPng, pageToPng, spreadToPng, FONT_CSS, PNG_DPI, PNG_DPIS } from './png';
 import { printFields } from './settings';
-import regularUrl from './fonts/CourierPrime-Regular.ttf?url';
-import boldUrl from './fonts/CourierPrime-Bold.ttf?url';
+import { slug } from './slug';
+import { loadFontBytes } from './print/fonts';
+import { CalibrateDialog } from './calibrate';
 
 export type ExportTab = 'import' | 'export' | 'png' | 'pdf';
 const TABS: [ExportTab, string][] = [['import', 'Import'], ['export', 'Export'], ['png', 'PNG'], ['pdf', 'PDF']];
 
-export const slug = (name: string, fallback: string) => name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || fallback;
 const PREVIEW_DPI = 60;
 
 /** What the export window needs from the editor around it. */
@@ -43,6 +43,7 @@ export class ExportDialog {
   private status = h('p', { class: 'lib-msg', role: 'status', hidden: true });
   private png = { scope: 'page' as 'page' | 'spread', dpi: PNG_DPI as number };
   private pdf = { pages: true, cover: true, signatures: true };
+  private calibrate: CalibrateDialog;
 
   constructor(private host: ExportHost) {
     const tabBar = h('div', { class: 'lib-tabs', role: 'tablist', 'aria-label': 'Export sections' },
@@ -58,6 +59,8 @@ export class ExportDialog {
       this.body) as HTMLDialogElement;
     this.dialog.addEventListener('click', (e) => { if (e.target === this.dialog) this.dialog.close(); });
     document.body.append(this.dialog);
+    // The Calibrate page replaces this window while it is open, and brings it back on the PDF tab when it is closed.
+    this.calibrate = new CalibrateDialog(host, () => this.show('pdf'));
   }
 
   /** Open on a tab; with none, on Export (or PDF in the book view, where that is the point). */
@@ -190,6 +193,10 @@ export class ExportDialog {
         box('pages', 'pages.pdf', 'Every page at final size, 3.5 × 5.5 in, one after another. To read, check or print one page at a time.'),
         box('cover', 'cover.pdf', 'The inside front and back covers on one sheet, printed single-sided.'),
         box('signatures', 'Print files', 'print-first.pdf (side A) and print-second.pdf (side B): pages arranged on letter-cut-in-half sheets, with creep, for printing on both sides and binding. Also a preview and a summary.')),
+      h('div', { class: 'export-actions' }, h('button', {
+        type: 'button', 'data-key': 'calibrate-open', 'data-help': 'calibrate-open',
+        onclick: () => { this.dialog.close(); this.calibrate.show(); },
+      }, 'Calibrate your printer…')),
       ...(signatures ? [h('h3', {}, 'Printing'), ...printFields(() => this.host.book(), (change) => { this.host.editBook(change); })] : []),
       this.downloadButton('export-pdf', () => this.buildPdf(), names.length === 0),
     ];
@@ -203,11 +210,8 @@ export class ExportDialog {
     let failure: unknown;
     try {
       // The PDF code is loaded only when it is needed.
-      const [{ exportBookFiles }, [regular, bold]] = await Promise.all([
-        import('./print/export'),
-        Promise.all([regularUrl, boldUrl].map(async (u) => (await fetch(u)).arrayBuffer())),
-      ]);
-      files = await exportBookFiles(book, { regular, bold }, include);
+      const [{ exportBookFiles }, fontBytes] = await Promise.all([import('./print/export'), loadFontBytes()]);
+      files = await exportBookFiles(book, fontBytes, include);
       if (include.signatures) {
         const sheet = contactSheet(book, FONT_CSS);
         const px = (mm: number) => Math.round((mm / 25.4) * PREVIEW_DPI);

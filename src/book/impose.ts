@@ -31,9 +31,21 @@ export interface PrintSettings {
   back_offset_y_mm: number;
   /** How many signatures to split the book into. */
   signatures: number;
+  /**
+   * How dark the printed PDFs draw the light, medium and dark shade tones and the gray text, as a percent of black
+   * (0 is white, 100 is black). The editor and PNGs keep the fixed grays; see src/print/tones.ts.
+   */
+  shade_light_pct: number;
+  shade_medium_pct: number;
+  shade_dark_pct: number;
+  gray_text_pct: number;
 }
 
-export const DEFAULT_PRINT: PrintSettings = { paper_thickness_mm: 0.14, back_offset_x_mm: 0, back_offset_y_mm: 0, signatures: 1 };
+/** The defaults are the owner's measured printer and paper; the tones are today's grays (#efefef, #dcdcdc, #bdbdbd, #808080). */
+export const DEFAULT_PRINT: PrintSettings = {
+  paper_thickness_mm: 0.14, back_offset_x_mm: 0, back_offset_y_mm: 0, signatures: 1,
+  shade_light_pct: 6.3, shade_medium_pct: 13.7, shade_dark_pct: 25.9, gray_text_pct: 49.8,
+};
 
 /** A book page number (1-based), or null for a blank filler page. */
 export type PageRef = number | null;
@@ -106,6 +118,9 @@ export function checkPrintSettings(s: PrintSettings, sheets: number): string | n
   if (!Number.isFinite(s.paper_thickness_mm) || s.paper_thickness_mm < 0) return 'Paper thickness must be zero or more.';
   if (!Number.isFinite(s.back_offset_x_mm) || !Number.isFinite(s.back_offset_y_mm)) return 'The back-side offset must be a number.';
   if (!Number.isInteger(s.signatures) || s.signatures < 1) return 'Signatures must be a whole number, at least 1.';
+  for (const key of ['shade_light_pct', 'shade_medium_pct', 'shade_dark_pct', 'gray_text_pct'] as const) {
+    if (!Number.isFinite(s[key]) || s[key] < 0 || s[key] > 100) return 'Each tone must be a percentage from 0 to 100.';
+  }
   const creep = (sheets - 1) * s.paper_thickness_mm;
   if (creep >= GRID_X_MM) {
     return `Creep of ${creep.toFixed(2)} mm would push content past the fold (the page margin is ${GRID_X_MM} mm). Lower the paper thickness or use more signatures.`;

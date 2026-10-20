@@ -29,6 +29,10 @@ export const PRINT_LIMITS = {
   back_offset_x_mm: { min: -10, max: 10 },
   back_offset_y_mm: { min: -10, max: 10 },
   signatures: { min: 1, max: 20 },
+  shade_light_pct: { min: 0, max: 100 },
+  shade_medium_pct: { min: 0, max: 100 },
+  shade_dark_pct: { min: 0, max: 100 },
+  gray_text_pct: { min: 0, max: 100 },
 } as const;
 
 export const DEFAULT_PAGE_COUNT = 52;

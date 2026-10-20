@@ -3,6 +3,7 @@ import { TOKENS, findUnknownTokens } from './format/tokens';
 import { PAGE_SIDES, type Page } from './format/types';
 import { validatePage } from './format/validate';
 import { MAX_PAGES, MIN_PAGES, PRINT_LIMITS, pagesLostByResize, resizeBook, roundPageCount, type Book } from './book/book';
+import type { PrintSettings } from './book/impose';
 import type { Store } from './store';
 import type { SpreadSide } from './format/spread';
 
@@ -174,27 +175,40 @@ export class SettingsDialog {
   }
 }
 
-/** Paper thickness, back offset and signatures: the settings that shape the print-ready files. Used in the settings and the export window. */
-export function printFields(book: () => Book, edit: (change: (b: Book) => void) => void): HTMLElement[] {
-  const num = (help: string, label: string, value: number, attrs: Record<string, unknown>, set: (b: Book, v: number) => void) => {
-    const input = h('input', { type: 'number', value, 'aria-label': label, 'data-key': help, 'data-help': help, ...attrs });
-    const { min, max } = attrs as { min: number; max: number };
-    input.onchange = () => {
-      const typed = Number(input.value);
-      if (input.value === '' || !Number.isFinite(typed)) { input.value = String(value); return; }
-      // The book file only holds values in range, so a number outside it is brought back in rather than kept.
-      const v = Math.min(max, Math.max(min, typed));
-      input.value = String(v);
-      edit((b) => set(b, v));
-    };
-    return h('label', { class: 'compact' }, label, input);
+/** How each print setting is labelled and stepped in its field. `help` is the key of its entry in help.ts. */
+const PRINT_FIELDS: Record<keyof PrintSettings, { label: string; help: string; step: number }> = {
+  paper_thickness_mm: { label: 'Paper thickness (mm)', help: 'book-thickness', step: 0.01 },
+  back_offset_x_mm: { label: 'Back offset x (mm)', help: 'book-offset-x', step: 0.1 },
+  back_offset_y_mm: { label: 'Back offset y (mm)', help: 'book-offset-y', step: 0.1 },
+  signatures: { label: 'Signatures', help: 'book-signatures', step: 1 },
+  shade_light_pct: { label: 'Light shade (% black)', help: 'book-tone-light', step: 1 },
+  shade_medium_pct: { label: 'Medium shade (% black)', help: 'book-tone-medium', step: 1 },
+  shade_dark_pct: { label: 'Dark shade (% black)', help: 'book-tone-dark', step: 1 },
+  gray_text_pct: { label: 'Gray text (% black)', help: 'book-tone-gray', step: 1 },
+};
+
+/** One print setting as a number field. A number outside the book file's limits is brought back in rather than kept. */
+export function printField(book: () => Book, edit: (change: (b: Book) => void) => void, key: keyof PrintSettings): HTMLElement {
+  const { label, help, step } = PRINT_FIELDS[key], { min, max } = PRINT_LIMITS[key];
+  const value = book().print[key];
+  const input = h('input', { type: 'number', value, min, max, step, 'aria-label': label, 'data-key': help, 'data-help': help });
+  input.onchange = () => {
+    const typed = Number(input.value);
+    if (input.value === '' || !Number.isFinite(typed)) { input.value = String(book().print[key]); return; }
+    const v = Math.min(max, Math.max(min, key === 'signatures' ? Math.round(typed) : typed));
+    input.value = String(v);
+    edit((b) => { b.print[key] = v; });
   };
-  const p = book().print;
+  return h('label', { class: 'compact' }, label, input);
+}
+
+/** Paper thickness, back offset, signatures and tones: the settings that shape the print-ready files. Used in the settings and the export window. */
+export function printFields(book: () => Book, edit: (change: (b: Book) => void) => void): HTMLElement[] {
+  const field = (key: keyof PrintSettings) => printField(book, edit, key);
   return [
-    num('book-thickness', 'Paper thickness (mm)', p.paper_thickness_mm, { ...PRINT_LIMITS.paper_thickness_mm, step: 0.01 }, (b, v) => { b.print.paper_thickness_mm = v; }),
-    num('book-offset-x', 'Back offset x (mm)', p.back_offset_x_mm, { ...PRINT_LIMITS.back_offset_x_mm, step: 0.1 }, (b, v) => { b.print.back_offset_x_mm = v; }),
-    num('book-offset-y', 'Back offset y (mm)', p.back_offset_y_mm, { ...PRINT_LIMITS.back_offset_y_mm, step: 0.1 }, (b, v) => { b.print.back_offset_y_mm = v; }),
-    num('book-signatures', 'Signatures', p.signatures, { ...PRINT_LIMITS.signatures, step: 1 }, (b, v) => { b.print.signatures = Math.round(v); }),
+    field('paper_thickness_mm'), field('back_offset_x_mm'), field('back_offset_y_mm'), field('signatures'),
     h('p', { class: 'hint' }, 'Creep shifts each sheet’s pages toward the fold by the sheets outside it × the paper thickness. The back offset moves everything on print-second.pdf (+x right, +y up) to match your printer.'),
+    field('shade_light_pct'), field('shade_medium_pct'), field('shade_dark_pct'), field('gray_text_pct'),
+    h('p', { class: 'hint' }, 'Tones are how dark the light, medium and dark shades and the gray text print: 0 is white, 100 is black. They change the PDFs only, not the editor or PNGs. The Calibrate page helps you choose them.'),
   ];
 }
