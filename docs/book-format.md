@@ -41,7 +41,13 @@ to the page format.
 **Sides.** Page 1 is a right-hand page, so odd pages are right-hand and even
 pages left-hand. Each page's `side` must match its slot (`cover.front` is
 left, `cover.back` is right). Dotwork sets this when it places a design in a
-slot, so the same saved page can go anywhere.
+slot, so the same saved page can go anywhere. If turning it would put an element
+over the page number's corner (see `page-format.md`), the placed copy gets
+`"page_number": false`.
+
+**Covers.** The inside covers never print a page number, so the page-number
+corner is not reserved on them: an element at row 0, x 0 to 2 of `cover.front`
+is valid whatever its `page_number` says.
 
 **Tokens.** A page with a date in `dates` prints its tokens (`{weekday}`,
 `{day+1}`, `{months}` and the rest, see `page-format.md`) filled in from that
@@ -54,7 +60,7 @@ design, and survive resizing the book (new pages start undated).
 **Validation.** A reader rejects the whole file, and says which rule failed and
 where, if the format or version is wrong, `page_count` is not a multiple of 4,
 `pages` or `dates` has the wrong length, a date is not a real `YYYY-MM-DD` day, a print setting is out of range, or a page breaks
-the page rules or sits on the wrong side.
+the page rules or sits on the wrong side. The page-number corner rule is not applied to the covers.
 
 ## What the print files contain
 

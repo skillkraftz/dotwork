@@ -1,11 +1,11 @@
 import { h } from './panel';
-import { errorProblem, problemView, type Problem } from './problems';
+import { errorProblem, issuesProblem, problemView, type Problem } from './problems';
 import { contactSheet } from './print/contact';
 import { zip } from './print/zip';
 import { withBookJson } from './print/bundle';
 import type { ExportedFile, Include } from './print/export';
 import type { Page } from './format/types';
-import type { Book } from './book/book';
+import { readBook, type Book } from './book/book';
 import { svgToPng, pageToPng, spreadToPng, FONT_CSS, PNG_DPI, PNG_DPIS } from './png';
 import { printFields } from './settings';
 import regularUrl from './fonts/CourierPrime-Regular.ttf?url';
@@ -227,7 +227,12 @@ export class ExportDialog {
     }
     if (failure !== undefined) {
       this.say(errorProblem('Can’t export: the PDFs could not be built. A zip with the book as JSON and an error.txt was downloaded instead.', failure));
-    } else this.say(null);
+      return;
+    }
+    // The PDFs were built from the book as it is, so say so on screen too if it breaks the format.
+    const check = readBook(book);
+    if (check.ok) this.say(null);
+    else this.say(issuesProblem('The files were made, but the book breaks the book format. The zip has an error.txt with the reasons.', check.issues));
   }
 
   // ---- shared ---------------------------------------------------------------

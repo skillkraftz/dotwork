@@ -186,7 +186,7 @@ button.primary:hover:not(:disabled) { background: #333 !important; }
 .lib-find { display: flex; flex-direction: column; gap: 8px; padding: 8px 14px 0; border-bottom: 1px solid var(--gray-2); }
 .lib-find input[type='text'] { width: 100%; }
 .lib-tabs { display: flex; overflow-x: auto; scrollbar-width: none; }
-.lib-tabs button { flex: 1 0 auto; border-width: 0 0 3px; border-bottom-color: transparent; background: transparent; padding: 3px 8px; }
+.lib-tabs button { flex: 1 0 auto; min-height: var(--tap); border-width: 0 0 3px; border-bottom-color: transparent; background: transparent; padding: 3px 8px; }
 .lib-tabs button[aria-selected='true'] { border-bottom-color: #000; font-weight: 700; }
 .lib-msg { margin: 0; padding: 6px 14px; background: #000; color: #fff; font-size: 12px; }
 .lib-msg span { display: block; }
@@ -253,6 +253,7 @@ dialog.export { width: min(560px, calc(100% - 28px)); }
 .stage-page svg { display: block; width: 100%; height: 100%; filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.25)); }
 .stage-page .outline { stroke: var(--gray-3); stroke-width: 0.3; }
 .stage-page.current .outline { stroke: #000; stroke-width: 1; }
+.book-problem { margin: 0; padding: 6px 12px; }
 .book-msg { margin: 0; padding: 6px 12px; background: #000; color: #fff; font-size: 12px; }
 .book-main > .warn { margin: 0; padding: 6px 12px; }
 .book-actions { padding: 8px 12px 10px; background: #fff; border-top: 1px solid var(--gray-2); }
@@ -280,6 +281,7 @@ dialog.picker { width: min(960px, calc(100% - 28px)); }
 .picker-body { flex: 1; overflow-y: auto; padding: 4px 14px 20px; }
 .picker-body h3, .apply-body h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; margin: 18px 0 8px; }
 .picker-body > .design-list:first-child { margin-top: 12px; }
+.picker .lib-find { padding-bottom: 0; }
 .design-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
 .design { display: flex; flex-direction: column; gap: 4px; padding: 8px; border: 1px solid var(--gray-3); background: #fff; text-align: left; min-width: 0; }
 .design.wide { grid-column: span 2; }

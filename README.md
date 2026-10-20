@@ -47,7 +47,7 @@ the identity by the spine. Version 1 files are converted when imported.
   print settings.
 - **Library** (Edit ▾, then Library) is a browser with a search box and tabs for Pages, Spreads, Books, Widgets and
   Favorites. Tap the star on anything to find it under Favorites. It comes filled: every page of the owner's books,
-  paired spreads (ideas, book notes, weekly, and each book's covers), starter widgets, and book templates, all marked
+  spreads (lined, dot grid and notes, two of the same page; ideas; book notes; weekly, dated and undated, mirrored so the day column is on the outer edge of both pages; and each book's covers), starter widgets, and book templates, all marked
   as examples. An example can't be changed: opening or placing one gives an editable copy named “… copy”, and a saved
   item can't take an example's name. Tap an item to open or place it; Rename, Duplicate and Delete are in the ⋯ menu on
   each saved one.
@@ -114,12 +114,15 @@ cover.
   the arrow keys) to step through the inside front cover, pages 1 to N and the
   inside back cover. **Spreads** shows the current opening side by side; tap a
   page in it to pick that page.
-- **Choose design…** opens a picker of large, named thumbnails: Blank, your saved
-  pages, saved spreads (on a left page; a spread fills this page and the next)
-  and the built-in examples. Choosing one places it on this page.
+- **Choose design…** opens a picker of large, named thumbnails in two tabs. **Pages** has Blank, then your saved pages and the
+  built-in pages under their own headings. **Spreads** (on a left page only: a spread fills this page and the next) has your
+  saved spreads and the built-in ones. The picker opens on the tab you used last. Choosing a design places it on this page.
+  If a page has something in the page number's corner and is put on the other side of the spine, its page number is turned
+  off on that copy (the app says so). The inside covers never print a page number.
 - **Apply to more pages…** copies this page's design to pages __ to __, every
   page from here to __, or every left or right page in a range. It lists the
-  pages that will change before you apply. **Clear** blanks this page and
+  pages that will change before you apply. If the facing page has a design, **Copy the facing page too** repeats the pair as
+  a spread (left pages get the left one, right pages the right one). **Clear** blanks this page and
   **Undo** steps back.
 - **Contents** lists every page with its design and a thumbnail; tap a row to
   jump there. Runs of the same design fold into one row ("Pages 5–30") that
@@ -132,7 +135,8 @@ cover.
 - **Print files…** (or Export, then PDF) offers **pages at final size** (`pages.pdf`) or **print-ready signatures**
   (`print-first.pdf` and `print-second.pdf`, one pair per signature, with a `preview.png` contact sheet and a
   `summary.txt` in the zip), and **cover.pdf** with either. It always downloads as a zip, with `book.json` (the book it was built from) and, if anything failed, an `error.txt`.
-  A draft the app can't read is never deleted: it is kept under a backup name in the browser and offered as a download.
+  If the book breaks the book format the PDFs are still made, and the screen and `error.txt` say why. After every change the
+  Book view checks the book and shows the reason, with Copy details, if it breaks. A draft the app can't read is never deleted: it is kept under a backup name in the browser and offered as a download.
   Text stays real text in the embedded Courier Prime and lines stay vector.
 
 ![The print files](docs/screenshots/book-export.png)

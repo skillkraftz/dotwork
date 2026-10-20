@@ -39,8 +39,28 @@ describe('the built-in pages, spreads and widgets', () => {
     const names = (s: string) => { const sp = BUILTIN_SPREADS.find((x) => x.name === s)!; return [sp.left.name, sp.right.name]; };
     expect(names('Ideas spread')).toEqual(['Idea page', 'Dot grid page']);
     expect(names('Book notes spread')).toEqual(['Book notes setup', 'Book notes']);
-    expect(names('Weekly spread')[1]).toBe('Year journal weekly page (dated)');
+    expect(names('Lined spread')).toEqual(['Lined page', 'Lined page']);
+    expect(names('Dot grid spread')).toEqual(['Dot grid page', 'Dot grid page']);
+    expect(names('Notes spread')).toEqual(['Notes', 'Notes']);
+    expect(names('Weekly spread')).toEqual(['Year journal weekly page (dated)', 'Year journal weekly page (dated)']);
+    expect(names('Weekly spread (undated)')).toEqual(['Year journal weekly page', 'Year journal weekly page']);
+    expect(names('Book notes spread')).toEqual(['Book notes setup', 'Book notes']); // left as it was
     for (const covers of ['Year planner covers', 'Monthly journal covers', 'Plain-book covers']) expect(names(covers)).toHaveLength(2);
+  });
+
+  it('mirrors the weekly spread: the day column is on the outer edge of each page and the lines run to the spine', () => {
+    for (const name of ['Weekly spread', 'Weekly spread (undated)']) {
+      const sp = BUILTIN_SPREADS.find((x) => x.name === name)!;
+      expect([sp.left.side, sp.right.side]).toEqual(['left', 'right']);
+      const strip = (p: typeof sp.left) => p.elements.filter((e) => e.type === 'shade').map((e) => (e as { x: number }).x);
+      expect(strip(sp.left)).toEqual([0, 0]); // outer edge of the left page
+      expect(strip(sp.right)).toEqual([25, 25]); // outer edge of the right page
+      const rule = (p: typeof sp.left) => p.elements.find((e) => e.type === 'rule' && e.x1 === e.x2 && e.y2 - e.y1 > 40) as { x1: number };
+      expect([rule(sp.left).x1, rule(sp.right).x1]).toEqual([2, 25]); // the strip's inner edge
+      const lines = (p: typeof sp.left) => p.elements.find((e) => e.type === 'pattern' && e.pattern === 'lines') as { x: number; w: number };
+      expect([lines(sp.left).x, lines(sp.left).x + lines(sp.left).w]).toEqual([2, 27]); // to the spine
+      expect([lines(sp.right).x, lines(sp.right).x + lines(sp.right).w]).toEqual([0, 25]); // to the spine
+    }
   });
 
   it.each(BUILTIN_WIDGETS.map((w) => [w.name, w] as const))('widget “%s” validates wherever it is placed', (_name, widget) => {

@@ -2,7 +2,7 @@ import { readPage } from '../format/read';
 import { GRID_X_MM, GRID_Y_MM, PITCH_MM, emptyPage, type Page } from '../format/types';
 import { readSpread, type Spread, type SpreadSide } from '../format/spread';
 import { readBook, bookPage, type Book } from '../book/book';
-import { h } from '../panel';
+import { h, tabBar } from '../panel';
 import { errorProblem, issuesProblem, problemView, type Problem } from '../problems';
 import { pageContent, thumbnailSvg } from '../render';
 import { placeWidget, widgetSize, type Widget, type WidgetStore } from '../widgets';
@@ -86,7 +86,8 @@ export class LibraryDialog {
   private listEl = h('div', { class: 'lib-list' });
   private saveRow = h('div', { class: 'lib-save' });
   private search = h('input', { type: 'text', 'aria-label': 'Search by name', placeholder: 'Search by name', 'data-help': 'library-search', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', enterkeyhint: 'search' });
-  private tabsEl = h('div', { class: 'lib-tabs', role: 'tablist', 'aria-label': 'Library sections' });
+  private tabsBar = tabBar('Library sections', TABS.map((t) => [t, TAB_LABEL[t]] as [LibraryTab, string]), 'library-tab',
+    (t) => { this.tab = t; this.menuFor = null; this.renderTabs(); void this.renderList(); });
   private tab: LibraryTab = 'pages';
   private templates = new TemplateDialog();
   private renaming: string | null = null;
@@ -100,16 +101,12 @@ export class LibraryDialog {
       if (f) await this.importBackup(f);
     };
     this.search.oninput = () => void this.renderList();
-    this.tabsEl.replaceChildren(...TABS.map((t) => h('button', {
-      type: 'button', role: 'tab', 'data-tab': t, 'data-help': 'library-tab', 'aria-selected': 'false',
-      onclick: () => { this.tab = t; this.menuFor = null; this.renderTabs(); void this.renderList(); },
-    }, TAB_LABEL[t])));
     this.dialog = h('dialog', { class: 'library browser', 'aria-label': 'Library' },
       h('header', {},
         h('h2', {}, 'Library'),
         h('button', { type: 'button', 'data-help': 'library-close', onclick: () => this.dialog.close() }, 'Close')),
       this.saveRow,
-      h('div', { class: 'lib-find' }, this.search, this.tabsEl),
+      h('div', { class: 'lib-find' }, this.search, this.tabsBar.el),
       this.msgEl,
       this.listEl,
       h('footer', {},
@@ -154,7 +151,7 @@ export class LibraryDialog {
   private close() { if (this.dialog.open) this.dialog.close(); }
 
   private renderTabs() {
-    for (const b of this.tabsEl.querySelectorAll('button')) b.setAttribute('aria-selected', String(b.dataset.tab === this.tab));
+    this.tabsBar.select(this.tab);
   }
 
   // ---- saving ---------------------------------------------------------------
