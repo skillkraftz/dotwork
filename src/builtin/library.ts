@@ -58,9 +58,14 @@ const spread = (name: string, left: string, right: string) => buildSpread(name, 
 
 /** Pages that pair naturally, and the cover spread of each book. */
 export const BUILTIN_SPREADS: readonly Spread[] = [
+  spread('Lined spread', 'Lined page', 'Lined page'),
+  spread('Dot grid spread', 'Dot grid page', 'Dot grid page'),
+  spread('Notes spread', 'Notes', 'Notes'),
   spread('Ideas spread', 'Idea page', 'Dot grid page'),
   spread('Book notes spread', 'Book notes setup', 'Book notes'),
-  spread('Weekly spread', 'Notes', 'Year journal weekly page (dated)'),
+  // A mirror: on each page the GOAL / day column / OUTCOME strip is on the outer edge and the lines run to the spine.
+  buildSpread('Weekly spread', weeklyPage('left', true), weeklyPage('right', true)),
+  buildSpread('Weekly spread (undated)', weeklyPage('left', false), weeklyPage('right', false)),
   spread('Year planner covers', 'Year goals cover', 'Year index'),
   spread('Monthly journal covers', 'Monthly tracker', 'Monthly page index'),
   spread('Plain-book covers', 'Plain-book purpose cover', 'Plain-book index'),

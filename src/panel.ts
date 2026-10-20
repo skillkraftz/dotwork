@@ -35,6 +35,14 @@ export function h<K extends keyof HTMLElementTagNameMap>(
   return el;
 }
 
+/** A row of tabs (the library, the design picker): one button per tab, the picked one marked, each at least 44 px tall. */
+export function tabBar<T extends string>(label: string, tabs: readonly [T, string][], help: string, pick: (tab: T) => void) {
+  const el = h('div', { class: 'lib-tabs', role: 'tablist', 'aria-label': label },
+    ...tabs.map(([id, text]) => h('button', { type: 'button', role: 'tab', 'data-tab': id, 'data-help': help, 'aria-selected': 'false', onclick: () => pick(id) }, text)));
+  const select = (tab: T) => { for (const b of el.querySelectorAll('button')) b.setAttribute('aria-selected', String(b.dataset.tab === tab)); };
+  return { el, select };
+}
+
 const warnNodes = (text: string): HTMLElement[] => {
   const bad = findUnknownTokens(text);
   return bad.length ? [h('p', { class: 'warn' }, `Unknown token ${bad.map((b) => `{${b}}`).join(' ')} – the page can’t be exported until it is fixed.`)] : [];

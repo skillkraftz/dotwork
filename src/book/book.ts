@@ -2,7 +2,8 @@ import { emptyPage, type Page } from '../format/types';
 import { readPage } from '../format/read';
 import { isDate } from '../format/dates';
 import { expandFor } from '../format/tokens';
-import { withSide, type Spread, type SpreadSide } from '../format/spread';
+import { withSide, type SpreadSide } from '../format/spread';
+import { headerOf, hitsCorner } from '../format/bounds';
 import type { ValidationIssue } from '../format/validate';
 import { DEFAULT_PRINT, type PrintSettings } from './impose';
 
@@ -65,20 +66,46 @@ export function getSlot(book: Book, slot: number): Page | null {
   return book.pages[slot - 1] ?? null;
 }
 
-/** Put a copy of the page in the slot, turned to face the way that slot faces. null empties it. */
-export function setSlot(book: Book, slot: number, page: Page | null): void {
+const isCover = (book: Book, slot: number) => slot === 0 || slot === book.page_count + 1;
+
+/**
+ * Put a copy of the page in the slot, turned to face the way that slot faces. null empties it.
+ * The page number's corner is at the outer edge, so it moves when the side changes. If the copy would then cover the
+ * number, its page number is turned off (the design you placed is untouched) and this returns true. The inside covers
+ * never print a number, so they are not checked.
+ */
+export function setSlot(book: Book, slot: number, page: Page | null): boolean {
   const put = page && withSide(page, slotSide(slot));
+  let numberOff = false;
+  if (put && !isCover(book, slot) && put.page_number !== false && put.elements.some((el) => hitsCorner(el, headerOf(put)))) {
+    put.page_number = false;
+    numberOff = true;
+  }
   if (slot === 0) book.cover.front = put;
   else if (slot === book.page_count + 1) book.cover.back = put;
   else book.pages[slot - 1] = put;
+  return numberOff;
 }
 
-/** Fill slots from..to (inclusive) with one design. A spread puts its left page on left slots and its right page on right slots. */
-export function fillSlots(book: Book, from: number, to: number, design: Page | Spread): void {
+/** A left and a right page: a spread, or the two pages of an opening (either may be blank). */
+export interface Facing { left: Page | null; right: Page | null }
+/** What can be put on slots: one page, a left/right pair, or null to empty them. */
+export type Design = Page | Facing | null;
+
+const isFacing = (d: Design): d is Facing => d !== null && 'left' in d;
+
+/** The page a design puts on a slot: a pair gives its left page to left slots and its right page to right slots. */
+export const designAt = (design: Design, slot: number): Page | null => (isFacing(design) ? design[slotSide(slot)] : design);
+
+/** Put the design on each of the slots. Returns the slots whose page number had to be turned off. */
+export function applyDesign(book: Book, slots: number[], design: Design): number[] {
+  return slots.filter((slot) => setSlot(book, slot, designAt(design, slot)));
+}
+
+/** Fill slots from..to (inclusive) with one design. Returns the slots whose page number had to be turned off. */
+export function fillSlots(book: Book, from: number, to: number, design: Design): number[] {
   const lo = Math.max(0, Math.min(from, to)), hi = Math.min(book.page_count + 1, Math.max(from, to));
-  for (let slot = lo; slot <= hi; slot++) {
-    setSlot(book, slot, design.format === 'dotwork-spread' ? design[slotSide(slot)] : design);
-  }
+  return applyDesign(book, Array.from({ length: Math.max(0, hi - lo + 1) }, (_, i) => lo + i), design);
 }
 
 /** Change the page count (rounded to a multiple of 4). Pages beyond the new end are dropped. */
@@ -143,14 +170,16 @@ export function readBook(input: unknown): ReadBookResult {
   }
 
   let converted = false;
-  const readSlot = (raw: unknown, path: string, side: SpreadSide): Page | null => {
+  // The inside covers print no page number, so the page-number corner is not reserved on them.
+  const readSlot = (raw: unknown, path: string, side: SpreadSide, cover = false): Page | null => {
     if (raw === null) return null;
-    const r = readPage(raw);
+    const r = readPage(cover && isObject(raw) ? { ...raw, page_number: false } : raw);
     if (!r.ok) {
       for (const i of r.issues) issues.push({ ...i, path: i.path === '(file)' ? path : `${path}.${i.path}` });
       return null;
     }
     converted ||= r.converted;
+    if (cover && isObject(raw)) r.page.page_number = raw.page_number === false ? false : undefined;
     if (r.page.side !== side) fail('book-side', `${path}.side`, `This page sits on a ${side}-hand page, so it must have "side": "${side}" (got ${JSON.stringify(r.page.side)}).`);
     return r.page;
   };
@@ -176,7 +205,7 @@ export function readBook(input: unknown): ReadBookResult {
   if (!isObject(input.cover)) fail('cover', 'cover', '"cover" is required and must be an object with "front" and "back".');
   else {
     for (const k of ['front', 'back'] as const) if (!(k in input.cover)) fail('cover', `cover.${k}`, `"cover.${k}" is required (a page, or null).`);
-    cover = { front: readSlot(input.cover.front ?? null, 'cover.front', 'left'), back: readSlot(input.cover.back ?? null, 'cover.back', 'right') };
+    cover = { front: readSlot(input.cover.front ?? null, 'cover.front', 'left', true), back: readSlot(input.cover.back ?? null, 'cover.back', 'right', true) };
   }
   if (issues.length) return { ok: false, issues };
   return {

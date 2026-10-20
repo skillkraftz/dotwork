@@ -3,9 +3,10 @@ import type { Page } from '../format/types';
 import { withSide, type Spread } from '../format/spread';
 import { addDays, formatDate, parts, sundayOf, weekNumber } from '../format/dates';
 import { pageContent, thumbnailSvg } from '../render';
-import { h } from '../panel';
+import { h, tabBar } from '../panel';
+import { issuesProblem, problemView } from '../problems';
 import type { Library, LibraryItem } from '../library/library';
-import { blankPage, bookExpand, bookPage, dateOf, fillSlots, getSlot, setDates, setSlot, slotCount, slotSide, type Book } from './book';
+import { applyDesign, blankPage, bookExpand, bookPage, dateOf, fillSlots, getSlot, readBook, setDates, setSlot, slotCount, slotSide, type Book, type Design, type Facing } from './book';
 import { BUILTIN_SPREADS } from '../builtin/library';
 import { checkPrintSettings, signatureSizes } from './impose';
 import { contentsRows, datesSummary, designName, endOfRun, listPages, opening, planDates, scopeSlots, slotLabel, whatChanges, type DatePlan, type Scope } from './plan';
@@ -21,6 +22,9 @@ export interface ArrangerHost {
 
 const MAX_UNDO = 30;
 const SPREADS_KEY = 'dotwork.book.spreads';
+const PICKER_TAB_KEY = 'dotwork.book.picker-tab';
+type PickerTab = 'pages' | 'spreads';
+const PICKER_TABS: [PickerTab, string][] = [['pages', 'Pages'], ['spreads', 'Spreads']];
 const SWIPE_PX = 50;
 const stored = (key: string) => { try { return localStorage.getItem(key); } catch { return null; } };
 
@@ -62,6 +66,16 @@ export class Arranger {
   private contents = h('aside', { class: 'book-contents', 'aria-label': 'Contents' });
   private warnEl = h('p', { class: 'warn', hidden: true });
   private msgEl = h('p', { class: 'book-msg', role: 'status', hidden: true });
+  /** Why the book breaks the format (with Copy details), when it does. */
+  private problemEl = h('div', { class: 'book-problem', hidden: true });
+  private pickerTab: PickerTab = stored(PICKER_TAB_KEY) === 'spreads' ? 'spreads' : 'pages';
+  private pickerTabs = tabBar('Kinds of design', PICKER_TABS, 'picker-tab', (t) => {
+    this.pickerTab = t;
+    try { localStorage.setItem(PICKER_TAB_KEY, t); } catch { /* ignore */ }
+    this.renderPicker();
+  });
+  /** Whether the Apply window also copies the facing page, so that a spread keeps its left and right pages. */
+  private withFacing = false;
   private picker: HTMLDialogElement;
   private pickerBody = h('div', { class: 'picker-body' });
   private pickerTitle = h('h2', {});
@@ -79,6 +93,7 @@ export class Arranger {
     this.book = book;
     this.picker = h('dialog', { class: 'library picker', 'aria-label': 'Choose a design' },
       h('header', {}, this.pickerTitle, h('button', { type: 'button', 'data-help': 'picker-close', onclick: () => this.picker.close() }, 'Close')),
+      h('div', { class: 'lib-find' }, this.pickerTabs.el),
       this.pickerBody) as HTMLDialogElement;
     this.apply = h('dialog', { class: 'library apply', 'aria-label': 'Apply to more pages' },
       h('header', {}, h('h2', {}, 'Apply to more pages'), h('button', { type: 'button', 'data-help': 'apply-close', onclick: () => this.apply.close() }, 'Close')),
@@ -104,7 +119,7 @@ export class Arranger {
       if (e.key === 'ArrowLeft') { e.preventDefault(); this.step(-1); } else if (e.key === 'ArrowRight') { e.preventDefault(); this.step(1); }
     });
     root.replaceChildren(this.bar, h('div', { class: 'book-body' },
-      h('div', { class: 'book-main' }, this.nav, this.stage, this.msgEl, this.warnEl, this.actions), this.contents));
+      h('div', { class: 'book-main' }, this.nav, this.stage, this.problemEl, this.msgEl, this.warnEl, this.actions), this.contents));
     this.render();
   }
 
@@ -117,6 +132,7 @@ export class Arranger {
     this.expanded.clear();
     this.slot = 1;
     this.say(null);
+    this.checkBook();
     this.render();
   }
 
@@ -134,7 +150,15 @@ export class Arranger {
     if (this.undoStack.length > MAX_UNDO) this.undoStack.shift();
     change();
     this.host.changed(this.book);
+    this.checkBook();
     this.render();
+  }
+
+  /** Read the book back through the book format after a change. If it breaks, say why (never silently keep a book that can't be exported). */
+  private checkBook() {
+    const r = readBook(this.book);
+    this.problemEl.replaceChildren(...(r.ok ? [] : [problemView(issuesProblem('This book breaks the book format, so it can’t be exported as JSON.', r.issues))]));
+    this.problemEl.hidden = r.ok;
   }
 
   private undo() {
@@ -144,6 +168,7 @@ export class Arranger {
     this.slot = Math.min(this.slot, slotCount(this.book) - 1);
     this.say(null);
     this.host.changed(this.book);
+    this.checkBook();
     this.render();
   }
 
@@ -305,16 +330,9 @@ export class Arranger {
 
   // ---- choosing a design ---------------------------------------------------------
 
-  private choices(): Choice[] {
-    const left = slotSide(this.slot) === 'left';
-    const out: Choice[] = [{ name: 'Blank', kind: 'blank', data: null }];
-    const saved = this.saved.filter((i) => i.kind === 'page').map((i): Choice => ({ name: i.name, kind: 'page', data: i.data as Page }));
-    const spreads = left ? this.saved.filter((i) => i.kind === 'spread').map((i): Choice => ({ name: i.name, kind: 'spread', data: i.data as Spread })) : [];
-    const builtin = left ? BUILTIN_SPREADS.map((sp): Choice => ({ name: sp.name, kind: 'spread', data: sp })) : [];
-    return [...out, ...saved, ...spreads, ...builtin, ...this.host.examples.map((p): Choice => ({ name: p.name, kind: 'page', data: p }))];
-  }
-
   private openPicker() {
+    // Spreads fill this page and the next, so they are offered on left pages only.
+    if (slotSide(this.slot) !== 'left') this.pickerTab = 'pages';
     this.renderPicker();
     this.picker.showModal();
   }
@@ -322,6 +340,9 @@ export class Arranger {
   private renderPicker() {
     this.pickerTitle.textContent = `Design for ${slotLabel(this.book, this.slot).toLowerCase()}`;
     const side = slotSide(this.slot);
+    const tab = side === 'left' ? this.pickerTab : 'pages';
+    this.pickerTabs.el.parentElement!.hidden = side !== 'left';
+    this.pickerTabs.select(tab);
     const card = (c: Choice) => {
       const thumb = h('div', { class: 'thumb' });
       const pages = c.kind === 'spread' ? [(c.data as Spread).left, (c.data as Spread).right] : [withSide(c.data ? (c.data as Page) : blankPage(side), side)];
@@ -331,30 +352,43 @@ export class Arranger {
         onclick: () => this.choose(c),
       }, thumb, h('span', { class: 'design-title' }, c.name), h('span', { class: 'hint' }, c.kind === 'blank' ? 'Empty page' : c.kind === 'spread' ? 'Spread: fills this page and the next' : 'Page'));
     };
-    const all = this.choices();
     const section = (title: string, items: Choice[], empty?: string) => [
       h('h3', {}, title),
       items.length ? h('div', { class: 'design-list' }, ...items.map(card)) : h('p', { class: 'hint' }, empty ?? ''),
     ];
-    const savedPages = all.filter((c) => c.kind === 'page' && !this.host.examples.includes(c.data as Page));
-    this.pickerBody.replaceChildren(
-      h('div', { class: 'design-list' }, card(all[0])),
-      ...section('Saved pages', savedPages, 'Nothing saved yet. Pages you save to the Library appear here.'),
-      ...(side === 'left' ? section('Saved spreads', all.filter((c) => c.kind === 'spread' && !BUILTIN_SPREADS.includes(c.data as Spread)), 'No saved spreads.') : []),
-      ...(side === 'left' ? section('Built-in spreads', all.filter((c) => c.kind === 'spread' && BUILTIN_SPREADS.includes(c.data as Spread))) : []),
-      ...section('Built-in examples', all.filter((c) => c.kind === 'page' && this.host.examples.includes(c.data as Page))),
-    );
+    const choice = (kind: 'page' | 'spread') => (data: Page | Spread): Choice => ({ name: data.name, kind, data });
+    const saved = (kind: 'page' | 'spread') => this.saved.filter((i) => i.kind === kind).map((i) => choice(kind)(i.data as Page | Spread));
+    this.pickerBody.replaceChildren(...(tab === 'pages'
+      ? [
+        h('div', { class: 'design-list' }, card({ name: 'Blank', kind: 'blank', data: null })),
+        ...section('Saved pages', saved('page'), 'Nothing saved yet. Pages you save to the Library appear here.'),
+        ...section('Built-in pages', this.host.examples.map(choice('page'))),
+      ]
+      : [
+        ...section('Saved spreads', saved('spread'), 'No saved spreads.'),
+        ...section('Built-in spreads', BUILTIN_SPREADS.map(choice('spread'))),
+      ]));
   }
 
   private choose(c: Choice) {
     this.picker.close();
     const at = this.slot;
+    let numberOff: number[] = [];
     this.edit(() => {
       if (c.kind === 'blank') setSlot(this.book, at, null);
-      else if (c.kind === 'spread') fillSlots(this.book, at, at + 1, c.data as Spread);
-      else setSlot(this.book, at, c.data as Page);
+      else if (c.kind === 'spread') numberOff = fillSlots(this.book, at, at + 1, c.data as Spread);
+      else if (setSlot(this.book, at, c.data as Page)) numberOff = [at];
     });
-    this.say(c.kind === 'spread' ? `Placed “${c.name}” on ${slotLabel(this.book, at).toLowerCase()} and the page beside it.` : null);
+    this.say([
+      c.kind === 'spread' ? `Placed “${c.name}” on ${slotLabel(this.book, at).toLowerCase()} and the page beside it.` : '',
+      this.numberOffNote(numberOff),
+    ].filter(Boolean).join(' ') || null);
+  }
+
+  /** Tell the owner when placing a design on this side moved its page-number corner under something. */
+  private numberOffNote(slots: number[]) {
+    const pages = slots.filter((n) => n >= 1 && n <= this.book.page_count);
+    return pages.length ? `The page number is off on ${listPages(pages)}: the design has something in the corner it would sit in on that side.` : '';
   }
 
   // ---- applying to more pages ----------------------------------------------------
@@ -378,17 +412,23 @@ export class Arranger {
     const go = h('button', { type: 'button', class: 'primary', 'data-help': 'apply-go' });
     const fromField = this.field('From page', 'from', () => update());
     const toField = this.field('To page', 'to', () => update());
+    const facing = getSlot(b, this.slot % 2 ? this.slot - 1 : this.slot + 1);
+    const both = h('input', { type: 'checkbox', checked: this.withFacing, 'aria-label': 'Copy the facing page too', 'data-key': 'apply-facing', 'data-help': 'apply-facing' });
+    const bothLabel = h('label', { class: 'choice' }, both, 'Copy the facing page too, so the pair repeats as a spread');
+    bothLabel.hidden = !facing;
+    both.onchange = () => { this.withFacing = both.checked; update(); };
     const update = () => {
       const s = this.scope;
       fromField.hidden = s.mode === 'from';
       const targets = scopeSlots(b, s, this.slot).filter((n) => n !== this.slot);
-      const { changed, replaced } = whatChanges(b, targets, design);
+      const pair = this.withFacing && facing ? this.pairFrom(design, facing) : null;
+      const { changed, replaced } = whatChanges(b, targets, pair ?? design);
       summary.textContent = changed.length === 0
         ? 'Nothing would change: those pages already have this design, or the range is empty.'
         : `Will change ${listPages(changed)}${replaced ? `. ${replaced === changed.length ? 'All of them' : replaced} already ${replaced === 1 && changed.length === 1 ? 'has' : 'have'} a design that will be replaced` : ''}.`;
       go.disabled = changed.length === 0;
       go.textContent = `${design ? 'Apply to' : 'Clear'} ${changed.length} page${changed.length === 1 ? '' : 's'}`;
-      go.onclick = () => this.applyTo(changed, design);
+      go.onclick = () => this.applyTo(changed, pair ?? design);
     };
     const radios = SCOPE_MODES.map(({ mode, label }) => {
       const input = h('input', { type: 'radio', name: 'scope', checked: this.scope.mode === mode, 'aria-label': label, 'data-help': 'apply-scope' });
@@ -404,6 +444,7 @@ export class Arranger {
       h('div', { class: 'apply-design' }, thumb, h('p', {}, h('span', { class: 'hint' }, `Copy the design of ${slotLabel(b, this.slot).toLowerCase()}:`), h('strong', {}, designName(design)))),
       h('div', { class: 'choices', role: 'radiogroup', 'aria-label': 'Which pages' }, ...radios),
       h('div', { class: 'row' }, fromField, toField),
+      bothLabel,
       summary,
       h('div', { class: 'row' }, go, h('button', { type: 'button', 'data-help': 'apply-cancel', onclick: () => this.apply.close() }, 'Cancel')),
     );
@@ -493,9 +534,15 @@ export class Arranger {
     update();
   }
 
-  private applyTo(pages: number[], design: Page | null) {
+  /** This page and the one facing it, as a left and right pair. */
+  private pairFrom(here: Page | null, facing: Page | null): Facing {
+    return slotSide(this.slot) === 'left' ? { left: here, right: facing } : { left: facing, right: here };
+  }
+
+  private applyTo(pages: number[], design: Design) {
     this.apply.close();
-    this.edit(() => { for (const n of pages) setSlot(this.book, n, design); });
-    this.say(`${design ? 'Applied' : 'Cleared'} ${pages.length} page${pages.length === 1 ? '' : 's'}. Undo takes it back.`);
+    let numberOff: number[] = [];
+    this.edit(() => { numberOff = applyDesign(this.book, pages, design); });
+    this.say([`${design ? 'Applied' : 'Cleared'} ${pages.length} page${pages.length === 1 ? '' : 's'}. Undo takes it back.`, this.numberOffNote(numberOff)].filter(Boolean).join(' '));
   }
 }

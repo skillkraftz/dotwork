@@ -19,7 +19,9 @@ place labels anywhere.
   on**, except the page number's corner cells while page numbers are on: the
   two cells (6 mm) at the outer top corner, x 0 to 2 on a left page and x 25 to
   27 on a right page (`"either"` counts as right). With `page_number` set to
-  `false` nothing is reserved and the whole row is free.
+  `false` nothing is reserved and the whole row is free. The corner depends on
+  `side`, so a page moved to the other side of the spine can start covering it;
+  Dotwork then turns that placed copy's `page_number` off.
 
 ## Coordinates
 

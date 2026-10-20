@@ -1,6 +1,6 @@
 import type { Page } from '../format/types';
 import { addDays, isDate, parts, shortDate, weekNumber, weekStart } from '../format/dates';
-import { getSlot, slotCount, type Book } from './book';
+import { designAt, getSlot, slotCount, type Book, type Design } from './book';
 
 /** Which pages "apply to more pages" reaches. Page numbers are 1-based; the covers are never part of a range. */
 export type Scope =
@@ -30,9 +30,8 @@ export const designKey = (page: Page | null) => (page ? JSON.stringify({ ...page
 export const designName = (page: Page | null) => (page ? page.name.trim() || 'Untitled' : 'Blank');
 
 /** Where a design goes: the pages in `targets` that would actually change, and how many of those hold something already. */
-export function whatChanges(book: Book, targets: number[], design: Page | null): { changed: number[]; replaced: number } {
-  const key = designKey(design);
-  const changed = targets.filter((n) => designKey(getSlot(book, n)) !== key);
+export function whatChanges(book: Book, targets: number[], design: Design): { changed: number[]; replaced: number } {
+  const changed = targets.filter((n) => designKey(getSlot(book, n)) !== designKey(designAt(design, n)));
   return { changed, replaced: changed.filter((n) => getSlot(book, n) !== null).length };
 }
 

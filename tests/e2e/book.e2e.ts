@@ -203,3 +203,49 @@ describe('book dates', () => {
     it(`sets, shows and clears dates on a ${device}`, async () => { await dates(await open(env, device), device); });
   }
 });
+
+/** The design picker's tabs, a lined spread across two pages, the mirrored weekly spread, and the last tab being remembered. */
+async function spreadsPicker(app: App, device: string) {
+  const { page } = app;
+  await openBook(app);
+  await click(app, page.getByRole('button', { name: 'Choose design…' }));
+  await page.waitForSelector('dialog.picker[open] .design');
+  // Page 1 is a right page: a spread can't start there, so there are no tabs
+  expect(await page.locator('dialog.picker .lib-tabs').isVisible()).toBe(false);
+  await click(app, page.getByRole('button', { name: 'Close' }).last());
+  await click(app, page.getByRole('button', { name: 'Next page' })); // page 2, a left page
+  await click(app, page.getByRole('button', { name: 'Choose design…' }));
+  await page.waitForSelector('dialog.picker[open] .design');
+  const tabs = page.locator('dialog.picker [role=tab]');
+  expect(await tabs.allInnerTexts()).toEqual(['Pages', 'Spreads']);
+  for (const t of await tabs.all()) expect((await t.boundingBox())!.height).toBeGreaterThanOrEqual(43.5);
+  expect(await page.locator('dialog.picker .design[data-kind=spread]').count()).toBe(0);
+  expect(await page.locator('dialog.picker h3').allInnerTexts()).toEqual(['Saved pages', 'Built-in pages']);
+  await click(app, tabs.nth(1));
+  expect(await page.locator('dialog.picker h3').allInnerTexts()).toEqual(['Saved spreads', 'Built-in spreads']);
+  for (const want of ['Lined spread', 'Dot grid spread', 'Notes spread', 'Weekly spread']) expect(await page.locator('dialog.picker .design', { hasText: want }).count()).toBeGreaterThan(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  if (app.touch) expect(await smallControls(app)).toEqual([]);
+  await shot(app, `${device}-book-picker-tabs`);
+  await click(app, page.locator('dialog.picker .design', { hasText: 'Lined spread' }).first());
+  expect((await names(app)).slice(0, 4)).toEqual([null, 'Lined page', 'Lined page', null]);
+  expect((await saved(app)).pages.slice(1, 3).map((p: { side: string }) => p.side)).toEqual(['left', 'right']);
+  expect(await page.locator('.book-problem').isHidden()).toBe(true);
+
+  // The picker opens on the tab used last
+  await click(app, page.getByRole('button', { name: 'Choose design…' }));
+  expect(await tabs.nth(1).getAttribute('aria-selected')).toBe('true');
+  await click(app, page.locator('dialog.picker .design', { hasText: /^Weekly spread/ }).first());
+  expect((await names(app)).slice(1, 3)).toEqual(['Year journal weekly page (dated)', 'Year journal weekly page (dated)']);
+  await click(app, page.getByRole('button', { name: 'Spreads' }));
+  await shot(app, `${device}-book-weekly-spread`);
+  await click(app, page.getByRole('button', { name: 'Undo' }));
+  await shot(app, `${device}-book-lined-spread`);
+  noErrors(app);
+}
+
+describe('the design picker', () => {
+  for (const device of ['phone', 'tablet', 'desktop'] as const) {
+    it(`has Pages and Spreads tabs and places a spread on a ${device}`, async () => { await spreadsPicker(await open(env, device), device); });
+  }
+});

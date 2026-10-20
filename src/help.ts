@@ -237,11 +237,13 @@ export const HELP: Record<string, HelpEntry> = {
   'contents-row': e('Page in the list', 'One page of the book, or a run of pages with the same design.', 'Tap a page to go to it. Tap a run to open it out.', 'Click a page to go to it. Click a run to open it out.'),
   'contents-close': e('Close', 'Closes the list of pages.', 'Tap to close.', 'Click to close.'),
   'picker-close': e('Close', 'Closes the design list without changing anything.', 'Tap to close.', 'Click to close, or press Escape.'),
+  'picker-tab': e('Kind of design', 'Switches the list between single pages and spreads. A spread fills this page and the next. The tab you used last stays picked.', 'Tap Pages or Spreads.', 'Click Pages or Spreads.'),
   'picker-design': e('Design', 'A design for this page.', 'Tap to use it. A spread fills this page and the next.', 'Click to use it. A spread fills this page and the next.'),
   'apply-close': e('Close', 'Closes this window without changing anything.', 'Tap to close.', 'Click to close, or press Escape.'),
   'apply-scope': e('Which pages', 'Chooses how the pages to change are picked: a range, a range counted from here, or every page from here on.', 'Tap one.', 'Click one.'),
   'apply-from': e('From page', 'The first page to change.', 'Tap, type a page number, then tap Done.', 'Click and type a page number.'),
   'apply-to': e('To page', 'The last page to change.', 'Tap, type a page number, then tap Done.', 'Click and type a page number.'),
+  'apply-facing': e('Copy the facing page too', 'Copies this page and the page beside it as a pair: left pages get the left one and right pages the right one, as a spread does. Without it, only this page is copied, turned to face each page.', 'Tap to turn it on or off.', 'Click to turn it on or off.'),
   'apply-go': e('Apply', 'Copies the design onto the pages listed above. Undo takes it back.', 'Tap to apply.', 'Click to apply.'),
   'apply-cancel': e('Cancel', 'Closes this window without changing anything.', 'Tap to cancel.', 'Click to cancel.'),
 
