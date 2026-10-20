@@ -120,6 +120,14 @@ describe('the book templates', () => {
     }
   }
 
+  it('draws the dot grid book fast and small (each dot pattern is written once per PDF)', async () => {
+    const book = TEMPLATES.find((t) => t.id === 'dot-grid-journal')!.build({});
+    const start = performance.now();
+    const files = await exportBookFiles(book, fonts);
+    expect(performance.now() - start).toBeLessThan(1000);
+    expect(files.filter((f) => f.name.endsWith('.pdf')).reduce((n, f) => n + f.bytes.length, 0)).toBeLessThan(500_000);
+  });
+
   it('fills the year planner with dated weeks and the rest with ideas', () => {
     const book = TEMPLATES.find((t) => t.id === 'year-planner')!.build({ year: 2026, first: 43, last: 52 });
     expect(book.dates!.slice(0, 10)).toEqual(['2026-10-18', '2026-10-25', '2026-11-01', '2026-11-08', '2026-11-15', '2026-11-22', '2026-11-29', '2026-12-06', '2026-12-13', '2026-12-20']);

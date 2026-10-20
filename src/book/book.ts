@@ -22,6 +22,14 @@ export interface Book {
   cover: { front: Page | null; back: Page | null };
 }
 
+/** What a book file may hold for each print setting: the file format's limits, which the settings fields keep to. */
+export const PRINT_LIMITS = {
+  paper_thickness_mm: { min: 0, max: 1 },
+  back_offset_x_mm: { min: -10, max: 10 },
+  back_offset_y_mm: { min: -10, max: 10 },
+  signatures: { min: 1, max: 20 },
+} as const;
+
 export const DEFAULT_PAGE_COUNT = 52;
 export const MIN_PAGES = 4;
 export const MAX_PAGES = 400;
@@ -125,14 +133,13 @@ export function readBook(input: unknown): ReadBookResult {
   const print = isObject(input.print) ? input.print : undefined;
   if (!print) fail('print', 'print', '"print" is required and must be an object.');
   else {
-    const num = (key: string, ok: (v: number) => boolean, what: string) => {
-      const v = print[key];
-      if (typeof v !== 'number' || !Number.isFinite(v) || !ok(v)) fail('print-setting', `print.${key}`, `"${key}" must be ${what}, got ${JSON.stringify(v)}.`);
-    };
-    num('paper_thickness_mm', (v) => v >= 0 && v <= 1, 'a number from 0 to 1');
-    num('back_offset_x_mm', (v) => Math.abs(v) <= 10, 'a number from -10 to 10');
-    num('back_offset_y_mm', (v) => Math.abs(v) <= 10, 'a number from -10 to 10');
-    num('signatures', (v) => Number.isInteger(v) && v >= 1 && v <= 20, 'a whole number from 1 to 20');
+    for (const key of Object.keys(PRINT_LIMITS) as (keyof typeof PRINT_LIMITS)[]) {
+      const { min, max } = PRINT_LIMITS[key], v = print[key];
+      const whole = key === 'signatures';
+      if (typeof v !== 'number' || !Number.isFinite(v) || v < min || v > max || (whole && !Number.isInteger(v))) {
+        fail('print-setting', `print.${key}`, `"${key}" must be ${whole ? 'a whole number' : 'a number'} from ${min} to ${max}, got ${JSON.stringify(v)}.`);
+      }
+    }
   }
 
   let converted = false;

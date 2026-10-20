@@ -2,11 +2,11 @@ import './style.css';
 import { keyboardOpen } from './keyboard';
 import { emptyPage, type Page } from './format/types';
 import { buildSpread, emptySpread, readSpread, withSide, type Spread, type SpreadSide } from './format/spread';
-import { formatIssue, validatePage } from './format/validate';
+import { validatePage, type ValidationIssue } from './format/validate';
 import { readPage } from './format/read';
 import { Canvas, type CanvasHooks } from './canvas';
 import { contextActions, deleteElement, duplicateElement, groupAction, moreActions, nudgeElement, selectAll, toggleGroup } from './actions';
-import { Panel } from './panel';
+import { h, Panel } from './panel';
 import { closeContextMenu, showContextMenu } from './ctxmenu';
 import { isCompact, Sheet } from './sheet';
 import { Toolbar, modeOfTool, type BarMode } from './toolbar';
@@ -21,6 +21,8 @@ import { ExportDialog } from './exporter';
 import { SettingsDialog } from './settings';
 import { checkItem, setupMenus } from './menus';
 import { HelpMode } from './helpmode';
+import { badDraftProblem, loadDraft as loadStored, saveDraft, type DraftLoad, type DraftStorage } from './drafts';
+import { errorProblem, issuesProblem, problemView, type Problem } from './problems';
 import { AdvancedPicker, type AdvancedChoice } from './advanced';
 import { NameDialog } from './namedialog';
 import { WidgetStore } from './widgets';
@@ -38,23 +40,31 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 type View = 'page' | 'spread' | 'book';
 const stored = (key: string) => { try { return localStorage.getItem(key); } catch { return null; } };
 
-function loadDraft(key: string, fallback: Page, side?: SpreadSide): Page {
-  try {
-    const raw = stored(key);
-    if (raw) {
-      const r = readPage(JSON.parse(raw));
-      if (r.ok) return side ? withSide(r.page, side) : r.page;
-    }
-  } catch { /* storage unavailable or corrupt: start fresh */ }
+const draftStorage = (): DraftStorage | null => { try { return localStorage; } catch { return null; } };
+/** Drafts that couldn't be read at start-up; shown (with the way to get them back) once the screen exists. */
+const startupProblems: Problem[] = [];
+
+/** Offer a draft that couldn't be read as a download. It is already kept under a backup key. */
+function badDraft(label: string, filename: string, d: Extract<DraftLoad<unknown>, { status: 'bad' }>) {
+  startupProblems.push(badDraftProblem(label, d, [
+    { label: 'Download the draft', help: 'draft-download', run: () => download(new Blob([d.raw], { type: 'application/json' }), filename) },
+    { label: 'Start fresh', help: 'draft-fresh', run: () => dismissNotice() },
+  ]));
+}
+
+function loadDraft(key: string, fallback: Page, label: string, side?: SpreadSide): Page {
+  const d = loadStored<Page>(draftStorage(), key, (data) => { const r = readPage(data); return r.ok ? { ok: true, value: r.page } : r; });
+  if (d.status === 'ok') return side ? withSide(d.value, side) : d.value;
+  if (d.status === 'bad') badDraft(label, `${key.replace('dotwork.', 'dotwork-')}-draft.json`, d);
   return fallback;
 }
 
 const blank = emptySpread();
 /** The page being edited alone, and the two pages of the spread being edited. Each has its own undo history. */
 const stores = {
-  page: new Store(loadDraft(KEYS.page, emptyPage())),
-  left: new Store(loadDraft(KEYS.left, blank.left, 'left')),
-  right: new Store(loadDraft(KEYS.right, blank.right, 'right')),
+  page: new Store(loadDraft(KEYS.page, emptyPage(), 'page')),
+  left: new Store(loadDraft(KEYS.left, blank.left, 'left page', 'left')),
+  right: new Store(loadDraft(KEYS.right, blank.right, 'right page', 'right')),
 };
 const all = [stores.page, stores.left, stores.right];
 const storedView = stored(VIEW_KEY);
@@ -75,26 +85,38 @@ const library = new Library(typeof indexedDB === 'undefined' ? new MemoryBackend
 // ---- notices -------------------------------------------------------------
 
 const noticeEl = $('notice');
-function notify(message: string | string[] | null) {
-  if (message === null || (Array.isArray(message) && message.length === 0)) {
-    noticeEl.hidden = true;
-    noticeEl.replaceChildren();
-    return;
-  }
-  const body = Array.isArray(message)
-    ? Object.assign(document.createElement('ul'), {})
-    : document.createElement('p');
-  if (Array.isArray(message)) {
-    for (const m of message) body.append(Object.assign(document.createElement('li'), { textContent: m }));
-  } else {
-    body.textContent = message;
-  }
+/** A notice with its own way out (a bad draft) stays until one of its buttons is used, whatever else asks to clear the notice. */
+let stickyNotice = false;
+function dismissNotice() {
+  stickyNotice = false;
+  noticeEl.hidden = true;
+  noticeEl.replaceChildren();
+}
+function show(content: HTMLElement[], sticky: boolean) {
+  const body = noticeEl.querySelector('.notice-body');
+  if (stickyNotice && !sticky && body) { body.append(...content); return; } // keep the draft's way out beside the new message
   const close = Object.assign(document.createElement('button'), { type: 'button', textContent: 'Dismiss' });
   close.dataset.help = 'notice-dismiss';
-  close.onclick = () => notify(null);
-  noticeEl.replaceChildren(body, close);
+  close.onclick = dismissNotice;
+  stickyNotice = sticky;
+  noticeEl.classList.toggle('sticky', sticky);
+  noticeEl.replaceChildren(h('div', { class: 'notice-body' }, ...content), close);
   noticeEl.hidden = false;
 }
+function notify(message: string | string[] | null) {
+  if (message === null || (Array.isArray(message) && message.length === 0)) {
+    if (!stickyNotice) dismissNotice();
+    return;
+  }
+  show([Array.isArray(message)
+    ? h('ul', {}, ...message.map((m) => h('li', {}, m)))
+    : h('p', {}, message)], false);
+}
+/** Problems with their reasons and Copy details; sticky ones stay until dealt with. */
+function notifyProblems(problems: Problem[], sticky = false) {
+  if (problems.length) show(problems.map(problemView), sticky);
+}
+notifyProblems(startupProblems, true);
 
 // ---- views ---------------------------------------------------------------
 
@@ -110,9 +132,17 @@ const canvases = {
   left: new Canvas($('canvas-left') as unknown as SVGSVGElement, stores.left, notify, hooksFor(() => stores.left)),
   right: new Canvas($('canvas-right') as unknown as SVGSVGElement, stores.right, notify, hooksFor(() => stores.right)),
 };
+/** Keep a draft; if it can't be kept, say why (once per reason, so typing doesn't repeat it). */
+let lastDraftProblem = '';
+function reportDraft(problem: Problem | null) {
+  if (!problem) { lastDraftProblem = ''; return; }
+  const id = problem.title + problem.lines.join('\n');
+  if (id === lastDraftProblem) return;
+  lastDraftProblem = id;
+  notifyProblems([problem]);
+}
 function persist(key: string, page: Page) {
-  if (validatePage(page).length > 0) return; // keep the last valid draft
-  try { localStorage.setItem(key, JSON.stringify(page)); } catch { /* ignore */ }
+  reportDraft(saveDraft(draftStorage(), key, page, 'page', validatePage));
 }
 function persistSettings() {
   try {
@@ -333,15 +363,17 @@ for (const half of document.querySelectorAll<HTMLElement>('.half')) {
 // ---- view: the book ----------------------------------------------------------
 
 function loadBook(): Book {
-  try {
-    const raw = stored(BOOK_KEY);
-    if (raw) {
-      const r = readBook(JSON.parse(raw));
-      if (r.ok) return r.book;
-    }
-  } catch { /* corrupt draft: start fresh */ }
+  const d = loadStored<Book>(draftStorage(), BOOK_KEY, (data) => { const r = readBook(data); return r.ok ? { ok: true, value: r.book } : r; });
+  if (d.status === 'ok') return d.value;
+  if (d.status === 'bad') {
+    badDraft('book', 'dotwork-book-draft.json', d);
+    notifyProblems(startupProblems.slice(-1), true);
+  }
   return emptyBook();
 }
+
+/** Keep the book draft, or say why not. A book that breaks the format is never written over the last good draft. */
+const keepBook = (b: Book) => reportDraft(saveDraft(draftStorage(), BOOK_KEY, b, 'book', (x) => { const r = readBook(x); return r.ok ? [] : r.issues; }));
 
 
 function ensureArranger() {
@@ -352,9 +384,7 @@ function ensureArranger() {
     examples,
     changed(b) {
       book = b;
-      try { localStorage.setItem(BOOK_KEY, JSON.stringify(b)); } catch {
-        notify('This browser can’t keep a draft of the book (storage is full or blocked). Save it to the Library or export it as JSON.');
-      }
+      keepBook(b);
     },
     exportFiles: () => exportDialog.show('pdf'),
   }, book);
@@ -366,7 +396,7 @@ const currentBook = (): Book => arranger?.current ?? (book ??= loadBook());
 function openBook(next: Book) {
   notify(null);
   book = structuredClone(next);
-  try { localStorage.setItem(BOOK_KEY, JSON.stringify(book)); } catch { /* ignore */ }
+  keepBook(book);
   arranger?.setBook(book);
   view = 'book';
   persistSettings();
@@ -460,51 +490,52 @@ function download(blob: Blob, filename: string) {
 // ---- import and export ---------------------------------------------------
 
 /** The current page, spread or book as JSON data, checked against the format first. */
-function jsonToExport(): { ok: true; data: unknown; name: string } | { ok: false; messages: string[] } {
+function jsonToExport(): { ok: true; data: unknown; name: string } | { ok: false; problem: Problem } {
   if (view === 'book') {
     const b = currentBook();
     const r = readBook(b);
-    return r.ok ? { ok: true, data: b, name: b.name || 'book' } : { ok: false, messages: ['Can’t export: the book breaks the format.', ...r.issues.slice(0, 8).map(formatIssue)] };
+    return r.ok ? { ok: true, data: b, name: b.name || 'book' } : { ok: false, problem: issuesProblem('Can’t export: the book breaks the format.', r.issues) };
   }
   if (view === 'page') {
     const issues = validatePage(stores.page.page);
-    return issues.length ? { ok: false, messages: ['Can’t export: the page breaks the format.', ...issues.map(formatIssue)] } : { ok: true, data: stores.page.page, name: stores.page.page.name };
+    return issues.length ? { ok: false, problem: issuesProblem('Can’t export: the page breaks the format.', issues) } : { ok: true, data: stores.page.page, name: stores.page.page.name };
   }
   const spread = currentSpread();
   const r = readSpread(spread);
-  return r.ok ? { ok: true, data: spread, name: spread.name } : { ok: false, messages: ['Can’t export: the spread breaks the format.', ...r.issues.map(formatIssue)] };
+  return r.ok ? { ok: true, data: spread, name: spread.name } : { ok: false, problem: issuesProblem('Can’t export: the spread breaks the format.', r.issues) };
 }
 
 /** Open a chosen file as a page, spread or book. Says why not, in plain words, if it can't be. */
-async function importFromFile(file: File): Promise<{ ok: boolean; messages: string[] }> {
+async function importFromFile(file: File): Promise<{ ok: true } | { ok: false; problem: Problem }> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(await file.text());
   } catch (err) {
-    return { ok: false, messages: [`${file.name} is not valid JSON: ${(err as Error).message}`] };
+    return { ok: false, problem: errorProblem(`${file.name} is not valid JSON.`, err) };
   }
   const format = (parsed as { format?: unknown } | null)?.format;
-  if (format === 'dotwork-library') return { ok: false, messages: [`${file.name} is a library backup. Use Library, then Restore backup.`] };
+  const refuse = (what: string, issues: ValidationIssue[]) => ({ ok: false as const, problem: issuesProblem(`Not imported: ${file.name} breaks the ${what} format.`, issues) });
+  if (format === 'dotwork-library') return { ok: false, problem: { title: `${file.name} is a library backup.`, lines: ['Use Library, then Restore backup.'], details: `${file.name} is a library backup.` } };
   const converted = `${file.name} contained version 1 pages and they have been converted to version 2.`;
   if (format === 'dotwork-book') {
     const r = readBook(parsed);
-    if (!r.ok) return { ok: false, messages: [`Not imported: ${file.name} breaks the book format.`, ...r.issues.slice(0, 12).map(formatIssue)] };
+    if (!r.ok) return refuse('book', r.issues);
     openBook(r.book);
     if (r.converted) notify(converted);
-    return { ok: true, messages: [] };
+    return { ok: true };
   }
   if (format === 'dotwork-spread') {
     const r = readSpread(parsed);
-    if (!r.ok) return { ok: false, messages: [`Not imported: ${file.name} breaks the spread format.`, ...r.issues.map(formatIssue)] };
+    if (!r.ok) return refuse('spread', r.issues);
     openSpread(r.spread);
     if (r.converted) notify(converted);
-    return { ok: true, messages: [] };
+    return { ok: true };
   }
   const result = readPage(parsed);
-  if (!result.ok) return { ok: false, messages: [`Not imported: ${file.name} breaks the page format.`, ...result.issues.map(formatIssue)] };
+  if (!result.ok) return refuse('page', result.issues);
   notify(result.converted ? `${file.name} was a version 1 file and has been converted to version 2.` : null);
   replacePage(result.page);
-  return { ok: true, messages: [] };
+  return { ok: true };
 }
 
 const exportDialog = new ExportDialog({

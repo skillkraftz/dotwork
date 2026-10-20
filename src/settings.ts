@@ -2,7 +2,7 @@ import { h } from './panel';
 import { TOKENS, findUnknownTokens } from './format/tokens';
 import { PAGE_SIDES, type Page } from './format/types';
 import { validatePage } from './format/validate';
-import { MAX_PAGES, MIN_PAGES, pagesLostByResize, resizeBook, roundPageCount, type Book } from './book/book';
+import { MAX_PAGES, MIN_PAGES, PRINT_LIMITS, pagesLostByResize, resizeBook, roundPageCount, type Book } from './book/book';
 import type { Store } from './store';
 import type { SpreadSide } from './format/spread';
 
@@ -178,18 +178,23 @@ export class SettingsDialog {
 export function printFields(book: () => Book, edit: (change: (b: Book) => void) => void): HTMLElement[] {
   const num = (help: string, label: string, value: number, attrs: Record<string, unknown>, set: (b: Book, v: number) => void) => {
     const input = h('input', { type: 'number', value, 'aria-label': label, 'data-key': help, 'data-help': help, ...attrs });
+    const { min, max } = attrs as { min: number; max: number };
     input.onchange = () => {
-      const v = Number(input.value);
-      if (input.value !== '' && Number.isFinite(v)) edit((b) => set(b, v)); else input.value = String(value);
+      const typed = Number(input.value);
+      if (input.value === '' || !Number.isFinite(typed)) { input.value = String(value); return; }
+      // The book file only holds values in range, so a number outside it is brought back in rather than kept.
+      const v = Math.min(max, Math.max(min, typed));
+      input.value = String(v);
+      edit((b) => set(b, v));
     };
     return h('label', { class: 'compact' }, label, input);
   };
   const p = book().print;
   return [
-    num('book-thickness', 'Paper thickness (mm)', p.paper_thickness_mm, { min: 0, max: 1, step: 0.01 }, (b, v) => { b.print.paper_thickness_mm = v; }),
-    num('book-offset-x', 'Back offset x (mm)', p.back_offset_x_mm, { min: -10, max: 10, step: 0.1 }, (b, v) => { b.print.back_offset_x_mm = v; }),
-    num('book-offset-y', 'Back offset y (mm)', p.back_offset_y_mm, { min: -10, max: 10, step: 0.1 }, (b, v) => { b.print.back_offset_y_mm = v; }),
-    num('book-signatures', 'Signatures', p.signatures, { min: 1, max: 20, step: 1 }, (b, v) => { b.print.signatures = Math.round(v); }),
+    num('book-thickness', 'Paper thickness (mm)', p.paper_thickness_mm, { ...PRINT_LIMITS.paper_thickness_mm, step: 0.01 }, (b, v) => { b.print.paper_thickness_mm = v; }),
+    num('book-offset-x', 'Back offset x (mm)', p.back_offset_x_mm, { ...PRINT_LIMITS.back_offset_x_mm, step: 0.1 }, (b, v) => { b.print.back_offset_x_mm = v; }),
+    num('book-offset-y', 'Back offset y (mm)', p.back_offset_y_mm, { ...PRINT_LIMITS.back_offset_y_mm, step: 0.1 }, (b, v) => { b.print.back_offset_y_mm = v; }),
+    num('book-signatures', 'Signatures', p.signatures, { ...PRINT_LIMITS.signatures, step: 1 }, (b, v) => { b.print.signatures = Math.round(v); }),
     h('p', { class: 'hint' }, 'Creep shifts each sheet’s pages toward the fold by the sheets outside it × the paper thickness. The back offset moves everything on print-second.pdf (+x right, +y up) to match your printer.'),
   ];
 }
