@@ -17,7 +17,11 @@ to the page format.
     "paper_thickness_mm": 0.14,
     "back_offset_x_mm": 0,
     "back_offset_y_mm": 0,
-    "signatures": 1
+    "signatures": 1,
+    "shade_light_pct": 6.3,
+    "shade_medium_pct": 13.7,
+    "shade_dark_pct": 25.9,
+    "gray_text_pct": 49.8
   },
   "pages": [ { "...": "a dotwork-page with side \"right\"" }, null, { "...": "..." } ],
   "dates": [ "2026-10-18", "2026-10-25", null ],
@@ -33,6 +37,7 @@ to the page format.
 | `print.paper_thickness_mm` | Creep: every sheet's pages shift toward the fold by (sheets outside it) × this. Default 0.14. 0 to 1. |
 | `print.back_offset_x_mm`, `print.back_offset_y_mm` | Added to everything on the back side (`print-second.pdf`). +x moves right, +y moves up, as seen on the back. -10 to 10. |
 | `print.signatures` | How many signatures to split the book into, 1 to 20. Pages are split evenly and each signature rounds up to a multiple of 4, so a short last signature is padded with blank filler pages. |
+| `print.shade_light_pct`, `print.shade_medium_pct`, `print.shade_dark_pct`, `print.gray_text_pct` | How dark the printed PDFs draw the light, medium and dark shade tones and the gray text (`"tone": "gray"` on text and sequences), as a percent of black: 0 is white, 100 is black. 0 to 100, fractions allowed. The defaults, 6.3, 13.7, 25.9 and 49.8, are the grays the editor and PNGs always use (#efefef, #dcdcdc, #bdbdbd, #808080), so a default book prints as it always did. They change `pages.pdf`, the print files, `cover.pdf` and the calibration sheets only, never the editor, the preview or PNGs. |
 | `pages` | Exactly `page_count` entries; entry *i* is page *i* + 1. A page, or `null` for a blank page. |
 | `dates` | Optional. Exactly `page_count` entries; entry *i* is the date of page *i* + 1, as `"YYYY-MM-DD"` (a real calendar day), or `null` for an undated page. A book without `dates` has none. The covers have no date. |
 | `cover.front` | The inside front cover, a left page facing page 1 when the book is open. A page or `null`. |
@@ -59,7 +64,7 @@ design, and survive resizing the book (new pages start undated).
 
 **Validation.** A reader rejects the whole file, and says which rule failed and
 where, if the format or version is wrong, `page_count` is not a multiple of 4,
-`pages` or `dates` has the wrong length, a date is not a real `YYYY-MM-DD` day, a print setting is out of range, or a page breaks
+`pages` or `dates` has the wrong length, a date is not a real `YYYY-MM-DD` day, a print setting (any `print.*` number) is missing or out of range, or a page breaks
 the page rules or sits on the wrong side. The page-number corner rule is not applied to the covers.
 
 ## What the print files contain
@@ -70,9 +75,24 @@ the page rules or sits on the wrong side. The page-number corner rule is not app
 | `print-first.pdf`, `print-second.pdf` | Half-letter sheets (215.9 × 139.7 mm, landscape), one spread per side, centered on the fold. `print-first.pdf` holds every sheet's front in reverse order; the stack goes back in the tray the same way; `print-second.pdf` holds the backs in forward order. With more than one signature each gets its own pair: `sig1-print-first.pdf`, `sig1-print-second.pdf`, and so on. |
 | `cover.pdf` | The inside front cover (left) and inside back cover (right) as one centered spread, single-sided, without creep. |
 | `preview.png` | A contact sheet of the whole book, spread by spread. |
-| `summary.txt` | The settings used and the printing steps. |
+| `summary.txt` | The print settings that made the files (paper thickness, signatures, back offset x and y, every tone percentage, page size, app version, date), the printing steps, and short tips ending with the advice to print the calibration set first. |
 | `book.json` | The book exactly as it was exported from (this format). Always in the zip, so the files can be traced back to their source. |
 | `error.txt` | Only if something went wrong: the export's error and every way the book breaks this format. A failed export still downloads a zip with `book.json` and `error.txt`. |
+
+## The calibration set
+
+The Calibrate page (Export, PDF tab, **Calibrate your printer…**) downloads `<book>-calibration.zip`, built from the book's print settings, at the book's real page size, with the same imposition and drawing code as the print files:
+
+| File | Contents |
+|------|----------|
+| `calibration-first.pdf`, `calibration-second.pdf` | One half-letter sheet, printed with the same manual-duplex method as `print-first.pdf` and `print-second.pdf`. Both sides: the page edge, the content-area box (27 × 44 cells), crosshairs at its corners and centre. Front: a gray ramp from 0 to 100% in 5% steps (each with text in that gray), the three shade tones and the gray text as they print now, small and large dots, hair, thin and thick ruled lines, a hairline weight strip (0.05 to 0.30 mm), and two crosshairs (x and y) in the gap at the fold. Back: two millimetre scales, -5 to +5 in 0.5 mm ticks, for those crosshairs; the back takes the back offset like `print-second.pdf`, scales and all, so a reading is relative to the offset printed in the footer. |
+| `creep-test.pdf` | One single-sided sheet for each sheet of the book's biggest signature, shifted toward the fold by the same creep as the print files, with the content-area box on both pages. |
+| `calibration-cover.pdf` | One single-sided sheet like `cover.pdf`: the box and crosshairs of both inside covers. |
+| `calibration.txt`, `book.json`, `error.txt` | The settings that made the files (the same four lines printed in the footer of every calibration page), the book as JSON, and the error log if something went wrong. |
+
+**Reading the alignment sheet.** Hold the printed back to a light, right way up. Where the front's x crosshair crosses the x scale is the x reading (+ to the right), and where the y crosshair crosses the y scale is the y reading (+ up). New back offset = current back offset + reading, for each. Only `print-second.pdf` (and `calibration-second.pdf`) takes the offset.
+
+**Reading the creep test.** Sheet *k* (0-based, 0 outermost) is shifted by *k* × the thickness *set*, but the stack really pushes it out by *k* × the true thickness, so after folding and trimming the box sits 3.95 + *k* × (set − true) mm from the trimmed edge. With *difference* = (distance on the innermost sheet) − (distance on the outermost), *difference* = (sheets − 1) × (set − true), so **new thickness = current thickness − difference ÷ (sheets − 1)**. A positive difference means the thickness set is too high.
 
 Page order, creep and centering follow journal-system's
 `pocketjournal/imposition.py` and are tested with the same cases (see

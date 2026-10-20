@@ -11,11 +11,12 @@ import {
 } from '../format/types';
 import { TEXT_INSET_MM, TEXT_SIZE_MM } from '../format/bounds';
 import {
-  BASELINE_MM, DOT_MM, GRAY_DOT, SHADE_TONES, HEADER_BASELINE_MM, HEADER_COLOR, LINE, TEXT_COLORS, headerItems, iconPlacement, itemCenter, ticks,
+  BASELINE_MM, DOT_MM, GRAY_DOT, HEADER_BASELINE_MM, HEADER_COLOR, LINE, TEXT_COLORS, headerItems, iconPlacement, itemCenter, ticks,
 } from '../render';
 import { shadeRects } from '../format/shade';
 import { isIcons, itemSize, sequenceItems } from '../format/sequence';
 import { ICONS } from '../icons/icons';
+import { SCREEN_TONES, type PrintTones } from './tones';
 
 export const MM_TO_PT = 72 / 25.4;
 export const mmToPt = (mm: number) => mm * MM_TO_PT;
@@ -31,9 +32,11 @@ export interface PageDrawOptions {
   fonts: Fonts;
   pageNumber: string | null;
   expand: (text: string) => string;
+  /** The grays of shade tones and gray text. Defaults to the fixed grays of the screen. */
+  tones?: PrintTones;
 }
 
-const color = (hex: string) => {
+export const color = (hex: string) => {
   const v = parseInt(hex.slice(1), 16);
   return rgb(((v >> 16) & 255) / 255, ((v >> 8) & 255) / 255, (v & 255) / 255);
 };
@@ -77,6 +80,8 @@ export function drawPage(pdf: PDFPage, page: Page, o: PageDrawOptions): void {
   const X = (mm: number) => mmToPt(ox + mm);
   const Y = (mm: number) => mmToPt(o.sheetHeight - (oy + mm));
   const len = (mm: number) => mmToPt(mm);
+  const tones = o.tones ?? SCREEN_TONES;
+  const textColor = (tone: keyof typeof TEXT_COLORS) => (tone === 'gray' ? tones.grayText : TEXT_COLORS[tone]);
 
   const line = (x1: number, y1: number, x2: number, y2: number, w: number, c: string, cap: LineCapStyle = LineCapStyle.Butt) =>
     pdf.drawLine({ start: { x: X(x1), y: Y(y1) }, end: { x: X(x2), y: Y(y2) }, thickness: len(w), color: color(c), lineCap: cap });
@@ -102,7 +107,7 @@ export function drawPage(pdf: PDFPage, page: Page, o: PageDrawOptions): void {
   };
 
   const shade = (e: Shade) => {
-    for (const r of shadeRects(e)) fillRect(r.x * P, r.y * P, r.w * P, r.h * P, SHADE_TONES[r.tone]);
+    for (const r of shadeRects(e)) fillRect(r.x * P, r.y * P, r.w * P, r.h * P, tones.shade[r.tone]);
   };
 
   const pattern = (e: Pattern) => {
@@ -157,11 +162,11 @@ export function drawPage(pdf: PDFPage, page: Page, o: PageDrawOptions): void {
     const base = P - BASELINE_MM;
     const at = rotate === 90 ? { x: e.x * P + base, y: e.y * P - dx } : rotate === 270 ? { x: e.x * P - base, y: e.y * P + dx } : { x: e.x * P + dx, y: e.y * P + base };
     const font = (e.style ?? DEFAULTS.style) === 'bold' ? o.fonts.bold : o.fonts.regular;
-    text(o.expand(e.text), size, font, TEXT_COLORS[e.tone ?? DEFAULTS.textTone], at, align === 'left' ? 'start' : align === 'center' ? 'middle' : 'end', rotate);
+    text(o.expand(e.text), size, font, textColor(e.tone ?? DEFAULTS.textTone), at, align === 'left' ? 'start' : align === 'center' ? 'middle' : 'end', rotate);
   };
 
   const sequence = (e: Sequence) => {
-    const c = TEXT_COLORS[e.tone ?? DEFAULTS.sequenceTone];
+    const c = textColor(e.tone ?? DEFAULTS.sequenceTone);
     const rotate = e.rotate ?? DEFAULTS.rotate;
     sequenceItems(e).forEach((item, i) => {
       const center = itemCenter(e, i);

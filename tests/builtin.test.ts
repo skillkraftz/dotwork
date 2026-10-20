@@ -63,6 +63,19 @@ describe('the built-in pages, spreads and widgets', () => {
     }
   });
 
+  it('turns the weekly spread’s GOAL and OUTCOME labels opposite ways, each with its top toward the outer edge and centered in its strip', () => {
+    for (const name of ['Weekly spread', 'Weekly spread (undated)']) {
+      const sp = BUILTIN_SPREADS.find((x) => x.name === name)!;
+      const labels = (p: typeof sp.left) => p.elements.filter((e) => e.type === 'text' && ['GOAL', 'OUTCOME'].includes(e.text)) as { x: number; rotate: number }[];
+      expect(labels(sp.left).map((l) => l.rotate)).toEqual([90, 90]); // reads bottom to top: the letters' tops point to the left, outer edge
+      expect(labels(sp.right).map((l) => l.rotate)).toEqual([270, 270]); // reads top to bottom: the tops point to the right, outer edge
+      // The strips are 2 cells wide (0-2 on the left page, 25-27 on the right); a rotated label's one-cell band runs right of x
+      // for 90 and left of x for 270, so the band's middle is the strip's middle (cell 1 and cell 26).
+      expect(labels(sp.left).map((l) => l.x + 0.5)).toEqual([1, 1]);
+      expect(labels(sp.right).map((l) => l.x - 0.5)).toEqual([26, 26]);
+    }
+  });
+
   it.each(BUILTIN_WIDGETS.map((w) => [w.name, w] as const))('widget “%s” validates wherever it is placed', (_name, widget) => {
     for (const at of [{ x: 0, y: 1 }, { x: 26, y: 43 }]) {
       for (const el of placeWidget(widget, at)) expect(problems(validateElement(el)), JSON.stringify(el)).toEqual([]);

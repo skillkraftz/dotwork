@@ -18,7 +18,10 @@ describe('a book', () => {
     expect(b.page_count).toBe(52);
     expect(b.pages).toHaveLength(52);
     expect(b.page_numbers).toBe(true);
-    expect(b.print).toEqual({ paper_thickness_mm: 0.14, back_offset_x_mm: 0, back_offset_y_mm: 0, signatures: 1 });
+    expect(b.print).toEqual({
+      paper_thickness_mm: 0.14, back_offset_x_mm: 0, back_offset_y_mm: 0, signatures: 1,
+      shade_light_pct: 6.3, shade_medium_pct: 13.7, shade_dark_pct: 25.9, gray_text_pct: 49.8,
+    });
   });
 
   it('rounds the page count up to a multiple of 4, within limits', () => {

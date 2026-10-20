@@ -11,11 +11,13 @@ import {
   type PageRef, type Sheet, type SheetSide, type Signature,
 } from '../book/impose';
 import { drawPage, mmToPt, type Fonts } from './draw';
+import { tonesOf } from './tones';
+import { settingsLines } from './settingstext';
 
 export interface FontBytes { regular: ArrayBuffer | Uint8Array; bold: ArrayBuffer | Uint8Array }
 export interface ExportedFile { name: string; bytes: Uint8Array; type: string }
 
-async function newDocument(fontBytes: FontBytes) {
+export async function newDocument(fontBytes: FontBytes) {
   const doc = await PDFDocument.create({ updateMetadata: false });
   doc.registerFontkit(fontkit);
   const fonts: Fonts = {
@@ -25,12 +27,13 @@ async function newDocument(fontBytes: FontBytes) {
   return { doc, fonts };
 }
 
-type PdfPage = ReturnType<PDFDocument['addPage']>;
+export type PdfPage = ReturnType<PDFDocument['addPage']>;
 
 /** Draws book pages and covers with their top-left corner at x, y (mm from the PDF page's top-left). */
 function drawer(book: Book, fonts: Fonts, sheetH: number) {
+  const tones = tonesOf(book.print);
   const place = (pdf: PdfPage, page: Page, x: number, y: number, pageNumber: string | null, expand = blankTokens) =>
-    drawPage(pdf, page, { x, y, sheetHeight: sheetH, fonts, pageNumber, expand });
+    drawPage(pdf, page, { x, y, sheetHeight: sheetH, fonts, pageNumber, expand, tones });
   return {
     page: (pdf: PdfPage, n: number, x: number, y: number) => {
       place(pdf, bookPage(book, n), x, y, book.page_numbers ? String(n) : null, bookExpand(book, n));
@@ -81,16 +84,27 @@ async function coverPdf(book: Book, fontBytes: FontBytes): Promise<Uint8Array> {
   return doc.save({ useObjectStreams: false });
 }
 
-export function summary(book: Book, sigs: Signature[], files: string[]): string {
+/** Short advice for printing, from the steps above: the real procedure (print-first, same way back in the tray, print-second) and the calibration set. */
+export const PRINT_TIPS = [
+  '- Print the calibration set first (Calibrate, in the PDF tab of Import and Export). It shows how your printer',
+  '  places and tones the pages without printing a whole book: the best way to avoid wasting paper.',
+  '- Then print one signature before the whole book.',
+  '- Print at actual size (100%): turn off fit-to-page and scale-to-fit.',
+  '- Use the same paper and printer settings for print-first and print-second.',
+];
+
+export function summary(book: Book, sigs: Signature[], files: string[], now = new Date()): string {
   const p = book.print;
   const sheets = sigs.reduce((n, g) => n + g.sheets.length, 0);
   const maxCreep = Math.max(...sigs.map((g) => (g.sheets.length - 1) * p.paper_thickness_mm));
   return [
     `Book: ${book.name}`,
     `Pages: ${book.page_count} interior (${sheets} sheets in ${sigs.length} signature${sigs.length > 1 ? 's' : ''})${book.page_numbers ? ', numbered' : ''}`,
-    `Page size: ${PAGE_W_MM} x ${PAGE_H_MM} mm, on ${SHEET_W_MM} x ${SHEET_H_MM} mm sheets`,
-    `Creep: ${p.paper_thickness_mm} mm per sheet (max ${maxCreep.toFixed(2)} mm)`,
-    `Back offset: x ${p.back_offset_x_mm} mm, y ${p.back_offset_y_mm} mm`,
+    `Sheets: ${SHEET_W_MM} x ${SHEET_H_MM} mm; creep at most ${maxCreep.toFixed(2)} mm`,
+    '',
+    'Print settings used for these files:',
+    ...settingsLines(book, now).map((l) => `  ${l}`),
+    '  (back offset: + is right and up; it moves print-second.pdf only. Tones: 0 = white, 100 = black.)',
     '',
     `Files: ${files.join(', ')}`,
     '',
@@ -98,6 +112,9 @@ export function summary(book: Book, sigs: Signature[], files: string[]): string 
     'same way, then print-second. Fold, sew, wrap in the cover, then measure',
     `${(PAGE_W_MM / 25.4).toFixed(1)} in from the fold and trim the fore-edge.`,
     'Cover: print cover.pdf single-sided on the cover paper.',
+    '',
+    'Tips:',
+    ...PRINT_TIPS,
     '',
   ].join('\n');
 }

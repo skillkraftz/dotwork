@@ -116,4 +116,6 @@ Dotwork's print export follows the same physical rules as journal-system
     pages.pdf, cover.pdf and the print files (done).
 13. Built-in library: every reference page, paired spreads, starter widgets, and book templates (year planner,
     monthly journal, blank, lined, dot grid and idea books); built-ins can't be overwritten (done).
-14. Later: dials and other components, color, sharing, a page gallery.
+14. Printer calibration: a Calibrate page and calibration PDF set, printer tone settings in the book's print settings, settings
+    listed in summary.txt (done).
+15. Later: dials and other components, color, sharing, a page gallery.

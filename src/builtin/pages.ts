@@ -92,15 +92,18 @@ export const bookNotesPage = (): Page => makePage('Book notes', 'either', 'BOOK 
 export function weeklyPage(side: 'left' | 'right', dated: boolean): Page {
   const left = side === 'left';
   const col = left ? 0 : 25, text = left ? 2 : 0;
-  const cx = col + 1, cy = col + 1.5;
+  // GOAL and OUTCOME read with the page's outer edge away from the reader: the top of the letters points outward. A
+  // rotated label's one-cell band extends from its x to the right (rotate 90) or to the left (rotate 270), so each is
+  // anchored half a cell from the strip's middle to sit centered in it.
+  const cx = col + 1, turn = left ? 90 : 270, cy = left ? col + 0.5 : col + 1.5;
   const els: PageElement[] = [
     { type: 'shade', tones: 'L', x: col, y: 9, w: 2, h: 4 },
     { type: 'shade', tones: 'L', x: col, y: 33, w: 2, h: 4 },
     lines(text, 1, 25, 43),
     ...[1, 9, 13, 17, 21, 25, 29, 33, 37].map((y) => hrule(y)),
     vrule(left ? 2 : 25, 1, 44),
-    label(cy, 5, 'GOAL', { rotate: 270, align: 'center' }),
-    label(cy, 40.5, 'OUTCOME', { rotate: 270, align: 'center' }),
+    label(cy, 5, 'GOAL', { rotate: turn, align: 'center' }),
+    label(cy, 40.5, 'OUTCOME', { rotate: turn, align: 'center' }),
   ];
   const names = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
   for (let i = 0; i < 7; i++) {
