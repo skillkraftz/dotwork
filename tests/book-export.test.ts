@@ -5,7 +5,8 @@ import { emptyBook, setSlot, type Book } from '../src/book/book';
 import { FOLD_X_MM, SHEET_W_MM, TRIM_ZONE_MM } from '../src/book/impose';
 import { emptyPage, PAGE_H_MM, PAGE_W_MM, type Page } from '../src/format/types';
 import { exportBookFiles, type ExportedFile } from '../src/print/export';
-import { readPdf } from './pdf-text';
+import { FLAT } from './flat';
+import { readPdf, textPositions } from './pdf-text';
 
 const fonts = {
   regular: readFileSync('src/fonts/CourierPrime-Regular.ttf'),
@@ -19,7 +20,7 @@ const labelled = (label: string): Page => ({
   elements: [{ type: 'text', x: 3, y: 10, text: label, size: 'heading' }],
 });
 const labelledBook = (pages: number, tweak: (b: Book) => void = () => {}): Book => {
-  const b = emptyBook(pages);
+  const b = emptyBook(pages, FLAT);
   b.page_numbers = false;
   for (let n = 1; n <= pages; n++) setSlot(b, n, labelled(`P${n}`));
   tweak(b);
@@ -102,7 +103,7 @@ describe('centering, creep and the back offset in the content', () => {
   };
 
   it('draws no text in the trim zone, even with exaggerated creep', async () => {
-    const files = await exportBookFiles(labelledBook(52, (b) => { b.print.paper_thickness_mm = 0.2; }), fonts);
+    const files = await exportBookFiles(labelledBook(52, (b) => { b.print.creep_per_sheet_mm = 0.2; }), fonts);
     for (const name of ['print-first.pdf', 'print-second.pdf', 'cover.pdf']) {
       for (const page of await readPdf(file(files, name))) {
         expect(page.content).toMatch(/ re\nW\nn\n/); // each page is clipped to its own box
@@ -117,13 +118,37 @@ describe('centering, creep and the back offset in the content', () => {
 
   it('moves a page toward the fold by its sheet’s creep', async () => {
     const at = async (thickness: number) => {
-      const files = await exportBookFiles(labelledBook(8, (b) => { b.print.paper_thickness_mm = thickness; }), fonts);
+      const files = await exportBookFiles(labelledBook(8, (b) => { b.print.creep_per_sheet_mm = thickness; }), fonts);
       const sheets = await readPdf(file(files, 'print-first.pdf')); // [sheet 1, sheet 0]
       return sheets.map((s) => firstTextX(s.content) / PT);
     };
     const flat = await at(0), thick = await at(1);
     expect(thick[1]).toBeCloseTo(flat[1], 2); // sheet 0 is outermost: no creep
     expect(Math.abs(thick[0] - flat[0])).toBeCloseTo(1, 2); // sheet 1 moves 1 mm
+  });
+
+  it('moves every interior page away from the fold by the fore-edge shift (left pages left, right pages right), and the cover by its own shift', async () => {
+    const make = async (print: Partial<Book['print']>) => exportBookFiles(labelledBook(8, (b) => { setSlot(b, 0, labelled('FRONT')); setSlot(b, 9, labelled('BACK')); Object.assign(b.print, { creep_per_sheet_mm: 0.3, fore_edge_shift_mm: 0, cover_fore_edge_shift_mm: 0, ...print }); }), fonts);
+    const xs = async (files: ExportedFile[], name: string) => (await readPdf(file(files, name))).flatMap((p) => textPositions(p).map((t) => ({ text: t.text, x: t.x })));
+    const base = await make({}), shifted = await make({ fore_edge_shift_mm: 1.5 }), cover = await make({ cover_fore_edge_shift_mm: 0.8 });
+    const move = (a: { text: string; x: number }[], b: { text: string; x: number }[], text: string) => b.find((t) => t.text === text)!.x - a.find((t) => t.text === text)!.x;
+    // print-first holds the fronts: left pages 8 and 6, right pages 1 and 3; print-second the backs: left 2 and 4, right 7 and 5
+    const sides: [string, string[], string[]][] = [['print-first.pdf', ['P8', 'P6'], ['P1', 'P3']], ['print-second.pdf', ['P2', 'P4'], ['P7', 'P5']]];
+    for (const [name, left, right] of sides) {
+      const [a, b] = [await xs(base, name), await xs(shifted, name)];
+      for (const t of left) expect(move(a, b, t), t).toBeCloseTo(-1.5, 2);
+      for (const t of right) expect(move(a, b, t), t).toBeCloseTo(1.5, 2);
+    }
+    // creep still applies on top: sheet 1 sits 0.3 mm closer to the fold than sheet 0 under the same shift
+    const [first] = [await xs(shifted, 'print-first.pdf')];
+    expect(first.find((t) => t.text === 'P1')!.x - first.find((t) => t.text === 'P3')!.x).toBeCloseTo(0.3, 2);
+    // the cover moves by the cover shift only; the interior and the interior shift don't touch it
+    const [c0, c1] = [await xs(base, 'cover.pdf'), await xs(cover, 'cover.pdf')];
+    expect(move(c0, c1, 'FRONT')).toBeCloseTo(-0.8, 2);
+    expect(move(c0, c1, 'BACK')).toBeCloseTo(0.8, 2);
+    const [d1] = [await xs(shifted, 'cover.pdf')];
+    expect(move(c0, d1, 'FRONT')).toBeCloseTo(0, 2);
+    expect(Buffer.from(file(cover, 'print-first.pdf')).equals(Buffer.from(file(base, 'print-first.pdf')))).toBe(true);
   });
 
   it('shifts each side by its own offset: the front (print-first, cover) by the front offset, the back (print-second) by the back offset', async () => {
@@ -150,7 +175,7 @@ describe('centering, creep and the back offset in the content', () => {
   });
 
   it('refuses a creep that would cross the fold', async () => {
-    await expect(exportBookFiles(labelledBook(52, (b) => { b.print.paper_thickness_mm = 0.5; }), fonts)).rejects.toThrow(/past the fold/);
+    await expect(exportBookFiles(labelledBook(52, (b) => { b.print.creep_per_sheet_mm = 0.5; }), fonts)).rejects.toThrow(/past the fold/);
   });
 });
 
@@ -173,7 +198,7 @@ describe('page numbers', () => {
   });
 
   it('leaves date tokens blank for writing in by hand', async () => {
-    const book = emptyBook(4);
+    const book = emptyBook(4, FLAT);
     setSlot(book, 1, { ...emptyPage(), identity: '{weekday} {month} {day}' });
     const [p1] = await readPdf(file(await exportBookFiles(book, fonts), 'pages.pdf'));
     expect(p1.strings.join('|')).toBe('1');

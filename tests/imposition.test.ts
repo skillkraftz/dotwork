@@ -7,7 +7,7 @@ import { PAGE_H_MM, PAGE_W_MM } from '../src/format/types';
 
 // The same cases as journal-system's tests/test_foundation.py (its default paper is 0.1 mm; Dotwork's measured 0.14 mm).
 const S: PrintSettings = DEFAULT_PRINT;
-const JOURNAL = { paper_thickness_mm: 0.1 };
+const JOURNAL = { creep_per_sheet_mm: 0.1 };
 const flat = (sigs: ReturnType<typeof impose>): PageRef[] =>
   sigs.flatMap((g) => g.sheets.flatMap((sh) => [sh.front.left, sh.front.right, sh.back.left, sh.back.right]));
 
@@ -99,10 +99,10 @@ describe('creep', () => {
     expect(sig.sheets.at(-1)!.creep).toBeCloseTo(1.2);
   });
 
-  it('defaults to the 0.14 mm measured on the owner’s printer and paper', () => {
-    expect(S.paper_thickness_mm).toBe(0.14);
-    expect(creepFor(12, S)).toBeCloseTo(1.68);
-    expect(impose(52, S)[0].sheets.at(-1)!.creep).toBeCloseTo(1.68);
+  it('defaults to the creep worked out from the owner’s readings (provisional)', () => {
+    expect(S.creep_per_sheet_mm).toBe(0.3);
+    expect(creepFor(12, S)).toBeCloseTo(3.6);
+    expect(impose(52, S)[0].sheets.at(-1)!.creep).toBeCloseTo(3.6);
   });
 
   it('shifts the left page right and the right page left, toward the fold', () => {
@@ -113,12 +113,12 @@ describe('creep', () => {
 
   it('cannot cross the fold: it must stay inside the page margin', () => {
     expect(checkPrintSettings(S, 13)).toBeNull();
-    expect(checkPrintSettings({ ...S, paper_thickness_mm: 0.5 }, 13)).toMatch(/past the fold/);
-    expect(checkPrintSettings({ ...S, paper_thickness_mm: 0.5 }, 5)).toBeNull(); // fewer sheets per signature, less creep
+    expect(checkPrintSettings({ ...S, creep_per_sheet_mm: 0.5 }, 13)).toMatch(/past the fold/);
+    expect(checkPrintSettings({ ...S, creep_per_sheet_mm: 0.5 }, 5)).toBeNull(); // fewer sheets per signature, less creep (and the shift gives room)
   });
 
   it('refuses settings that are not numbers', () => {
-    expect(checkPrintSettings({ ...S, paper_thickness_mm: -1 }, 13)).toMatch(/thickness/);
+    expect(checkPrintSettings({ ...S, creep_per_sheet_mm: -1 }, 13)).toMatch(/Creep per sheet/);
     expect(checkPrintSettings({ ...S, back_offset_x_mm: NaN }, 13)).toMatch(/offset/);
     expect(checkPrintSettings({ ...S, front_offset_y_mm: NaN }, 13)).toMatch(/offset/);
     expect(checkPrintSettings({ ...S, signatures: 0 }, 13)).toMatch(/Signatures/);

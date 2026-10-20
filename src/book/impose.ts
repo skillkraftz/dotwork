@@ -24,8 +24,18 @@ export const TRIM_ZONE_MM = FOLD_X_MM - PAGE_W_MM;
 
 /** What the printer and paper need. The defaults are the owner's measured printer and paper. */
 export interface PrintSettings {
-  /** Creep: each sheet shifts toward the fold by (sheets outside it) x this. */
-  paper_thickness_mm: number;
+  /**
+   * Creep: each sheet's content moves toward the fold by (sheets outside it) x this, relative to the sheet outside it. In a thick
+   * book the spine is round and paper is used up going round it, so this is often more than the paper's thickness (about 1.5x).
+   * Found by the creep test.
+   */
+  creep_per_sheet_mm: number;
+  /** Moves the content of every interior page away from the fold by this (left pages left, right pages right), so the trimmed fore-edge margin lands on the target. */
+  fore_edge_shift_mm: number;
+  /** The same, for cover.pdf. */
+  cover_fore_edge_shift_mm: number;
+  /** The fore-edge margin (content box to the trimmed edge) the creep test aims for. Used by the Calibrate wizard and marked on the test's rulers. */
+  target_fore_edge_margin_mm: number;
   /**
    * Added to everything on one side of the sheet, to cancel what the printer does to it. Measured against the paper (the fold
    * at its centre, the margins even), not against the other side. +x moves right and +y moves up, as seen on that side.
@@ -47,9 +57,14 @@ export interface PrintSettings {
   gray_text_pct: number;
 }
 
-/** The defaults are the owner's measured printer and paper; the tones are today's grays (#efefef, #dcdcdc, #bdbdbd, #808080). */
+/**
+ * The defaults are the owner's measured printer and paper, kept here in case the saved printer profile is cleared; the tones are
+ * today's grays (#efefef, #dcdcdc, #bdbdbd, #808080). The creep and the two fore-edge shifts are PROVISIONAL: computed from the
+ * owner's readings (cover 5.7, sheet 1 5.5, sheet 13 3.6 mm, printed with creep 0.14 and no shift) until the next creep test confirms them.
+ */
 export const DEFAULT_PRINT: PrintSettings = {
-  paper_thickness_mm: 0.14, front_offset_x_mm: 0, front_offset_y_mm: 0, back_offset_x_mm: 0, back_offset_y_mm: 0, signatures: 1,
+  creep_per_sheet_mm: 0.30, fore_edge_shift_mm: 2.0, cover_fore_edge_shift_mm: 2.2, target_fore_edge_margin_mm: 3.5,
+  front_offset_x_mm: 1.7, front_offset_y_mm: -0.05, back_offset_x_mm: 1.5, back_offset_y_mm: 0.05, signatures: 1,
   shade_light_pct: 6.3, shade_medium_pct: 13.7, shade_dark_pct: 25.9, gray_text_pct: 49.8,
 };
 
@@ -83,10 +98,10 @@ export function signatureSizes(totalPages: number, signatures = 1): number[] {
   return sizes;
 }
 
-/** Sheets wrapped around this one times the paper thickness. */
-export const creepFor = (sheetIndex: number, s: Pick<PrintSettings, 'paper_thickness_mm'>) => sheetIndex * s.paper_thickness_mm;
+/** Sheets wrapped around this one times the creep per sheet. */
+export const creepFor = (sheetIndex: number, s: Pick<PrintSettings, 'creep_per_sheet_mm'>) => sheetIndex * s.creep_per_sheet_mm;
 
-export function impose(totalPages: number, s: Pick<PrintSettings, 'paper_thickness_mm'>, signatures = 1): Signature[] {
+export function impose(totalPages: number, s: Pick<PrintSettings, 'creep_per_sheet_mm'>, signatures = 1): Signature[] {
   const result: Signature[] = [];
   let first = 1;
   signatureSizes(totalPages, signatures).forEach((pages, i) => {
@@ -117,23 +132,37 @@ export function duplexOrder(sheets: number): [number[], number[]] {
 export const offsetOf = (s: Pick<PrintSettings, 'front_offset_x_mm' | 'front_offset_y_mm' | 'back_offset_x_mm' | 'back_offset_y_mm'>, side: 'front' | 'back') =>
   side === 'front' ? { x: s.front_offset_x_mm, y: s.front_offset_y_mm } : { x: s.back_offset_x_mm, y: s.back_offset_y_mm };
 
-/** Sheet position (mm) of a page's top-left corner. Pages shift toward the fold by `creep`: the left page right, the right page left. */
-export function pageOrigin(isRight: boolean, creep: number): { x: number; y: number } {
-  const y = (SHEET_H_MM - PAGE_H_MM) / 2;
-  return isRight ? { x: FOLD_X_MM - creep, y } : { x: FOLD_X_MM - PAGE_W_MM + creep, y };
+/**
+ * Sheet position (mm) of a page's top-left corner. Pages shift toward the fold by `creep` (the left page right, the right page
+ * left) and away from it by `shift`, the fore-edge shift. The front/back offset is added by the caller.
+ */
+export function pageOrigin(isRight: boolean, creep: number, shift = 0): { x: number; y: number } {
+  const y = (SHEET_H_MM - PAGE_H_MM) / 2, toward = creep - shift;
+  return isRight ? { x: FOLD_X_MM - toward, y } : { x: FOLD_X_MM - PAGE_W_MM + toward, y };
 }
+
+/** How far a page's content sits from the fold on the paper (its spine-side margin), when the page moves `toward` the fold by that much. */
+export const spineMargin = (toward: number) => GRID_X_MM - toward;
 
 /** Why these settings can't be printed, or null if they can. `sheets` is the biggest signature, in sheets. */
 export function checkPrintSettings(s: PrintSettings, sheets: number): string | null {
-  if (!Number.isFinite(s.paper_thickness_mm) || s.paper_thickness_mm < 0) return 'Paper thickness must be zero or more.';
+  const numbers = [s.creep_per_sheet_mm, s.fore_edge_shift_mm, s.cover_fore_edge_shift_mm, s.target_fore_edge_margin_mm];
+  if (!numbers.every(Number.isFinite)) return 'The creep, shifts and target margin must be numbers.';
+  if (s.creep_per_sheet_mm < 0) return 'Creep per sheet must be zero or more.';
   if (![s.front_offset_x_mm, s.front_offset_y_mm, s.back_offset_x_mm, s.back_offset_y_mm].every(Number.isFinite)) return 'The offsets must be numbers.';
   if (!Number.isInteger(s.signatures) || s.signatures < 1) return 'Signatures must be a whole number, at least 1.';
   for (const key of ['shade_light_pct', 'shade_medium_pct', 'shade_dark_pct', 'gray_text_pct'] as const) {
     if (!Number.isFinite(s[key]) || s[key] < 0 || s[key] > 100) return 'Each tone must be a percentage from 0 to 100.';
   }
-  const creep = (sheets - 1) * s.paper_thickness_mm;
-  if (creep >= GRID_X_MM) {
-    return `Creep of ${creep.toFixed(2)} mm would push content past the fold (the page margin is ${GRID_X_MM} mm). Lower the paper thickness or use more signatures.`;
+  // How far the content moves toward the fold: linear in the sheet, so the first and last sheet are the extremes. The cover moves by minus its shift.
+  const inner = (sheets - 1) * s.creep_per_sheet_mm - s.fore_edge_shift_mm;
+  const outerRoom = FOLD_X_MM - (PAGE_W_MM - GRID_X_MM); // the content's fore-edge may go this far toward the sheet's edge, no further
+  const cases: [string, number][] = [['sheet 1', -s.fore_edge_shift_mm], [`sheet ${sheets}`, inner], ['the cover', -s.cover_fore_edge_shift_mm]];
+  for (const [where, toward] of cases) {
+    if (spineMargin(toward) <= 0) {
+      return `The content on ${where} would be ${(-spineMargin(toward)).toFixed(2)} mm past the fold (its spine-side margin is ${GRID_X_MM} mm on the page). Lower the creep per sheet, raise the fore-edge shift or use more signatures.`;
+    }
+    if (-toward > outerRoom) return `The content on ${where} would be ${(-toward - outerRoom).toFixed(2)} mm off the paper at the fore-edge. Lower the ${where === 'the cover' ? 'cover ' : ''}fore-edge shift.`;
   }
   return null;
 }

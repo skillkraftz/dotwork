@@ -23,7 +23,7 @@ describe('the owner’s lost book', () => {
     await choose(app, 'page', '#settings');
     await page.waitForSelector('dialog.settings[open]');
     await page.locator('[data-key="settings-book-name"]').fill('Field notes');
-    const thickness = page.locator('dialog.settings [data-key="book-thickness"]');
+    const thickness = page.locator('dialog.settings [data-key="book-creep"]');
     await thickness.fill('2');
     await thickness.dispatchEvent('change');
     expect(await thickness.inputValue()).toBe('1'); // brought back into range, not kept
@@ -41,7 +41,7 @@ describe('the owner’s lost book', () => {
 });
 
 describe('a draft that can’t be read is never lost', () => {
-  const broken = JSON.stringify({ format: 'dotwork-book', version: 1, name: 'Precious', page_count: 52, page_numbers: true, print: { paper_thickness_mm: 2, back_offset_x_mm: 0, back_offset_y_mm: 0, signatures: 1 }, pages: Array(52).fill(null), cover: { front: null, back: null } });
+  const broken = JSON.stringify({ format: 'dotwork-book', version: 1, name: 'Precious', page_count: 52, page_numbers: true, print: { creep_per_sheet_mm: 2, fore_edge_shift_mm: 0, cover_fore_edge_shift_mm: 0, target_fore_edge_margin_mm: 3.5, back_offset_x_mm: 0, back_offset_y_mm: 0, signatures: 1 }, pages: Array(52).fill(null), cover: { front: null, back: null } });
 
   it('keeps a bad book draft under a backup key, says why, and offers the download and Start fresh', async () => {
     const app = await open(env, 'desktop');
@@ -52,7 +52,7 @@ describe('a draft that can’t be read is never lost', () => {
     const notice = page.locator('#notice');
     await notice.waitFor({ state: 'visible' });
     const text = await notice.innerText();
-    expect(text).toContain('print.paper_thickness_mm');
+    expect(text).toContain('print.creep_per_sheet_mm');
     expect(text).toContain('Nothing was deleted');
     expect(await notice.locator('button').allInnerTexts()).toEqual(['Download the draft', 'Start fresh', 'Copy details', 'Dismiss']);
     const kept = await backups(app, 'dotwork.book');

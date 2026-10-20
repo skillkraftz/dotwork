@@ -40,9 +40,12 @@ Dotwork's print export follows the same physical rules as journal-system
 - Saddle-stitch page order, usually one signature of 13 sheets (52 pages);
   multiple signatures must work.
 - **Creep**: inner sheets are pushed outward when nested, so shift each
-  sheet's pages toward the fold by (sheets outside it) x paper thickness. The
-  owner's printer and paper measured about 0.14 mm per sheet; make it a
-  setting.
+  sheet's pages toward the fold by (sheets outside it) x creep per sheet. In a
+  thick book the round spine uses up paper, so creep per sheet is about 1.5x
+  the paper's thickness (the owner's paper is about 0.16 mm; the creep test
+  says about 0.30). It is a setting, found by the creep test, together with a
+  fore-edge shift for the interior pages and one for the covers that put the
+  trimmed fore-edge margin on a target (3.5 mm).
 - **Manual duplex**: `print-first.pdf` holds every sheet's front in reverse
   order; the stack goes back in the tray the same way; `print-second.pdf`
   holds the backs in forward order. Keep this exactly. Add a back-side x/y

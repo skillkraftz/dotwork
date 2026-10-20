@@ -10,11 +10,11 @@ const memory = (initial: Record<string, string> = {}): PrinterStorage & { data: 
 };
 const refusing = (message: string): PrinterStorage => ({ getItem: () => { throw new Error(message); }, setItem: () => { throw new Error(message); } });
 
-const calibrated = { ...DEFAULT_PRINT, front_offset_x_mm: -1.5, front_offset_y_mm: 0.3, back_offset_x_mm: 1.4, back_offset_y_mm: -0.2, paper_thickness_mm: 0.11, shade_light_pct: 9 };
+const calibrated = { ...DEFAULT_PRINT, front_offset_x_mm: -1.5, front_offset_y_mm: 0.3, back_offset_x_mm: 1.4, back_offset_y_mm: -0.2, creep_per_sheet_mm: 0.11, shade_light_pct: 9 };
 
 describe('the printer profile', () => {
-  it('holds the offsets of both sides, the paper thickness and the tones, but not the signatures', () => {
-    expect([...PRINTER_KEYS].sort()).toEqual(['back_offset_x_mm', 'back_offset_y_mm', 'front_offset_x_mm', 'front_offset_y_mm', 'gray_text_pct', 'paper_thickness_mm', 'shade_dark_pct', 'shade_light_pct', 'shade_medium_pct']);
+  it('holds the offsets of both sides, the creep, the shifts, the target and the tones, but not the signatures', () => {
+    expect([...PRINTER_KEYS].sort()).toEqual(['back_offset_x_mm', 'back_offset_y_mm', 'cover_fore_edge_shift_mm', 'creep_per_sheet_mm', 'fore_edge_shift_mm', 'front_offset_x_mm', 'front_offset_y_mm', 'gray_text_pct', 'shade_dark_pct', 'shade_light_pct', 'shade_medium_pct', 'target_fore_edge_margin_mm']);
     expect(printerOf({ ...calibrated, signatures: 3 })).not.toHaveProperty('signatures');
   });
 
@@ -79,7 +79,7 @@ describe('the printer profile', () => {
       expect(text).toContain('front_offset_x_mm');
       expect(text).toContain('gray_text_pct');
     }
-    const old = memory({ [PRINTER_KEY]: JSON.stringify({ paper_thickness_mm: 0.14 }) }); // saved before front offsets existed
+    const old = memory({ [PRINTER_KEY]: JSON.stringify({ creep_per_sheet_mm: 0.14 }) }); // saved before front offsets existed
     expect(loadPrinter(old).status).toBe('bad');
     expect(loadPrinter(memory({ [PRINTER_KEY]: '{not json' })).status).toBe('bad');
     expect(loadPrinter(memory({ [PRINTER_KEY]: '[]' })).status).toBe('bad');

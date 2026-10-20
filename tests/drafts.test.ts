@@ -25,24 +25,24 @@ const check = (b: Book) => { const r = readBook(b); return r.ok ? [] : r.issues;
 const ownersBook = (): Book => {
   const b = TEMPLATES.find((t) => t.id === 'year-planner')!.build({ year: 2026 });
   b.name = 'Owner’s year';
-  b.print.paper_thickness_mm = 2;
+  b.print.creep_per_sheet_mm = 2;
   return b;
 };
 
 describe('the owner’s lost book', () => {
   it('is refused by the book format (this is what made the next refresh drop it)', () => {
     const issues = check(ownersBook());
-    expect(issues.map((i) => i.path)).toEqual(['print.paper_thickness_mm']);
+    expect(issues.map((i) => i.path)).toEqual(['print.creep_per_sheet_mm']);
   });
 
   it('is never written over the last good draft', () => {
     const s = new FakeStorage();
     const good = ownersBook();
-    good.print.paper_thickness_mm = 0.14;
+    good.print.creep_per_sheet_mm = 0.14;
     expect(saveDraft(s, 'dotwork.book', good, 'book', check)).toBeNull();
     const problem = saveDraft(s, 'dotwork.book', ownersBook(), 'book', check);
-    expect(problem?.lines.join('\n')).toContain('print.paper_thickness_mm');
-    expect(JSON.parse(s.getItem('dotwork.book')!).print.paper_thickness_mm).toBe(0.14);
+    expect(problem?.lines.join('\n')).toContain('print.creep_per_sheet_mm');
+    expect(JSON.parse(s.getItem('dotwork.book')!).print.creep_per_sheet_mm).toBe(0.14);
   });
 
   it('is kept under a backup key, with its reasons, when it is already stored', () => {
@@ -56,7 +56,7 @@ describe('the owner’s lost book', () => {
     expect(s.getItem('dotwork.book')).toBe(raw); // the draft itself is untouched, too
     const p = badDraftProblem('book', d, []);
     expect(p.lines[0]).toContain('Nothing was deleted');
-    expect(p.lines.join('\n')).toContain('print.paper_thickness_mm');
+    expect(p.lines.join('\n')).toContain('print.creep_per_sheet_mm');
     expect(p.details).toContain(raw); // Copy details carries the whole draft
     // loading again doesn't pile up copies, and never replaces one
     loadDraft(s, 'dotwork.book', readIt, new Date('2026-10-21T00:00:00Z'));
@@ -129,7 +129,7 @@ describe('the zip', () => {
     expect(files.map((f) => f.name)).toEqual(['book.json', 'error.txt']);
     const log = new TextDecoder().decode(files[1].bytes);
     expect(log).toContain('The export failed.');
-    expect(log).toContain('print.paper_thickness_mm'); // every way the book breaks the format
+    expect(log).toContain('print.creep_per_sheet_mm'); // every way the book breaks the format
   });
 
   it('says so when the files were made from a book that breaks the format', () => {

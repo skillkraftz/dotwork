@@ -25,7 +25,10 @@ export interface Book {
 
 /** What a book file may hold for each print setting: the file format's limits, which the settings fields keep to. */
 export const PRINT_LIMITS = {
-  paper_thickness_mm: { min: 0, max: 1 },
+  creep_per_sheet_mm: { min: 0, max: 1 },
+  fore_edge_shift_mm: { min: -10, max: 10 },
+  cover_fore_edge_shift_mm: { min: -10, max: 10 },
+  target_fore_edge_margin_mm: { min: 1, max: 10 },
   front_offset_x_mm: { min: -10, max: 10 },
   front_offset_y_mm: { min: -10, max: 10 },
   back_offset_x_mm: { min: -10, max: 10 },

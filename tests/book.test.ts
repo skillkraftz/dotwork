@@ -13,13 +13,14 @@ const page = (name: string): Page => ({ ...emptyPage(), name, elements: [{ type:
 const rules = (r: ReturnType<typeof readBook>) => (r.ok ? [] : r.issues.map((i) => i.rule));
 
 describe('a book', () => {
-  it('starts as 52 empty pages with page numbers on and the measured 0.14 mm creep', () => {
+  it('starts as 52 empty pages with page numbers on and the owner’s calibration', () => {
     const b = emptyBook();
     expect(b.page_count).toBe(52);
     expect(b.pages).toHaveLength(52);
     expect(b.page_numbers).toBe(true);
     expect(b.print).toEqual({
-      paper_thickness_mm: 0.14, front_offset_x_mm: 0, front_offset_y_mm: 0, back_offset_x_mm: 0, back_offset_y_mm: 0, signatures: 1,
+      creep_per_sheet_mm: 0.3, fore_edge_shift_mm: 2, cover_fore_edge_shift_mm: 2.2, target_fore_edge_margin_mm: 3.5,
+      front_offset_x_mm: 1.7, front_offset_y_mm: -0.05, back_offset_x_mm: 1.5, back_offset_y_mm: 0.05, signatures: 1,
       shade_light_pct: 6.3, shade_medium_pct: 13.7, shade_dark_pct: 25.9, gray_text_pct: 49.8,
     });
   });

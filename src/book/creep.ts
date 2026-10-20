@@ -1,41 +1,78 @@
-import { GRID_X_MM } from '../format/types';
 import type { Book } from './book';
-import { impose } from './impose';
+import { impose, spineMargin } from './impose';
 
 /** The sheets in the biggest signature: what creep builds up over, and what the creep test uses. */
 export const creepSheets = (book: Book) => Math.max(...impose(book.page_count, book.print, book.print.signatures).map((g) => g.sheets.length));
 
 /**
- * Where the box ends up from the trimmed fore-edge, at sheet k (0 = outermost), by the book's geometry. The cut is made PAGE_W
- * from the cover's fold. Sheet k's own fold sits (the cover's thickness + k × the paper's real thickness) closer to the cut, and
- * its pages were shifted toward that fold by k × the thickness set, so
+ * The creep model. The owner reads the fore-edge margin on the trimmed book: the box's outer edge to the trimmed edge. For
+ * sheet k (0 = outermost) printed with `creep` per sheet and a fore-edge `shift`,
  *
- *     margin(k) = GRID_X + k × (set − real) − cover
+ *     margin(k) = A + k × (creep − g) − shift
  *
- * The cover is printed with no creep and its fold is the outermost one, so its own margin is GRID_X.
+ * - `A` is the margin of the outermost sheet with no creep and no shift. It is NOT the page's own 3.95 mm: a saddle-stitched
+ *   book this thick has a round spine, and paper going round the curve is used up, so outer pages' content lands about
+ *   (π/2 − 1) × r further from the fore-edge than designed (r is about half the book's thickness).
+ * - `g` is how far each sheet's fore-edge really creeps out going inward: about (π/2) × the paper's thickness in a thick book,
+ *   not 1 ×. It is what the creep setting has to equal for every sheet to land on the same margin.
+ * - The shift moves content toward the fore-edge, so a bigger shift makes the margin smaller. The cover is the outermost fold
+ *   and has no creep: margin = Ac − cover shift.
  */
-export const marginAt = (k: number, set: number, real: number, cover = 0) => GRID_X_MM + k * (set - real) - cover;
+export interface Binding { A: number; g: number; Ac: number | null }
 
-/**
- * The new paper thickness, from a creep test. `difference` is the margin on the innermost sheet minus the margin on the
- * outermost sheet (mm). Sheet k protrudes k × the true thickness but is shifted by k × the thickness set, so the difference over
- * the (sheets − 1) sheets between the two is (set − true). A positive difference means the thickness set is too high.
- *
- * Compare the innermost sheet with the OUTERMOST SHEET, not with the cover. The cover wraps outside sheet 0, so its thickness
- * pushes every sheet in by the same amount: it cancels between two sheets, but not between a sheet and the cover.
- */
-export const thicknessFromCreepTest = (current: number, sheets: number, difference: number) => current - difference / (sheets - 1);
+/** What the three fore-edge margins were printed with. */
+export interface Printed { creep: number; foreEdgeShift: number; coverShift: number; target: number }
 
-/** How far the cover's thickness pushes the pages in: the cover's margin minus the outermost sheet's. */
-export const coverPush = (coverMargin: number, outermostMargin: number) => coverMargin - outermostMargin;
+/** The three fore-edge margins read after binding and trimming, in mm. `cover` is null when it wasn't read. */
+export interface CreepReadings { cover: number | null; outermost: number; innermost: number }
 
-/** The three fore-edge margins read after binding and trimming, in mm. */
-export interface CreepReadings { cover: number; outermost: number; innermost: number }
+/** The settings a creep test leads to. */
+export interface CreepSettings { creep: number; foreEdgeShift: number; coverShift: number }
 
-/** The result of a creep test: the new thickness, and how far the cover's own thickness pushes the pages in. */
-export function creepResult(current: number, sheets: number, r: CreepReadings) {
+export const marginAt = (k: number, creep: number, shift: number, b: Pick<Binding, 'A' | 'g'>) => b.A + k * (creep - b.g) - shift;
+export const coverMarginAt = (shift: number, Ac: number) => Ac - shift;
+
+/** The binding a creep test shows, from the values it was printed with and the margins read (`Ac` is null without a cover reading). */
+export function bindingFromReadings(printed: Printed, sheets: number, r: CreepReadings): Binding {
+  const diff = r.innermost - r.outermost; // = (sheets − 1) × (printed creep − g)
   return {
-    thickness: thicknessFromCreepTest(current, sheets, r.innermost - r.outermost),
-    coverPush: coverPush(r.cover, r.outermost),
+    A: r.outermost + printed.foreEdgeShift,
+    g: printed.creep - diff / (sheets - 1),
+    Ac: r.cover === null ? null : r.cover + printed.coverShift,
   };
 }
+
+/**
+ * The new settings, from the values the test was printed with (never the current ones) and the margins read:
+ *
+ *     creep       = printed creep + (outermost − innermost) ÷ (sheets − 1)
+ *                   (a bigger margin on the inner sheet means it was moved in too far: creep less)
+ *     shift       = printed shift + (outermost − target)
+ *                   (a margin bigger than the target: move the content toward the fore-edge, i.e. a bigger shift)
+ *     cover shift = printed cover shift + (cover − target)
+ *
+ * Compare the innermost sheet with the OUTERMOST SHEET, not with the cover: they differ by the cover's thickness.
+ */
+export function creepResult(printed: Printed, sheets: number, r: CreepReadings): CreepSettings {
+  return {
+    creep: printed.creep + (r.outermost - r.innermost) / (sheets - 1),
+    foreEdgeShift: printed.foreEdgeShift + (r.outermost - printed.target),
+    coverShift: r.cover === null ? printed.coverShift : printed.coverShift + (r.cover - printed.target),
+  };
+}
+
+/** The fore-edge margins a book printed with `next` would have, by the model: all the target if nothing was clamped. */
+export function predictedMargins(printed: Printed, sheets: number, r: CreepReadings, next: CreepSettings) {
+  const b = bindingFromReadings(printed, sheets, r);
+  return {
+    cover: b.Ac === null ? null : coverMarginAt(next.coverShift, b.Ac),
+    outermost: marginAt(0, next.creep, next.foreEdgeShift, b),
+    innermost: marginAt(sheets - 1, next.creep, next.foreEdgeShift, b),
+  };
+}
+
+/** Below this, the innermost page's spine-side margin on the paper is getting small: the writing runs into the gutter. */
+export const SPINE_WARN_MM = 2;
+
+/** The innermost page's margin at the spine, on the paper (page margin minus how far the content moved toward the fold). */
+export const innermostSpineMargin = (sheets: number, s: CreepSettings) => spineMargin((sheets - 1) * s.creep - s.foreEdgeShift);

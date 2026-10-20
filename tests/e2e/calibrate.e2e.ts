@@ -45,13 +45,21 @@ const download = async (app: App, selector: string) => {
   const [d] = await Promise.all([app.page.waitForEvent('download'), hit(app, selector)]);
   return { name: d.suggestedFilename(), bytes: await readFile((await d.path())!) };
 };
+/** A saved printer profile with no offsets or shifts, so a walk starts from simple numbers (the app's own defaults are the owner's calibration). */
+const FLAT = { creep_per_sheet_mm: 0.14, fore_edge_shift_mm: 0, cover_fore_edge_shift_mm: 0, target_fore_edge_margin_mm: 3.5, front_offset_x_mm: 0, front_offset_y_mm: 0, back_offset_x_mm: 0, back_offset_y_mm: 0, shade_light_pct: 6.3, shade_medium_pct: 13.7, shade_dark_pct: 25.9, gray_text_pct: 49.8 };
+const startFlat = async (app: App) => {
+  await app.page.evaluate((flat) => { localStorage.setItem('dotwork.printer', JSON.stringify(flat)); localStorage.removeItem('dotwork.book'); }, FLAT);
+  await app.page.reload();
+  await app.page.waitForSelector('#canvas');
+};
 const noOverflow = (app: App) => app.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
 
 for (const device of ['phone', 'tablet', 'desktop'] as const) {
   describe(`the Calibrate wizard (${device})`, () => {
-    it('walks the three steps: readings become offsets and a thickness, which are kept as the printer’s settings', async () => {
+    it('walks the three steps: readings become offsets, creep and shifts, which are kept as the printer’s settings', async () => {
       const app = await open(env, device);
       const { page } = app;
+      await startFlat(app);
       await hit(app, '#export');
       await hit(app, 'dialog.export [data-tab="pdf"]');
       await page.waitForSelector('dialog.export [data-key="calibrate-open"]');
@@ -98,29 +106,52 @@ for (const device of ['phone', 'tablet', 'desktop'] as const) {
       expect(await progress(app)).toBe('Step 2 of 3: Creep and cover');
       expect(await page.locator('dialog.calibrate').innerText()).toContain('pages 1 to 13');
       expect(await page.locator('dialog.calibrate').innerText()).toContain('pages 14 to 26');
-      expect(await page.locator('dialog.calibrate').innerText()).toMatch(/not with the cover/);
+      expect(await page.locator('dialog.calibrate').innerText()).not.toMatch(/pushes the pages in/);
       expect(await missingHelp(app)).toEqual([]);
       if (app.touch) expect(await small(app)).toEqual([]);
       expect(await noOverflow(app)).toBe(true);
       await shot(app, `${device}-calibrate-step2`);
+      // the values the test will print with are editable before the download; set the creep to the paper's thickness
+      for (const key of ['book-creep', 'book-fore-edge-shift', 'book-cover-shift', 'book-target-margin']) expect(await page.locator(`dialog.calibrate [data-key="${key}"]`).count(), key).toBe(1);
+      await set(app, 'calibrate', 'book-creep', '0.16');
+      expect(await page.locator('[data-key="calibrate-printed-creep"]').inputValue()).toBe('0.16'); // follows until the test is downloaded
       const zipped = await download(app, 'dialog.calibrate [data-key="calibrate-download-creep"]');
       expect(zipped.name).toBe('untitled-book-creep-test.zip');
       const files = unzip(zipped.bytes);
       expect([...files.keys()]).toEqual(['calibration-cover.pdf', 'creep-test.pdf', 'calibration.txt', 'book.json']);
       expect((await PDFDocument.load(files.get('creep-test.pdf')!)).getPageCount()).toBe(26);
       expect((await PDFDocument.load(files.get('calibration-cover.pdf')!)).getPageCount()).toBe(1);
-      expect(files.get('calibration.txt')!.toString('utf8')).toContain('front offset x -1.5 mm');
-      await set(app, 'calibrate', 'calibrate-read-cover', '3.95');
-      await set(app, 'calibrate', 'calibrate-read-outermost', '3.8');
-      await set(app, 'calibrate', 'calibrate-read-innermost', '4.04'); // 0.24 over 12 gaps: 0.02 too thick
+      const record = files.get('calibration.txt')!.toString('utf8');
+      expect(record).toContain('front offset x -1.5 mm');
+      expect(record).toContain('creep per sheet 0.16 mm');
+      expect(record).toContain('fore-edge shift 0 | cover shift 0 | target margin 3.5 mm');
+      // changing the setting after printing doesn't change what the readings start from
+      await set(app, 'calibrate', 'book-creep', '0.3');
+      expect(await page.locator('[data-key="calibrate-printed-creep"]').inputValue()).toBe('0.16');
+      // a small spine-side margin is warned about: creep 0.3 printed, nothing read to move it
+      await set(app, 'calibrate', 'calibrate-printed-creep', '0.3');
+      await set(app, 'calibrate', 'calibrate-read-cover', '3.5');
+      await set(app, 'calibrate', 'calibrate-read-outermost', '3.5');
+      await set(app, 'calibrate', 'calibrate-read-innermost', '3.5');
+      expect(await page.locator('[data-key="calibrate-spine"]').innerText()).toMatch(/0\.35 mm.*small/);
+      await set(app, 'calibrate', 'calibrate-printed-creep', '0.16');
+      // the owner's readings
+      await set(app, 'calibrate', 'calibrate-read-cover', '5.7');
+      await set(app, 'calibrate', 'calibrate-read-outermost', '5.5');
+      await set(app, 'calibrate', 'calibrate-read-innermost', '3.6');
       const creep = await page.locator('[data-key="calibrate-creep-result"]').innerText();
-      expect(creep).toContain('0.14 → 0.12 mm');
-      expect(creep).toContain('pushes the pages in by 0.15 mm');
-      await page.locator('[data-key="calibrate-use-thickness"]').scrollIntoViewIfNeeded();
+      expect(creep).toContain('Creep per sheet: 0.3 → 0.32 mm');
+      expect(creep).toContain('Fore-edge shift: 0 → 2 mm');
+      expect(creep).toContain('Cover shift: 0 → 2.2 mm');
+      expect(creep).toContain('cover 3.5, sheet 1 3.5, sheet 13 3.5');
+      expect(creep).toContain('Spine-side margin of the innermost page on the paper: 2.13 mm.');
+      expect(await page.locator('[data-key="calibrate-spine"]').getAttribute('class')).not.toContain('warn');
+      await page.locator('[data-key="calibrate-use-creep"]').scrollIntoViewIfNeeded();
       await shot(app, `${device}-calibrate-step2-result`);
-      await hit(app, 'dialog.calibrate [data-key="calibrate-use-thickness"]');
-      expect(await profile(app)).toMatchObject({ paper_thickness_mm: 0.12, front_offset_x_mm: -1.5 });
+      await hit(app, 'dialog.calibrate [data-key="calibrate-use-creep"]');
+      expect(await profile(app)).toMatchObject({ creep_per_sheet_mm: 0.318, fore_edge_shift_mm: 2, cover_fore_edge_shift_mm: 2.2, front_offset_x_mm: -1.5 });
       expect(await progress(app)).toBe('Step 2 of 3: Creep and cover');
+      expect(await page.locator('[data-key="calibrate-read-outermost"]').inputValue()).toBe(''); // the readings are used up
       await hit(app, 'dialog.calibrate [data-key="calibrate-next"]');
 
       // ---- step 3: check, and tones
@@ -130,7 +161,7 @@ for (const device of ['phone', 'tablet', 'desktop'] as const) {
       if (app.touch) expect(await small(app)).toEqual([]);
       await set(app, 'calibrate', 'calibrate-check-fore', '3.75');
       await set(app, 'calibrate', 'calibrate-check-top', '3.85');
-      expect(await page.locator('[data-key="calibrate-check-result"]').innerText()).toContain('Fore-edge: 3.75 mm, target 3.95 mm: 0.2 mm too small');
+      expect(await page.locator('[data-key="calibrate-check-result"]').innerText()).toContain('Fore-edge: 3.75 mm, target 3.5 mm: 0.25 mm too big');
       expect(await page.locator('[data-key="calibrate-check-result"]').innerText()).toContain('Top: 3.85 mm, target 3.85 mm: on target');
       await set(app, 'calibrate', 'book-tone-light', '8');
       expect(await profile(app)).toMatchObject({ shade_light_pct: 8 });
@@ -146,7 +177,7 @@ for (const device of ['phone', 'tablet', 'desktop'] as const) {
       await hit(app, 'dialog.calibrate header button');
       await page.waitForSelector('dialog.export[open]');
       expect(await page.locator('dialog.export [data-tab="pdf"]').getAttribute('aria-selected')).toBe('true');
-      for (const [key, value] of [['book-front-offset-x', '-1.5'], ['book-front-offset-y', '0.5'], ['book-offset-x', '-1.2'], ['book-thickness', '0.12'], ['book-tone-light', '8']]) {
+      for (const [key, value] of [['book-front-offset-x', '-1.5'], ['book-front-offset-y', '0.5'], ['book-offset-x', '-1.2'], ['book-creep', '0.318'], ['book-fore-edge-shift', '2'], ['book-cover-shift', '2.2'], ['book-tone-light', '8']]) {
         expect(await page.locator(`dialog.export [data-key="${key}"]`).inputValue(), key).toBe(value);
       }
       expect(await page.locator('[data-key="printer-notice"]').count()).toBe(0);
@@ -160,11 +191,11 @@ for (const device of ['phone', 'tablet', 'desktop'] as const) {
       await page.evaluate(() => {
         localStorage.setItem('dotwork.book', JSON.stringify({
           format: 'dotwork-book', version: 1, name: 'Older book', page_count: 52, page_numbers: true,
-          print: { paper_thickness_mm: 0.14, front_offset_x_mm: 0, front_offset_y_mm: 0, back_offset_x_mm: 0, back_offset_y_mm: 0, signatures: 1, shade_light_pct: 6.3, shade_medium_pct: 13.7, shade_dark_pct: 25.9, gray_text_pct: 49.8 },
+          print: { creep_per_sheet_mm: 0.14, fore_edge_shift_mm: 0, cover_fore_edge_shift_mm: 0, target_fore_edge_margin_mm: 3.5, front_offset_x_mm: 0, front_offset_y_mm: 0, back_offset_x_mm: 0, back_offset_y_mm: 0, signatures: 1, shade_light_pct: 6.3, shade_medium_pct: 13.7, shade_dark_pct: 25.9, gray_text_pct: 49.8 },
           pages: Array(52).fill(null), cover: { front: null, back: null },
         }));
         localStorage.setItem('dotwork.printer', JSON.stringify({
-          paper_thickness_mm: 0.1, front_offset_x_mm: -1.5, front_offset_y_mm: 0.5, back_offset_x_mm: -1.2, back_offset_y_mm: 0,
+          creep_per_sheet_mm: 0.1, fore_edge_shift_mm: 0, cover_fore_edge_shift_mm: 0, target_fore_edge_margin_mm: 3.5, front_offset_x_mm: -1.5, front_offset_y_mm: 0.5, back_offset_x_mm: -1.2, back_offset_y_mm: 0,
           shade_light_pct: 8, shade_medium_pct: 13.7, shade_dark_pct: 25.9, gray_text_pct: 49.8,
         }));
       });
@@ -177,14 +208,14 @@ for (const device of ['phone', 'tablet', 'desktop'] as const) {
       expect(await missingHelp(app)).toEqual([]);
       const text = await notice.innerText();
       expect(text).toContain('differ from your printer’s saved settings');
-      expect(text).toContain('paper thickness: 0.14 here, 0.1 saved');
+      expect(text).toContain('creep per sheet: 0.14 here, 0.1 saved');
       expect(text).toContain('front offset x: 0 here, -1.5 saved');
       await shot(app, `${device}-printer-notice`);
 
       // Keep this book's: the message goes, the book is as it was
       await hit(app, 'dialog.export [data-key="printer-keep-book"]');
       expect(await notice.count()).toBe(0);
-      expect(await page.locator('dialog.export [data-key="book-thickness"]').inputValue()).toBe('0.14');
+      expect(await page.locator('dialog.export [data-key="book-creep"]').inputValue()).toBe('0.14');
       // Change a setting back and forth: the message comes back when the difference is a new one
       await type(app, 'dialog.export [data-key="book-offset-x"]', '0.3');
       await notice.waitFor();
@@ -192,7 +223,7 @@ for (const device of ['phone', 'tablet', 'desktop'] as const) {
       // Use my printer settings: the book takes them all
       await hit(app, 'dialog.export [data-key="printer-use-saved"]');
       expect(await notice.count()).toBe(0);
-      for (const [key, value] of [['book-thickness', '0.1'], ['book-front-offset-x', '-1.5'], ['book-front-offset-y', '0.5'], ['book-offset-x', '-1.2'], ['book-tone-light', '8']]) {
+      for (const [key, value] of [['book-creep', '0.1'], ['book-front-offset-x', '-1.5'], ['book-front-offset-y', '0.5'], ['book-offset-x', '-1.2'], ['book-tone-light', '8']]) {
         expect(await page.locator(`dialog.export [data-key="${key}"]`).inputValue(), key).toBe(value);
       }
       expect(app.errors).toEqual([]);
@@ -202,7 +233,7 @@ for (const device of ['phone', 'tablet', 'desktop'] as const) {
       const app = await open(env, device);
       const { page } = app;
       await page.evaluate(() => localStorage.setItem('dotwork.printer', JSON.stringify({
-        paper_thickness_mm: 0.1, front_offset_x_mm: -1.5, front_offset_y_mm: 0.5, back_offset_x_mm: -1.2, back_offset_y_mm: 0,
+        creep_per_sheet_mm: 0.1, fore_edge_shift_mm: 0, cover_fore_edge_shift_mm: 0, target_fore_edge_margin_mm: 3.5, front_offset_x_mm: -1.5, front_offset_y_mm: 0.5, back_offset_x_mm: -1.2, back_offset_y_mm: 0,
         shade_light_pct: 8, shade_medium_pct: 13.7, shade_dark_pct: 25.9, gray_text_pct: 49.8,
       })));
       await page.evaluate(() => localStorage.removeItem('dotwork.book'));
@@ -214,7 +245,7 @@ for (const device of ['phone', 'tablet', 'desktop'] as const) {
       await hit(app, '#export');
       await hit(app, 'dialog.export [data-tab="pdf"]');
       expect(await page.locator('dialog.export [data-key="book-front-offset-x"]').inputValue()).toBe('-1.5');
-      expect(await page.locator('dialog.export [data-key="book-thickness"]').inputValue()).toBe('0.1');
+      expect(await page.locator('dialog.export [data-key="book-creep"]').inputValue()).toBe('0.1');
       expect(await page.locator('[data-key="printer-notice"]').count()).toBe(0);
       expect(app.errors).toEqual([]);
     });

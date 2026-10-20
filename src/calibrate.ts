@@ -4,9 +4,9 @@ import { zip } from './print/zip';
 import { withBookJson } from './print/bundle';
 import type { ExportedFile } from './print/export';
 import { loadFontBytes } from './print/fonts';
-import { creepResult, creepSheets } from './book/creep';
+import { SPINE_WARN_MM, creepResult, creepSheets, innermostSpineMargin, predictedMargins, type Printed } from './book/creep';
 import { offsetsFromReadings, type SideReadings } from './book/alignment';
-import { GRID_X_MM, GRID_Y_MM } from './format/types';
+import { GRID_Y_MM } from './format/types';
 import { PRINT_LIMITS, type Book } from './book/book';
 import type { PrintSettings } from './book/impose';
 import { printField } from './settings';
@@ -29,6 +29,9 @@ const STEPS = ['Alignment', 'Creep and cover', 'Check'] as const;
 const OFFSETS = ['front_offset_x_mm', 'front_offset_y_mm', 'back_offset_x_mm', 'back_offset_y_mm'] as const;
 const OFFSET_NAMES: Record<(typeof OFFSETS)[number], string> = { front_offset_x_mm: 'Front x', front_offset_y_mm: 'Front y', back_offset_x_mm: 'Back x', back_offset_y_mm: 'Back y' };
 
+/** The creep, shifts and target a creep test was printed with, as typed. */
+type TestPrinted = { creep: string; shift: string; coverShift: string; target: string };
+
 /** A typed number, or null for an empty or unreadable box. */
 const num = (text: string): number | null => (text.trim() === '' || !Number.isFinite(Number(text)) ? null : Number(text));
 const mm = (v: number) => `${Math.round(v * 100) / 100}`;
@@ -49,6 +52,11 @@ export class CalibrateDialog {
   private read = { front: { fold: '', top: '', bottom: '' }, back: { fold: '', top: '', bottom: '' }, cover: '', outermost: '', innermost: '', fore: '', top: '', bottom: '' };
   /** The offsets the alignment sheet was printed with (they are in its footer): a reading is relative to them. */
   private printed: Pick<PrintSettings, (typeof OFFSETS)[number]> | null = null;
+  /** The creep, shifts and target the creep test was printed with, as text (null until it is downloaded; then the book's settings are shown). */
+  private testPrinted: TestPrinted | null = null;
+  /** True once the test is downloaded: then the typed values are the printed ones, and edits to the book's settings no longer change them. */
+  private testDownloaded = false;
+  private printedInputs: Partial<Record<keyof TestPrinted, HTMLInputElement>> = {};
 
   /** `done` runs when the wizard is closed (the export window reopens). */
   constructor(private host: CalibrateHost, private done: () => void) {
@@ -142,8 +150,13 @@ export class CalibrateDialog {
     await this.download('calibration-alignment', async (book, fontBytes) => [await (await import('./print/calibrate')).alignmentFile(book, fontBytes)]);
   });
 
-  private downloadCreep = () => this.button('Download the creep test', 'calibrate-download-creep', () =>
-    this.download('creep-test', async (book, fontBytes) => (await import('./print/calibrate')).creepFiles(book, fontBytes)));
+  private downloadCreep = () => this.button('Download the creep test', 'calibrate-download-creep', () => {
+    const p = this.host.book().print;
+    this.testPrinted = { creep: String(p.creep_per_sheet_mm), shift: String(p.fore_edge_shift_mm), coverShift: String(p.cover_fore_edge_shift_mm), target: String(p.target_fore_edge_margin_mm) };
+    this.testDownloaded = true;
+    this.showPrinted();
+    return this.download('creep-test', async (book, fontBytes) => (await import('./print/calibrate')).creepFiles(book, fontBytes));
+  });
 
   // ---- step 1: alignment ----------------------------------------------------
 
@@ -191,43 +204,100 @@ export class CalibrateDialog {
 
   // ---- step 2: creep and cover ----------------------------------------------
 
+  /** A number box for one of the values the test was printed with. */
+  private printedField(label: string, help: string, key: keyof TestPrinted, result: () => void): HTMLElement {
+    const input = h('input', { type: 'number', value: this.printedText()[key], step: 0.01, inputmode: 'decimal', 'aria-label': label, 'data-key': help, 'data-help': help });
+    input.oninput = () => { this.printedText()[key] = input.value; result(); };
+    this.printedInputs[key] = input;
+    return h('label', { class: 'compact' }, label, input);
+  }
+
+  /** Shows the printed values in their boxes. */
+  private showPrinted() {
+    for (const [k, input] of Object.entries(this.printedInputs) as [keyof TestPrinted, HTMLInputElement][]) input.value = this.printedText()[k];
+  }
+
+  /** One of the settings the test will print with. Until the test is downloaded, the printed values follow it. */
+  private testField(key: Parameters<typeof printField>[2]) {
+    return printField(() => this.host.book(), (c) => {
+      this.change(c);
+      if (!this.testDownloaded) { this.testPrinted = null; this.showPrinted(); }
+    }, key);
+  }
+
+  /** The values the creep test was printed with, as text: the download's, or until there is one, the book's settings now. */
+  private printedText() {
+    if (!this.testPrinted) {
+      const p = this.host.book().print;
+      this.testPrinted = { creep: String(p.creep_per_sheet_mm), shift: String(p.fore_edge_shift_mm), coverShift: String(p.cover_fore_edge_shift_mm), target: String(p.target_fore_edge_margin_mm) };
+    }
+    return this.testPrinted;
+  }
+
   private creep(): HTMLElement[] {
-    const book = this.host.book(), n = creepSheets(book);
+    const n = creepSheets(this.host.book());
+    this.printedInputs = {};
     const result = h('div', { class: 'cal-result', role: 'status', 'data-key': 'calibrate-creep-result' });
     const redraw = () => {
       const [cover, outermost, innermost] = [num(this.read.cover), num(this.read.outermost), num(this.read.innermost)];
-      const now = this.host.book().print.paper_thickness_mm;
       if (n < 2) { result.replaceChildren(h('p', { class: 'hint' }, 'The book has one sheet, so there is no creep to measure.')); return; }
-      if (outermost === null || innermost === null) { result.replaceChildren(h('p', { class: 'hint' }, 'Enter the outermost and the innermost sheet’s margins to see the new thickness.')); return; }
-      const r = creepResult(now, n, { cover: cover ?? outermost, outermost, innermost });
-      const thickness = Math.min(PRINT_LIMITS.paper_thickness_mm.max, Math.max(PRINT_LIMITS.paper_thickness_mm.min, Math.round(r.thickness * 1000) / 1000));
-      const use = this.button('Use this thickness', 'calibrate-use-thickness', () => {
-        const problem = this.change((bk) => { bk.print.paper_thickness_mm = thickness; });
+      if (outermost === null || innermost === null) { result.replaceChildren(h('p', { class: 'hint' }, 'Enter the outermost and the innermost sheet’s margins to see the new settings.')); return; }
+      const t = this.printedText(), printed = { creep: num(t.creep), foreEdgeShift: num(t.shift), coverShift: num(t.coverShift), target: num(t.target) };
+      if (printed.creep === null || printed.foreEdgeShift === null || printed.coverShift === null || printed.target === null) {
+        result.replaceChildren(h('p', { class: 'hint' }, 'Fill in the values the test was printed with.'));
+        return;
+      }
+      const p = printed as Printed, readings = { cover, outermost, innermost };
+      const raw = creepResult(p, n, readings);
+      // Kept inside the book file's limits, so what is shown is what is saved.
+      const fit = (key: keyof typeof PRINT_LIMITS, v: number) => Math.min(PRINT_LIMITS[key].max, Math.max(PRINT_LIMITS[key].min, Math.round(v * 1000) / 1000));
+      const next = { creep: fit('creep_per_sheet_mm', raw.creep), foreEdgeShift: fit('fore_edge_shift_mm', raw.foreEdgeShift), coverShift: fit('cover_fore_edge_shift_mm', raw.coverShift) };
+      const now = this.host.book().print;
+      const predicted = predictedMargins(p, n, readings, next), spine = innermostSpineMargin(n, next);
+      const margins = [...(predicted.cover === null ? [] : [`cover ${mm(predicted.cover)}`]), `sheet 1 ${mm(predicted.outermost)}`, `sheet ${n} ${mm(predicted.innermost)}`].join(', ');
+      const use = this.button('Use these settings', 'calibrate-use-creep', () => {
+        const problem = this.change((bk) => {
+          bk.print.creep_per_sheet_mm = next.creep; bk.print.fore_edge_shift_mm = next.foreEdgeShift; bk.print.cover_fore_edge_shift_mm = next.coverShift;
+          bk.print.target_fore_edge_margin_mm = p.target;
+        });
         this.read.cover = this.read.outermost = this.read.innermost = '';
+        this.testPrinted = null;
+        this.testDownloaded = false;
         this.go(1);
         this.say(problem ?? 'Saved as your printer’s settings. Print the creep test again to check.');
       });
       result.replaceChildren(
-        h('p', {}, 'Paper thickness: ', h('strong', {}, `${mm(now)} → ${mm(thickness)} mm`)),
-        ...(cover === null ? [] : [h('p', { class: 'hint' }, `The cover pushes the pages in by ${mm(r.coverPush)} mm (its margin minus the outermost sheet’s). That doesn’t change the paper thickness.`)]),
+        h('ul', { class: 'cal-values' },
+          h('li', {}, 'Creep per sheet: ', h('strong', {}, `${mm(now.creep_per_sheet_mm)} → ${mm(next.creep)} mm`)),
+          h('li', {}, 'Fore-edge shift: ', h('strong', {}, `${mm(now.fore_edge_shift_mm)} → ${mm(next.foreEdgeShift)} mm`)),
+          h('li', {}, 'Cover shift: ', h('strong', {}, `${mm(now.cover_fore_edge_shift_mm)} → ${mm(next.coverShift)} mm`))),
+        h('p', {}, `Fore-edge margins with these (target ${mm(p.target)}): ${margins} mm.`),
+        h('p', { class: spine < SPINE_WARN_MM ? 'warn' : 'hint', 'data-key': 'calibrate-spine' },
+          `Spine-side margin of the innermost page on the paper: ${mm(spine)} mm.`, spine < SPINE_WARN_MM ? ' That is small: writing close to the fold is hard to read. Use more signatures, or a smaller target margin.' : ''),
         use);
     };
     const r = (label: string, help: string, key: 'cover' | 'outermost' | 'innermost') => this.reading(label, help, this.read[key], (t) => { this.read[key] = t; }, redraw);
     redraw();
     return [
+      h('p', { class: 'hint' }, `The test prints with these values (your biggest signature has ${n} sheet${n > 1 ? 's' : ''}). Set creep per sheet before you print, for example the paper’s thickness.`),
+      this.testField('creep_per_sheet_mm'), this.testField('fore_edge_shift_mm'), this.testField('cover_fore_edge_shift_mm'), this.testField('target_fore_edge_margin_mm'),
       h('ol', { class: 'cal-how' },
         h('li', {}, 'Print calibration-cover.pdf on your cover stock, single-sided.'),
         h('li', {}, `Print creep-test.pdf on your real paper: pages 1 to ${n}, put the stack back in the tray the same way, then pages ${n + 1} to ${2 * n}.`),
         h('li', {}, 'Hold a sheet to a light: the boxes should line up through the paper. Fold, bind and trim as you do a book.'),
         h('li', {}, `Read the fore-edge margin on the cover’s right-hand page, and on the right-hand page of the front of sheet 1 and of sheet ${n}: the number where the paper ends.`)),
       this.downloadCreep(),
-      h('p', { class: 'hint' }, `Your biggest signature has ${n} sheet${n > 1 ? 's' : ''}; the test uses the paper thickness and offsets set now.`),
       h('h3', {}, 'Margins you read (mm)'),
       r('Cover', 'calibrate-read-cover', 'cover'),
       r(`Sheet 1 (outermost)`, 'calibrate-read-outermost', 'outermost'),
       r(`Sheet ${n} (innermost)`, 'calibrate-read-innermost', 'innermost'),
-      h('p', { class: 'hint' }, 'Compare the middle with the outermost sheet, not with the cover: the cover wraps outside sheet 1 and pushes every sheet in by its own thickness, which cancels between two sheets but not between a sheet and the cover.'),
-      h('h3', {}, 'New thickness'),
+      h('h3', {}, 'The test was printed with'),
+      h('p', { class: 'hint' }, 'Filled in when you download the test (they are in its footer). Change them if you printed with something else.'),
+      this.printedField('Creep per sheet', 'calibrate-printed-creep', 'creep', redraw),
+      this.printedField('Fore-edge shift', 'calibrate-printed-shift', 'shift', redraw),
+      this.printedField('Cover shift', 'calibrate-printed-cover-shift', 'coverShift', redraw),
+      this.printedField('Target margin', 'calibrate-printed-target', 'target', redraw),
+      h('h3', {}, 'New settings'),
       result,
     ];
   }
@@ -237,7 +307,7 @@ export class CalibrateDialog {
   private check(): HTMLElement[] {
     const result = h('ul', { class: 'cal-values', 'data-key': 'calibrate-check-result', role: 'status' });
     const redraw = () => {
-      const rows: [string, string, number][] = [['Fore-edge', this.read.fore, GRID_X_MM], ['Top', this.read.top, GRID_Y_MM], ['Bottom', this.read.bottom, GRID_Y_MM]];
+      const rows: [string, string, number][] = [['Fore-edge', this.read.fore, this.host.book().print.target_fore_edge_margin_mm], ['Top', this.read.top, GRID_Y_MM], ['Bottom', this.read.bottom, GRID_Y_MM]];
       const done = rows.filter(([, t]) => num(t) !== null);
       result.replaceChildren(...(done.length === 0 ? [h('li', { class: 'hint' }, 'Enter what you measure to see how far each margin is from its target.')]
         : done.map(([name, t, target]) => {
@@ -251,7 +321,7 @@ export class CalibrateDialog {
       h('p', { class: 'export-what' }, 'Optional. Print the corrected creep test again, or a real book, trim it and measure the margins with a ruler.'),
       this.downloadCreep(),
       h('h3', {}, 'Margins you measure (mm)'),
-      r(`Fore-edge (target ${GRID_X_MM})`, 'calibrate-check-fore', 'fore'),
+      r(`Fore-edge (target ${this.host.book().print.target_fore_edge_margin_mm})`, 'calibrate-check-fore', 'fore'),
       r(`Top (target ${GRID_Y_MM})`, 'calibrate-check-top', 'top'),
       r(`Bottom (target ${GRID_Y_MM})`, 'calibrate-check-bottom', 'bottom'),
       result,
