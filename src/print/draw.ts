@@ -1,8 +1,9 @@
 // Draws a page into a PDF as vectors and real text. Mirrors src/render.ts (the SVG);
 // the sizes, weights and grays come from there so the screen, the PNG and the PDF match.
 import {
-  clip, degrees, endPath, LineCapStyle, popGraphicsState, pushGraphicsState, rectangle, rgb,
-  type PDFFont, type PDFPage,
+  appendBezierCurve, clip, closePath, concatTransformationMatrix, degrees, drawObject, endPath, fill, LineCapStyle, moveTo,
+  popGraphicsState, pushGraphicsState, rectangle, rgb, setFillingColor,
+  type PDFDocument, type PDFFont, type PDFPage, type PDFRef,
 } from 'pdf-lib';
 import {
   DEFAULTS, GRID_X_MM, GRID_Y_MM, PAGE_H_MM, PAGE_W_MM, PITCH_MM as P,
@@ -37,6 +38,38 @@ const color = (hex: string) => {
   return rgb(((v >> 16) & 255) / 255, ((v >> 8) & 255) / 255, (v & 255) / 255);
 };
 
+/**
+ * A dot grid is about 1,200 circles. Each distinct pattern is written once per PDF as a reusable form, and every page
+ * that has it places the form, so the file stays small and the export fast.
+ */
+const dotForms = new WeakMap<PDFDocument, Map<string, PDFRef>>();
+const KAPPA = 0.5522847498;
+
+function dotForm(doc: PDFDocument, radiusPt: number, cols: number[], rows: number[], rgbColor: ReturnType<typeof rgb>): PDFRef {
+  const key = `${radiusPt}|${cols.join(',')}|${rows.join(',')}|${JSON.stringify(rgbColor)}`;
+  let forms = dotForms.get(doc);
+  if (!forms) dotForms.set(doc, (forms = new Map()));
+  const have = forms.get(key);
+  if (have) return have;
+  const r = radiusPt, k = r * KAPPA;
+  // Local space: the pattern's top-left corner is the origin, x right and y up (so rows run to negative y).
+  const ops = [setFillingColor(rgbColor)];
+  for (const x of cols) {
+    for (const y of rows) {
+      const cy = -y;
+      ops.push(
+        moveTo(x + r, cy), appendBezierCurve(x + r, cy + k, x + k, cy + r, x, cy + r),
+        appendBezierCurve(x - k, cy + r, x - r, cy + k, x - r, cy), appendBezierCurve(x - r, cy - k, x - k, cy - r, x, cy - r),
+        appendBezierCurve(x + k, cy - r, x + r, cy - k, x + r, cy), closePath(), fill(),
+      );
+    }
+  }
+  const lastCol = cols[cols.length - 1] ?? 0, lastRow = rows[rows.length - 1] ?? 0;
+  const ref = doc.context.register(doc.context.formXObject(ops, { BBox: [-r, -lastRow - r, lastCol + r, r] }));
+  forms.set(key, ref);
+  return ref;
+}
+
 /** Draw one page, clipped to its own box so nothing can land outside it. */
 export function drawPage(pdf: PDFPage, page: Page, o: PageDrawOptions): void {
   // Grid-relative mm (y down) to PDF points.
@@ -49,7 +82,11 @@ export function drawPage(pdf: PDFPage, page: Page, o: PageDrawOptions): void {
     pdf.drawLine({ start: { x: X(x1), y: Y(y1) }, end: { x: X(x2), y: Y(y2) }, thickness: len(w), color: color(c), lineCap: cap });
   const fillRect = (x: number, y: number, w: number, h: number, c: string) =>
     pdf.drawRectangle({ x: X(x), y: Y(y + h), width: len(w), height: len(h), color: color(c) });
-  const dot = (x: number, y: number, radius: number) => pdf.drawCircle({ x: X(x), y: Y(y), size: len(radius), color: color(GRAY_DOT) });
+  const dots = (x0: number, y0: number, cols: number[], rows: number[], radius: number) => {
+    if (!cols.length || !rows.length) return;
+    const form = dotForm(pdf.doc, len(radius), cols.map((x) => len(x - x0)), rows.map((y) => len(y - y0)), color(GRAY_DOT));
+    pdf.pushOperators(pushGraphicsState(), concatTransformationMatrix(1, 0, 0, 1, X(x0), Y(y0)), drawObject(pdf.node.newXObject('Dots', form)), popGraphicsState());
+  };
 
   const text = (str: string, size: number, font: PDFFont, c: string, at: { x: number; y: number }, align: 'start' | 'middle' | 'end', rotate: 0 | 90 | 270) => {
     const safe = printable(str, font);
@@ -81,7 +118,7 @@ export function drawPage(pdf: PDFPage, page: Page, o: PageDrawOptions): void {
       case 'lines': hs(first); break;
       case 'vlines': vs(first); break;
       case 'grid': hs(true); vs(true); break;
-      case 'dots': for (const x of cols(true)) for (const y of rows(true)) dot(x, y, DOT_MM[e.dots ?? DEFAULTS.dots] / 2); break;
+      case 'dots': dots(x0, y0, cols(true), rows(true), DOT_MM[e.dots ?? DEFAULTS.dots] / 2); break;
     }
   };
 

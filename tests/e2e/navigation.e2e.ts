@@ -415,7 +415,7 @@ describe('the export window', () => {
     await tab(app, 'pdf');
     await page.locator('dialog.export [data-key="pdf-signatures"]').uncheck();
     await page.locator('dialog.export [data-key="pdf-cover"]').uncheck();
-    expect(await page.locator('dialog.export .export-what').innerText()).toContain('untitled-book-pages.pdf');
+    expect(await page.locator('dialog.export .export-what').innerText()).toContain('untitled-book-print.zip');
     await page.locator('dialog.export [data-key="pdf-signatures"]').check();
     await page.locator('dialog.export [data-key="book-thickness"]').fill('0.15');
     await page.locator('dialog.export [data-key="book-thickness"]').dispatchEvent('change');
@@ -450,7 +450,10 @@ describe('the export window', () => {
     await hit(app, '#export');
     await tab(app, 'import');
     await page.setInputFiles('dialog.export input[type="file"]', { name: 'x.json', mimeType: 'application/json', buffer: Buffer.from('not json') });
-    expect(await page.locator('dialog.export .lib-msg').innerText()).toContain('not valid JSON');
+    await page.locator('dialog.export .lib-msg:not([hidden])').waitFor();
+    const said = await page.locator('dialog.export .lib-msg').innerText();
+    expect(said).toContain('not valid JSON');
+    expect(said).toContain('Copy details');
     await page.setInputFiles('dialog.export input[type="file"]', { name: 'round-trip.json', mimeType: 'application/json', buffer: await bytes(d) });
     await page.waitForSelector('dialog.export', { state: 'hidden' });
     expect(await pageData(app)).toMatchObject({ name: 'Round trip' });
@@ -507,14 +510,16 @@ describe('the export window', () => {
     const all = await download(app);
     expect(all.suggestedFilename()).toBe('untitled-book-print.zip');
     const text = (await bytes(all)).toString('latin1');
-    for (const f of ['pages.pdf', 'cover.pdf', 'print-first.pdf', 'print-second.pdf', 'preview.png', 'summary.txt']) expect(text, f).toContain(f);
+    for (const f of ['pages.pdf', 'cover.pdf', 'print-first.pdf', 'print-second.pdf', 'preview.png', 'summary.txt', 'book.json']) expect(text, f).toContain(f);
 
-    // pages only: a single PDF
+    // pages only: still a zip, with the book's JSON beside the PDF
     await box('cover').uncheck();
     await box('signatures').uncheck();
     const pages = await download(app);
-    expect(pages.suggestedFilename()).toBe('untitled-book-pages.pdf');
-    expect((await bytes(pages)).subarray(0, 4).toString()).toBe('%PDF');
+    expect(pages.suggestedFilename()).toBe('untitled-book-print.zip');
+    const only = (await bytes(pages)).toString('latin1');
+    for (const f of ['pages.pdf', 'book.json']) expect(only, f).toContain(f);
+    expect(only).not.toContain('cover.pdf');
 
     // the print files and the cover, without pages.pdf
     await box('pages').uncheck();

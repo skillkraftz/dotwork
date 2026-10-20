@@ -1,9 +1,9 @@
-import { formatIssue } from '../format/validate';
 import { readPage } from '../format/read';
 import { GRID_X_MM, GRID_Y_MM, PITCH_MM, emptyPage, type Page } from '../format/types';
 import { readSpread, type Spread, type SpreadSide } from '../format/spread';
 import { readBook, bookPage, type Book } from '../book/book';
 import { h } from '../panel';
+import { errorProblem, issuesProblem, problemView, type Problem } from '../problems';
 import { pageContent, thumbnailSvg } from '../render';
 import { placeWidget, widgetSize, type Widget, type WidgetStore } from '../widgets';
 import oflUrl from '../fonts/OFL.txt?url';
@@ -140,7 +140,12 @@ export class LibraryDialog {
     if (!this.dialog.open) this.dialog.showModal();
   }
 
-  private say(message: string | string[] | null) {
+  private say(message: string | string[] | Problem | null) {
+    if (message !== null && typeof message === 'object' && 'details' in message) {
+      this.msgEl.replaceChildren(problemView(message));
+      this.msgEl.hidden = false;
+      return;
+    }
     const lines = message === null ? [] : Array.isArray(message) ? message : [message];
     this.msgEl.replaceChildren(...lines.map((l) => h('span', {}, l)));
     this.msgEl.hidden = lines.length === 0;
@@ -170,7 +175,7 @@ export class LibraryDialog {
     const data = this.host.data(what);
     const check = kind === 'spread' ? readSpread(data) : kind === 'book' ? readBook(data) : readPage(data);
     if (!check.ok) {
-      this.say(['Not saved: it breaks the page format.', ...check.issues.slice(0, 8).map(formatIssue)]);
+      this.say(issuesProblem(`Not saved: the ${kind} breaks the format.`, check.issues));
       return;
     }
     let item: LibraryItem;
@@ -179,7 +184,7 @@ export class LibraryDialog {
         : kind === 'book' ? await this.library.save('book', name, data as Book)
           : await this.library.save('page', name, data as Page);
     } catch (err) {
-      this.say(`Not saved: ${(err as Error).message}`); // the name is a built-in's
+      this.say(errorProblem('Not saved.', err)); // a built-in's name, or the browser's storage refusing
       return;
     }
     this.say(`Saved ${kind} “${item.name}” to the library.`);
@@ -281,6 +286,11 @@ export class LibraryDialog {
   }
 
   private async duplicate(e: Entry) {
+    try { await this.copy(e); } catch (err) { this.say(errorProblem('Not duplicated.', err)); return; }
+    await this.renderList();
+  }
+
+  private async copy(e: Entry) {
     if (e.kind === 'template') return;
     if (e.kind === 'widget') this.host.widgets.add(`${e.name} copy`, e.data.elements);
     else if (e.example) {
@@ -290,7 +300,6 @@ export class LibraryDialog {
       this.renderTabs();
       this.say(`Saved a copy of “${e.name}” to your ${e.kind}s as “${saved.name}”.`);
     } else await this.library.duplicate(e.id);
-    await this.renderList();
   }
 
   private renameField(e: Entry): HTMLElement {
@@ -303,7 +312,7 @@ export class LibraryDialog {
       if (commit) {
         try {
           if (e.kind === 'widget') this.host.widgets.rename(e.data.id, input.value); else await this.library.rename(e.id, input.value);
-        } catch (err) { this.say(`Not renamed: ${(err as Error).message}`); }
+        } catch (err) { this.say(errorProblem('Not renamed.', err)); }
       }
       await this.renderList();
     };
@@ -326,12 +335,18 @@ export class LibraryDialog {
     try {
       parsed = JSON.parse(await f.text());
     } catch (err) {
-      this.say(`${f.name} is not valid JSON: ${(err as Error).message}`);
+      this.say(errorProblem(`Not restored: ${f.name} is not valid JSON.`, err));
       return;
     }
-    const r = await this.library.importFile(parsed);
+    let r: Awaited<ReturnType<Library['importFile']>>;
+    try {
+      r = await this.library.importFile(parsed);
+    } catch (err) {
+      this.say(errorProblem(`Not restored: the library couldn’t be written from ${f.name}.`, err)); // e.g. the browser's storage is full
+      return;
+    }
     if (!r.ok) {
-      this.say([`Not imported: ${f.name} breaks the library format.`, ...r.issues.slice(0, 12).map(formatIssue), ...(r.issues.length > 12 ? [`…and ${r.issues.length - 12} more.`] : [])]);
+      this.say(issuesProblem(`Not restored: ${f.name} breaks the library format.`, r.issues));
     } else {
       this.say(`Imported ${r.added} new and ${r.replaced} replaced from ${f.name}.`);
     }

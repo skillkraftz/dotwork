@@ -65,6 +65,8 @@ the page rules or sits on the wrong side.
 | `cover.pdf` | The inside front cover (left) and inside back cover (right) as one centered spread, single-sided, without creep. |
 | `preview.png` | A contact sheet of the whole book, spread by spread. |
 | `summary.txt` | The settings used and the printing steps. |
+| `book.json` | The book exactly as it was exported from (this format). Always in the zip, so the files can be traced back to their source. |
+| `error.txt` | Only if something went wrong: the export's error and every way the book breaks this format. A failed export still downloads a zip with `book.json` and `error.txt`. |
 
 Page order, creep and centering follow journal-system's
 `pocketjournal/imposition.py` and are tested with the same cases (see

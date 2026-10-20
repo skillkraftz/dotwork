@@ -131,7 +131,8 @@ cover.
   the fold is refused with the reason.
 - **Print files…** (or Export, then PDF) offers **pages at final size** (`pages.pdf`) or **print-ready signatures**
   (`print-first.pdf` and `print-second.pdf`, one pair per signature, with a `preview.png` contact sheet and a
-  `summary.txt` in the zip), and **cover.pdf** with either. One file downloads as itself, several as a zip.
+  `summary.txt` in the zip), and **cover.pdf** with either. It always downloads as a zip, with `book.json` (the book it was built from) and, if anything failed, an `error.txt`.
+  A draft the app can't read is never deleted: it is kept under a backup name in the browser and offered as a download.
   Text stays real text in the embedded Courier Prime and lines stay vector.
 
 ![The print files](docs/screenshots/book-export.png)

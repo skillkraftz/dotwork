@@ -1,6 +1,8 @@
 import { h } from './panel';
+import { errorProblem, problemView, type Problem } from './problems';
 import { contactSheet } from './print/contact';
 import { zip } from './print/zip';
+import { withBookJson } from './print/bundle';
 import type { ExportedFile, Include } from './print/export';
 import type { Page } from './format/types';
 import type { Book } from './book/book';
@@ -19,13 +21,13 @@ const PREVIEW_DPI = 60;
 export interface ExportHost {
   view(): 'page' | 'spread' | 'book';
   /** The current page, spread or book as a JSON file: its data and a name for the file, or why it can't be saved. */
-  json(): { ok: true; data: unknown; name: string } | { ok: false; messages: string[] };
+  json(): { ok: true; data: unknown; name: string } | { ok: false; problem: Problem };
   /** What a PNG can show right now: the page (or the spread page being edited), and in a spread both pages. Null in the book view. */
   png(): { page: Page; spread?: { left: Page; right: Page; name: string } } | null;
   book(): Book;
   editBook(change: (book: Book) => void): void;
   /** Open a chosen file as a page, spread or book. */
-  importFile(file: File): Promise<{ ok: boolean; messages: string[] }>;
+  importFile(file: File): Promise<{ ok: true } | { ok: false; problem: Problem }>;
   download(blob: Blob, filename: string): void;
 }
 
@@ -71,7 +73,12 @@ export class ExportDialog {
     this.render();
   }
 
-  private say(message: string | string[] | null) {
+  private say(message: string | string[] | Problem | null) {
+    if (message !== null && typeof message === 'object' && 'details' in message) {
+      this.status.replaceChildren(problemView(message));
+      this.status.hidden = false;
+      return;
+    }
     const lines = message === null ? [] : Array.isArray(message) ? message : [message];
     this.status.replaceChildren(...lines.map((l) => h('span', {}, l)));
     this.status.hidden = lines.length === 0;
@@ -96,7 +103,7 @@ export class ExportDialog {
       const r = await this.host.importFile(f);
       if (r.ok) {
         this.dialog.close();
-      } else this.say(r.messages);
+      } else this.say(r.problem);
     };
     return [
       this.what('Opens a Dotwork .json file that you exported before: a page, a spread or a book. It replaces the page, spread or book you are editing now (Undo takes a page back).'),
@@ -114,7 +121,7 @@ export class ExportDialog {
       this.what(`Saves the ${thing} you are editing as a .json file, so you can keep it, share it or import it again. You get `, h('strong', {}, fileName), '.'),
       this.downloadButton('export-json', () => {
         const now = this.host.json();
-        if (!now.ok) { this.say(now.messages); return; }
+        if (!now.ok) { this.say(now.problem); return; }
         this.say(null);
         this.host.download(new Blob([JSON.stringify(now.data, null, 2) + '\n'], { type: 'application/json' }), `${slug(now.name, thing)}.json`);
       }),
@@ -154,7 +161,7 @@ export class ExportDialog {
           this.say(null);
           this.host.download(blob, `${slug(nameOf(), 'page')}.png`);
         } catch (err) {
-          this.say(`PNG export failed: ${(err as Error).message}`);
+          this.say(errorProblem('PNG export failed.', err));
         }
       }),
     ];
@@ -174,12 +181,11 @@ export class ExportDialog {
       ...(pages ? ['pages.pdf'] : []), ...(cover ? ['cover.pdf'] : []),
       ...(signatures ? [`print-first.pdf and print-second.pdf for each signature, with preview.png and summary.txt`] : []),
     ];
-    const single = pages && !cover && !signatures ? `${slug(book.name, 'book')}-pages.pdf` : cover && !pages && !signatures ? 'cover.pdf' : null;
     return [
       names.length === 0
         ? this.what('Choose at least one file to make.')
         : this.what(`Makes PDFs from the book “${book.name || 'Untitled book'}” (${book.page_count} pages; arrange it in Book view). You get `,
-          h('strong', {}, single ?? `${slug(book.name, 'book')}-print.zip`), single ? '.' : `, holding ${names.join(', ')}.`),
+          h('strong', {}, `${slug(book.name, 'book')}-print.zip`), `, holding ${names.join(', ')} and book.json (the book as JSON; error.txt too if anything goes wrong).`),
       h('div', { class: 'choices', role: 'group', 'aria-label': 'What to make' },
         box('pages', 'pages.pdf', 'Every page at final size, 3.5 × 5.5 in, one after another. To read, check or print one page at a time.'),
         box('cover', 'cover.pdf', 'The inside front and back covers on one sheet, printed single-sided.'),
@@ -193,26 +199,35 @@ export class ExportDialog {
     const book = this.host.book();
     const include: Include = { ...this.pdf };
     this.say('Building the PDFs…');
+    let files: ExportedFile[] = [];
+    let failure: unknown;
     try {
       // The PDF code is loaded only when it is needed.
       const [{ exportBookFiles }, [regular, bold]] = await Promise.all([
         import('./print/export'),
         Promise.all([regularUrl, boldUrl].map(async (u) => (await fetch(u)).arrayBuffer())),
       ]);
-      const files: ExportedFile[] = await exportBookFiles(book, { regular, bold }, include);
+      files = await exportBookFiles(book, { regular, bold }, include);
       if (include.signatures) {
         const sheet = contactSheet(book, FONT_CSS);
         const px = (mm: number) => Math.round((mm / 25.4) * PREVIEW_DPI);
         const png = await svgToPng(sheet.svg, px(sheet.width), px(sheet.height), PREVIEW_DPI);
         files.splice(files.length - 1, 0, { name: 'preview.png', bytes: new Uint8Array(await png.arrayBuffer()), type: 'image/png' });
       }
-      this.say(null);
-      const [only] = files;
-      if (files.length === 1) this.host.download(new Blob([only.bytes as BlobPart], { type: only.type }), only.name === 'pages.pdf' ? `${slug(book.name, 'book')}-pages.pdf` : only.name);
-      else this.host.download(new Blob([zip(files) as BlobPart], { type: 'application/zip' }), `${slug(book.name, 'book')}-print.zip`);
     } catch (err) {
-      this.say(`Can’t export: ${(err as Error).message}`);
+      failure = err;
     }
+    // The zip always carries the book as JSON, and error.txt when anything failed, so a problem can be found from the zip alone.
+    const bundle = withBookJson(book, files, failure);
+    try {
+      this.host.download(new Blob([zip(bundle) as BlobPart], { type: 'application/zip' }), `${slug(book.name, 'book')}-print.zip`);
+    } catch (err) {
+      this.say(errorProblem('The download could not be made.', err));
+      return;
+    }
+    if (failure !== undefined) {
+      this.say(errorProblem('Can’t export: the PDFs could not be built. A zip with the book as JSON and an error.txt was downloaded instead.', failure));
+    } else this.say(null);
   }
 
   // ---- shared ---------------------------------------------------------------

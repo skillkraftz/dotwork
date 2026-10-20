@@ -33,6 +33,10 @@ export const HELP: Record<string, HelpEntry> = {
   'help-close': e('Close help', 'Ends help mode, so the controls work again.', 'Tap to end help mode.', 'Click, or press Escape, to end help mode.'),
   'notice-dismiss': e('Dismiss', 'Hides this message.', 'Tap to hide the message.', 'Click to hide the message.'),
 
+  'copy-details': e('Copy details', 'Copies the full text of this error (every problem with its place in the file, and the browser’s own message) so you can paste it into a chat or a bug report.', 'Tap to copy, then paste it where you are reporting the problem.', 'Click to copy, then paste it where you are reporting the problem.'),
+  'draft-download': e('Download the draft', 'Saves the draft that couldn’t be opened as a .json file, exactly as it was stored. It is also kept in this browser under a backup name.', 'Tap to download the draft.', 'Click to download the draft.'),
+  'draft-fresh': e('Start fresh', 'Closes this message and carries on with an empty page, spread or book. The draft that couldn’t be opened is not deleted: its backup stays in this browser.', 'Tap to start fresh.', 'Click to start fresh.'),
+
   // ---- top bar menus, settings, library and export ---------------------------
   'menu-page': e('Page menu', 'Opens the Page menu: switch between Page, Spread and Book, or open Settings. The button shows which one you are in.', 'Tap to open or close the menu. Tap an item here to learn what it does.', 'Click to open or close the menu.'),
   'menu-edit': e('Edit menu', 'Opens the Edit menu: Edit or Preview, the Library, and New.', 'Tap to open or close the menu. Tap an item here to learn what it does.', 'Click to open or close the menu.'),
