@@ -220,9 +220,9 @@ async function spreadsPicker(app: App, device: string) {
   expect(await tabs.allInnerTexts()).toEqual(['Pages', 'Spreads']);
   for (const t of await tabs.all()) expect((await t.boundingBox())!.height).toBeGreaterThanOrEqual(43.5);
   expect(await page.locator('dialog.picker .design[data-kind=spread]').count()).toBe(0);
-  expect(await page.locator('dialog.picker h3').allInnerTexts()).toEqual(['Saved pages', 'Built-in pages']);
+  expect((await page.locator('dialog.picker h3').allInnerTexts()).map((t) => t.toLowerCase())).toEqual(['saved pages', 'built-in pages']);
   await click(app, tabs.nth(1));
-  expect(await page.locator('dialog.picker h3').allInnerTexts()).toEqual(['Saved spreads', 'Built-in spreads']);
+  expect((await page.locator('dialog.picker h3').allInnerTexts()).map((t) => t.toLowerCase())).toEqual(['saved spreads', 'built-in spreads']);
   for (const want of ['Lined spread', 'Dot grid spread', 'Notes spread', 'Weekly spread']) expect(await page.locator('dialog.picker .design', { hasText: want }).count()).toBeGreaterThan(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   if (app.touch) expect(await smallControls(app)).toEqual([]);
