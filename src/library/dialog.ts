@@ -13,7 +13,7 @@ import type { Favorites } from './favorites';
 import { TABS, TAB_LABEL, artId, exampleId, spreadId, templateId, visibleEntries, widgetId, type Entry, type LibraryTab } from './browse';
 import { TemplateDialog } from './templatedialog';
 import { TEMPLATES } from '../builtin/templates';
-import { BUILTIN_ART, BUILTIN_SPREADS, BUILTIN_WIDGETS, asCopy } from '../builtin/library';
+import { BUILTIN_ART, BUILTIN_NOTICES, BUILTIN_SPREADS, BUILTIN_WIDGETS, asCopy } from '../builtin/library';
 import { isArtWidget } from '../art/widget';
 import { importArtFile } from '../art/report';
 
@@ -235,6 +235,11 @@ export class LibraryDialog {
   /** Counts the draws, so that a slow one can't land after a newer one and show an old search. */
   private drawn = 0;
 
+  /** What the built-ins of this tab are missing, one line each. */
+  private notices(tab: LibraryTab): HTMLElement[] {
+    return BUILTIN_NOTICES.filter((n) => n.tab === tab).map((n) => h('p', { class: 'hint lib-notice', 'data-key': 'library-notice' }, n.text));
+  }
+
   private async renderList() {
     const run = ++this.drawn;
     const query = this.search.value, tab = this.tab;
@@ -250,10 +255,10 @@ export class LibraryDialog {
         widgets: 'No widgets yet. Select elements on a page, then More, Save as widget.',
         favorites: 'Nothing starred yet. Tap the star on anything to find it here.',
       };
-      this.listEl.replaceChildren(h('p', { class: 'hint', 'data-key': 'library-empty' }, query.trim() ? `Nothing in ${TAB_LABEL[this.tab]} matches “${query.trim()}”.` : empty[this.tab]));
+      this.listEl.replaceChildren(...this.notices(tab), h('p', { class: 'hint', 'data-key': 'library-empty' }, query.trim() ? `Nothing in ${TAB_LABEL[this.tab]} matches “${query.trim()}”.` : empty[this.tab]));
       return;
     }
-    this.listEl.replaceChildren(...shown.map((e) => this.card(e)));
+    this.listEl.replaceChildren(...this.notices(tab), ...shown.map((e) => this.card(e)));
   }
 
   /** Tapping the item: open it, put it on the spread page being edited, or arm the widget tool. */

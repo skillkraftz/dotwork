@@ -217,7 +217,7 @@ describe('the screen and the PDF draw the same paths', () => {
     const sheet = pdf.addPage();
     const spy = vi.spyOn(sheet, 'drawSvgPath');
     drawPage(sheet, pageOf(a), { x: 0, y: 0, sheetHeight: 139.7, fonts: {} as never, pageNumber: null, expand: (t) => t });
-    const onScreen = [...markup(a).matchAll(/<path d="([^"]+)"/g)].map((m) => m[1]);
+    const onScreen = [...markup(a).matchAll(/<path class="art" d="([^"]+)"/g)].map((m) => m[1]);
     expect(onScreen).toEqual(artPaths(a).map((p) => p.d));
     expect(spy.mock.calls.map((c) => c[0])).toEqual(onScreen);
   });
@@ -352,15 +352,15 @@ describe('the gauge', () => {
     const r = gaugeArt();
     expect(r.dropped).toEqual([]);
     expect(r.art.view_box).toEqual([0, 0, 30, 16]);
-    expect(r.art.paths.map((p) => p.id)).toEqual(['left-half', 'right-half', undefined, undefined, 'top-tick', 'centre-line', undefined, undefined, undefined]);
-    expect(r.art.paths.map((p) => p.linecap)).toEqual([undefined, undefined, 'round', 'round', 'round', 'round', 'round', undefined, undefined]);
+    expect(r.art.paths.map((p) => p.id)).toEqual(['left-half', 'right-half', 'centre-line', 'ticks', undefined, undefined, undefined]);
+    expect(r.art.paths.map((p) => p.linecap)).toEqual([undefined, undefined, 'round', 'round', 'round', undefined, undefined]);
     expect(r.art.paths[0]).toMatchObject({ fill: 'medium', stroke: 'none', stroke_mm: 0 });
     expect(r.art.paths[1]).toMatchObject({ fill: 'none', stroke: 'none' });
   });
 
   it('offers a fill to closed or filled paths and a line to stroked ones, and nothing that changes nothing', () => {
     const named = Object.fromEntries(gaugeArt().art.paths.filter((p) => p.id).map((p) => [p.id, [canFill(p), canStroke(p)]]));
-    expect(named).toEqual({ 'left-half': [true, false], 'right-half': [true, false], 'top-tick': [false, true], 'centre-line': [false, true] });
+    expect(named).toEqual({ 'left-half': [true, false], 'right-half': [true, false], 'centre-line': [false, true], ticks: [false, true] });
     // a closed path with a line gets both; an open filled path gets a fill (the file closes it); a bare open one gets neither
     expect(canFill({ d: 'M0 0L5 0L5 5Z', fill: 'none' })).toBe(true);
     expect(canStroke({ stroke: 'black', stroke_mm: 0.3 })).toBe(true);
@@ -371,16 +371,16 @@ describe('the gauge', () => {
 
   it('is the Energy dial by default: the left half in medium, the centre line on', () => {
     const drawn = artPaths(gauge());
-    expect(drawn).toHaveLength(8); // right-half draws nothing
+    expect(drawn).toHaveLength(6); // right-half draws nothing
     expect(drawn[0]).toMatchObject({ fill: 'medium', stroke: 'none' });
     expect(artPaths(energy())).toEqual(drawn);
       });
 
-  it('is the Engagement dial with the left half unfilled and the centre line off; the top tick still shows', () => {
+  it('is the Engagement dial with the left half unfilled and the centre line off; the ticks still show', () => {
     const drawsPath = (el: Art, id: string) => artPaths({ ...el, paths: el.paths.filter((p) => p.id === id) }).length > 0;
     const e = engagement();
     expect(artPaths(e)).toHaveLength(artPaths(energy()).length - 2);
-    expect(drawsPath(e, 'top-tick')).toBe(true);
+    expect(drawsPath(e, 'ticks')).toBe(true);
     expect(drawsPath(e, 'centre-line')).toBe(false);
     expect(drawsPath(e, 'left-half')).toBe(false);
     expect(drawsPath(energy(), 'centre-line')).toBe(true);
@@ -388,8 +388,8 @@ describe('the gauge', () => {
   });
 
   it('draws both dials on screen with round caps, and gray lines when asked', () => {
-    expect(markup(energy()).match(/stroke-linecap="round"/g)).toHaveLength(5);
-    expect(markup(engagement()).match(/stroke-linecap="round"/g)).toHaveLength(4);
+    expect(markup(energy()).match(/stroke-linecap="round"/g)).toHaveLength(3);
+    expect(markup(engagement()).match(/stroke-linecap="round"/g)).toHaveLength(2);
     const medium = `fill="${artColor('medium', SCREEN_ART_TONES)}"`;
     expect(markup(energy())).toContain(medium);
     expect(markup(engagement())).not.toContain(medium);
@@ -399,7 +399,7 @@ describe('the gauge', () => {
 
   it('draws both dials in the PDF with round line caps, the same paths as the screen', async () => {
     const tones = { shade: { L: '#f1f1f1', M: '#d1d1d1', D: '#a1a1a1' }, grayText: '#707070' };
-    for (const [el, rounds] of [[energy(), 5], [engagement(), 4]] as const) {
+    for (const [el, rounds] of [[energy(), 3], [engagement(), 2]] as const) {
       const pdf = await PDFDocument.create();
       const sheet = pdf.addPage();
       const spy = vi.spyOn(sheet, 'drawSvgPath');
@@ -408,8 +408,37 @@ describe('the gauge', () => {
       const caps = spy.mock.calls.map((c) => (c[1] as { borderLineCap?: number }).borderLineCap);
       expect(caps.filter((c) => c === LineCapStyle.Round)).toHaveLength(rounds);
       const medium = spy.mock.calls.filter((c) => JSON.stringify((c[1] as { color?: unknown }).color) === JSON.stringify(color('#d1d1d1')));
-      expect(medium).toHaveLength(rounds === 5 ? 1 : 0); // the left half is medium in Energy, and gone in Engagement
+      expect(medium).toHaveLength(rounds === 3 ? 1 : 0); // the left half is medium in Energy, and gone in Engagement
     }
+  });
+
+  it('on the Energy dial, ticks set to none hide the tick marks on screen and in the PDF, and nothing else', async () => {
+    const off = { ...energy(), strokes: { 'centre-line': 'black', ticks: 'none' } } as Art;
+    const ticks = gaugeArt().art.paths.find((p) => p.id === 'ticks')!;
+    // The one path holds the two side ticks and the one at the top: its line control turns all three off together.
+    expect(ticks.d.match(/M/g)).toHaveLength(3);
+    const drawsPath = (el: Art, id: string) => artPaths({ ...el, paths: el.paths.filter((p) => p.id === id) }).length > 0;
+    expect(drawsPath(energy(), 'ticks')).toBe(true);
+    expect(drawsPath(off, 'ticks')).toBe(false);
+    expect(drawsPath(off, 'centre-line')).toBe(true);
+    expect(artPaths(off)).toHaveLength(artPaths(energy()).length - 1);
+    // screen: one round-capped line fewer (the centre line and the baseline stay)
+    expect(markup(energy()).match(/stroke-linecap="round"/g)).toHaveLength(3);
+    expect(markup(off).match(/stroke-linecap="round"/g)).toHaveLength(2);
+    // PDF: the same path is not drawn
+    const tones = { shade: { L: '#f1f1f1', M: '#d1d1d1', D: '#a1a1a1' }, grayText: '#707070' };
+    const calls = async (el: Art) => {
+      const pdf = await PDFDocument.create();
+      const sheet = pdf.addPage();
+      const spy = vi.spyOn(sheet, 'drawSvgPath');
+      drawPage(sheet, pageOf(el), { x: 0, y: 0, sheetHeight: 139.7, fonts: {} as never, pageNumber: null, expand: (t) => t, tones });
+      return spy.mock.calls.map((c) => c[0]);
+    };
+    const [before, after] = [await calls(energy()), await calls(off)];
+    const tickPath = artPaths({ ...energy(), paths: [ticks] })[0].d;
+    expect(before).toContain(tickPath);
+    expect(after).not.toContain(tickPath);
+    expect(after).toHaveLength(before.length - 1);
   });
 
   it('validates fills and strokes', () => {

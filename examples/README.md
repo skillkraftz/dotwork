@@ -20,5 +20,6 @@ filled or lined differently. `art/gauge.json` makes the Engagement and Energy ga
 `fills` take `none`, `light`, `medium` or `dark`; `strokes` take `none`, `gray` or `black`.
 
 A file that isn't valid is skipped (the console says which and why), and `npm test` fails on it.
-Some built-in spreads and book templates use pages from `pages/` by name (Lined page, Dot grid page, Idea page, Daily Good Time Journal);
-without them, those spreads are left out and the books use a notes page.
+Some built-in spreads and book templates use pages from `pages/` by name (Lined page, Dot grid page, Idea page, Daily Good Time Journal).
+Without one, the spreads that need it are left out and the books use a notes page there; the Library says which, in one line
+at the top of its Spreads or Books tab.

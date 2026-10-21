@@ -2,7 +2,7 @@ import { emptyBook, setDates, setSlot, type Book } from '../book/book';
 import type { Page } from '../format/types';
 import { MONTH_NAMES } from './calendar';
 import { BOOK_PAGES, ideaBookLayout, monthlyLayout, yearLayout, type Slot } from './layout';
-import { findBuiltinPage } from './library';
+import { BUILTIN_NOTICES, findBuiltinPage, missingPages } from './library';
 import { monthlyPageIndex, monthlyTracker, notesPage, patternsPage, plainIndex, purposeCover, questionsPage, weeklyPage, weeklyReflection, yearGoals, yearIndex, blankPage } from './pages';
 
 /** A question a template asks: a whole number in a range. */
@@ -13,6 +13,8 @@ export interface BookTemplate {
   name: string;
   description: string;
   fields: TemplateField[];
+  /** The pages from examples/pages the book is made with; one that has been taken out is replaced by a notes page. */
+  uses: readonly string[];
   /** Builds a complete 52-page book from the answers (a missing answer takes the field's default). */
   build(answers?: Record<string, number>): Book;
 }
@@ -46,12 +48,17 @@ function assemble(name: string, layout: Slot[], front: Page, back: Page, page: (
   return book;
 }
 
+/** The pages from examples/pages that books are made with. */
+const IDEAS = ['Idea page', 'Dot grid page'] as const;
+const DAILY_BOOK = ['Daily Good Time Journal', ...IDEAS] as const;
+
 const YEAR: TemplateField = { key: 'year', label: 'Year', min: 2000, max: 2100, value: new Date().getFullYear() };
 
 const monthlyJournal: BookTemplate = {
   id: 'monthly-journal',
   name: 'Monthly journal',
   description: 'One month of daily Good Time Journal pages with a reflection after each week, then patterns, questions, idea spreads and notes. The tracker cover and the page index are filled in for the month.',
+  uses: DAILY_BOOK,
   fields: [YEAR, { key: 'month', label: 'Month', min: 1, max: 12, value: new Date().getMonth() + 1, hint: (v) => MONTH_NAMES[v - 1] ?? '' }],
   build(a = {}) {
     const year = a.year ?? YEAR.value, month = a.month ?? 1;
@@ -64,6 +71,7 @@ const yearPlanner: BookTemplate = {
   id: 'year-planner',
   name: 'Year planner',
   description: 'A dated weekly page for each week you choose, then idea spreads. The year goals cover and the year index are made for that year.',
+  uses: IDEAS,
   fields: [
     YEAR,
     { key: 'first', label: 'First week', min: 1, max: 52, value: 1 },
@@ -77,8 +85,8 @@ const yearPlanner: BookTemplate = {
 };
 
 /** A book with the purpose cover and the plain-book index. */
-const plain = (id: string, name: string, description: string, layout: () => Slot[], page?: (s: Slot) => Page): BookTemplate => ({
-  id, name, description, fields: [],
+const plain = (id: string, name: string, description: string, uses: readonly string[], layout: () => Slot[], page?: (s: Slot) => Page): BookTemplate => ({
+  id, name, description, uses, fields: [],
   build: () => assemble(name, layout(), purposeCover(), plainIndex(), page),
 });
 const all = (kind: Slot['kind']) => (): Slot[] => Array.from({ length: BOOK_PAGES }, () => ({ kind }));
@@ -86,8 +94,14 @@ const all = (kind: Slot['kind']) => (): Slot[] => Array.from({ length: BOOK_PAGE
 export const TEMPLATES: readonly BookTemplate[] = [
   yearPlanner,
   monthlyJournal,
-  plain('blank-journal', 'Blank journal', '52 blank pages, with the purpose cover and the plain-book index.', all('notes'), () => blankPage()),
-  plain('lined-journal', 'Lined journal', '52 lined pages, with the purpose cover and the plain-book index.', all('notes'), () => example('Lined page')),
-  plain('dot-grid-journal', 'Dot grid journal', '52 dot grid pages, with the purpose cover and the plain-book index.', all('dots')),
-  plain('idea-book', 'Idea book', 'Idea spreads throughout (an idea page facing a dot grid), with the purpose cover and the plain-book index.', ideaBookLayout),
+  plain('blank-journal', 'Blank journal', '52 blank pages, with the purpose cover and the plain-book index.', [], all('notes'), () => blankPage()),
+  plain('lined-journal', 'Lined journal', '52 lined pages, with the purpose cover and the plain-book index.', ['Lined page'], all('notes'), () => example('Lined page')),
+  plain('dot-grid-journal', 'Dot grid journal', '52 dot grid pages, with the purpose cover and the plain-book index.', ['Dot grid page'], all('dots')),
+  plain('idea-book', 'Idea book', 'Idea spreads throughout (an idea page facing a dot grid), with the purpose cover and the plain-book index.', IDEAS, ideaBookLayout),
 ];
+
+// A book made with a page that was taken out of examples/pages still builds, with a notes page there: the Library says so.
+for (const t of TEMPLATES) {
+  const gone = missingPages(t.uses);
+  if (gone.length) BUILTIN_NOTICES.push({ tab: 'books', text: `“${t.name}” uses a notes page where ${gone.map((n) => `“${n}”`).join(' and ')} would go: ${gone.length > 1 ? "they aren't" : "it isn't"} in examples/pages.` });
+}
