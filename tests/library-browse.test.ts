@@ -3,7 +3,7 @@ import { emptyPage } from '../src/format/types';
 import { emptySpread } from '../src/format/spread';
 import { emptyBook } from '../src/book/book';
 import { Favorites } from '../src/library/favorites';
-import { exampleId, nameMatches, visibleEntries, widgetId, type Entry } from '../src/library/browse';
+import { artId, exampleId, nameMatches, visibleEntries, widgetId, type Entry } from '../src/library/browse';
 
 const page = (name: string) => ({ ...emptyPage(), name });
 const entries: Entry[] = [
@@ -12,6 +12,7 @@ const entries: Entry[] = [
   { kind: 'spread', id: 's1', name: 'Week spread', updated: '2026-01-03T00:00:00Z', example: false, data: emptySpread() },
   { kind: 'book', id: 'b1', name: 'Field notes', updated: '2026-01-04T00:00:00Z', example: false, data: emptyBook() },
   { kind: 'widget', id: widgetId({ id: 'w1', name: 'Notes box', elements: [] }), name: 'Notes box', updated: null, example: false, data: { id: 'w1', name: 'Notes box', elements: [] } },
+  { kind: 'art', id: artId({ id: 'a1', name: 'Gauge', elements: [] }), name: 'Gauge', updated: null, example: false, data: { id: 'a1', name: 'Gauge', elements: [] } },
 ];
 const names = (tab: Parameters<typeof visibleEntries>[1], query = '', stars: string[] = []) =>
   visibleEntries(entries, tab, query, (id) => stars.includes(id)).map((e) => e.name);
@@ -30,6 +31,7 @@ describe('library tabs', () => {
     expect(names('spreads')).toEqual(['Week spread']);
     expect(names('books')).toEqual(['Field notes']);
     expect(names('widgets')).toEqual(['Notes box']);
+    expect(names('art')).toEqual(['Gauge']);
   });
 
   it('searches within the tab, and Favorites lists only what is starred, of any kind', () => {

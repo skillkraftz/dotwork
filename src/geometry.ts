@@ -46,6 +46,7 @@ export function hitElement(el: PageElement, p: Pt, tol: number): boolean {
     case 'rule':
     case 'text':
     case 'sequence':
+    case 'art':
       return within(elementArea(el), p, tol);
     case 'checkboxes': {
       const every = el.every ?? DEFAULTS.every;
@@ -106,7 +107,7 @@ export function canMove(els: PageElement | readonly PageElement[], dx: number, d
 /** Handles an element offers for resizing. Checkboxes and text are resized in the properties panel. */
 export function handlesFor(el: PageElement): { handle: Handle; at: Pt }[] {
   if (el.type === 'rule') return [{ handle: 'p1', at: { x: el.x1, y: el.y1 } }, { handle: 'p2', at: { x: el.x2, y: el.y2 } }];
-  if (el.type !== 'pattern' && el.type !== 'shade' && el.type !== 'box') return [];
+  if (el.type !== 'pattern' && el.type !== 'shade' && el.type !== 'box' && el.type !== 'art') return [];
   const { x, y, w, h } = el;
   const xm = x + w / 2, ym = y + h / 2, r = x + w, b = y + h;
   return [
@@ -157,7 +158,7 @@ export function resizeElement<T extends PageElement>(el: T, handle: Handle, dot:
     if (el.y1 === el.y2) { if (handle === 'p1') out.x1 = dot.x; else out.x2 = dot.x; } else if (handle === 'p1') out.y1 = dot.y; else out.y2 = dot.y;
     return out.x1 === out.x2 && out.y1 === out.y2 ? null : (out as unknown as T);
   }
-  if (el.type !== 'pattern' && el.type !== 'shade' && el.type !== 'box') return null;
+  if (el.type !== 'pattern' && el.type !== 'shade' && el.type !== 'box' && el.type !== 'art') return null;
   let { x, y, w, h } = el;
   const right = x + w, bottom = y + h;
   if (handle.includes('n')) { y = dot.y; h = bottom - dot.y; }

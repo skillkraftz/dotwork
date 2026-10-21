@@ -133,7 +133,7 @@ describe('phone layout (390 x 844, touch)', () => {
     await page.tap('#bar-draw');
     expect(await labels()).toEqual(['Pattern', 'Shade', 'Box', 'Rule', 'Text']);
     await page.tap('#advanced');
-    expect(await labels()).toEqual(['Sequence', 'Icon', 'Checks', 'Widgets']);
+    expect(await labels()).toEqual(['Sequence', 'Icon', 'Checks', 'Widgets', 'Art']);
     await tool(app, 'box');
     await drag(app, await cellToClient(app, 4, 34), await cellToClient(app, 14, 40)); // low on the page
     expect(await labels()).toEqual(['Props', 'Copy', 'Delete', 'Group', 'More']); // Select, something selected

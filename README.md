@@ -14,7 +14,7 @@ the identity by the spine. Version 1 files are converted when imported.
 ## Using the editor
 
 - **The bottom bar** has three fixed modes, **Select**, **Draw** and **Advanced**, and five buttons beside them that
-  follow the mode and the selection. Draw: Pattern, Shade, Box, Rule, Text. Advanced: Sequence, Icon, Checks, Widgets.
+  follow the mode and the selection. Draw: Pattern, Shade, Box, Rule, Text. Advanced: Sequence, Icon, Checks, Widgets, Art.
   Select with nothing selected: Select all and Half; with something selected: Props, Copy, Delete, Group/Ungroup and More
   (bring forward, send backward, select underneath, save as widget, half cells). Keys: V, A, P, S, B, R, C, T.
 - **Select** by tapping: the nearest element within about 6 mm is picked, so thin rules and small text are easy. Drag on
@@ -31,6 +31,15 @@ the identity by the spine. Version 1 files are converted when imported.
   small or large, and "include the first edge" adds the top (or left) line.
 - **Advanced** places a **Sequence**, an **Icon** (about 60 line icons from a big tappable grid), **Checks**, or one of your
   **Widgets**. Save a selection from More; widgets are kept in the browser, beside the library.
+- **Art** is an SVG file placed on the grid like a box. Advanced, then Art (or Library, Art tab, Import SVG art) reads
+  the file once into a small stored form: a view box and a list of paths, each filled and stroked in one of the app's
+  tones (black, dark, medium, light, gray, white or none). Circles, ellipses, rectangles, lines, polylines and polygons
+  become paths and every transform is applied, so nothing depends on the file afterwards. Text, images, gradients, filters,
+  masks, scripts, styles and links to other files are left out, and a notice lists what was (Copy details has it all);
+  an empty or oversized result is refused with the reason. The art is stored inline in the page file. **Fit** keeps its
+  proportions and centers it, **Stretch** fills the area; line widths are in mm and stay the same when you resize. The
+  screen and the PDF draw the same paths, the PDF with the printer's tones. Try `examples/half-donut-gauge.svg`, or
+  `examples/good-time-gauges.json`, the Good Time page with two half-donut gauges.
 - **Layers** lists every element from top (drawn last) to bottom. Tap a name to select that element and open its
   properties. Hide, lock, delete, and reorder with the arrows or by dragging a row. Hiding and locking are for editing
   only; they are not saved in the file.
@@ -45,8 +54,8 @@ the identity by the spine. Version 1 files are converted when imported.
   header; leave the identity empty and you can draw in row 0, except the page number's two corner cells while the page
   number is on. A spread's settings cover its name and both pages; a book's cover its name, page count, page numbers and the
   print settings.
-- **Library** (Edit ▾, then Library) is a browser with a search box and tabs for Pages, Spreads, Books, Widgets and
-  Favorites. Tap the star on anything to find it under Favorites. It comes filled: every page of the owner's books,
+- **Library** (Edit ▾, then Library) is a browser with a search box and tabs for Pages, Spreads, Art, Books, Widgets and
+  Favorites. The Art tab imports SVG files and lists them, with a half-donut gauge to start from. Tap the star on anything to find it under Favorites. It comes filled: every page of the owner's books,
   spreads (lined, dot grid and notes, two of the same page; ideas; book notes; weekly, dated and undated, mirrored so the day column is on the outer edge of both pages; and each book's covers), starter widgets, and book templates, all marked
   as examples. An example can't be changed: opening or placing one gives an editable copy named “… copy”, and a saved
   item can't take an example's name. Tap an item to open or place it; Rename, Duplicate and Delete are in the ⋯ menu on

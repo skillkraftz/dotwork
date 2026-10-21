@@ -7,13 +7,14 @@ import {
 } from 'pdf-lib';
 import {
   DEFAULTS, GRID_X_MM, GRID_Y_MM, PAGE_H_MM, PAGE_W_MM, PITCH_MM as P,
-  type Box, type Checkboxes, type Page, type PageElement, type Pattern, type Rule, type Shade, type Sequence, type Text,
+  type Art, type Box, type Checkboxes, type Page, type PageElement, type Pattern, type Rule, type Shade, type Sequence, type Text,
 } from '../format/types';
 import { TEXT_INSET_MM, TEXT_SIZE_MM } from '../format/bounds';
 import {
-  BASELINE_MM, DOT_MM, GRAY_DOT, HEADER_BASELINE_MM, HEADER_COLOR, LINE, TEXT_COLORS, headerItems, iconPlacement, itemCenter, ticks,
+  BASELINE_MM, DOT_MM, artColor, GRAY_DOT, HEADER_BASELINE_MM, HEADER_COLOR, LINE, TEXT_COLORS, headerItems, iconPlacement, itemCenter, ticks,
 } from '../render';
 import { shadeRects } from '../format/shade';
+import { artPaths } from '../format/art';
 import { isIcons, itemSize, sequenceItems } from '../format/sequence';
 import { ICONS } from '../icons/icons';
 import { SCREEN_TONES, type PrintTones } from './tones';
@@ -190,6 +191,18 @@ export function drawPage(pdf: PDFPage, page: Page, o: PageDrawOptions): void {
     });
   };
 
+  // The paths are in mm from the grid's corner, the same ones the screen draws; the scale turns mm into points and, being
+  // inside the path's transform, leaves each stroke width (in mm) as it is.
+  const art = (e: Art) => {
+    for (const p of artPaths(e)) {
+      pdf.drawSvgPath(p.d, {
+        x: X(0), y: Y(0), scale: len(1),
+        ...(p.fill === 'none' ? {} : { color: color(artColor(p.fill, tones)) }),
+        ...(p.stroke === 'none' ? {} : { borderColor: color(artColor(p.stroke, tones)), borderWidth: p.stroke_mm }),
+      });
+    }
+  };
+
   const element = (e: PageElement) => {
     switch (e.type) {
       case 'sequence': return sequence(e);
@@ -199,6 +212,7 @@ export function drawPage(pdf: PDFPage, page: Page, o: PageDrawOptions): void {
       case 'rule': return rule(e);
       case 'checkboxes': return checkboxes(e);
       case 'text': return label(e);
+      case 'art': return art(e);
     }
   };
 

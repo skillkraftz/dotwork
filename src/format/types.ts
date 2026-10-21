@@ -1,4 +1,5 @@
 // Dotwork page format, version 2. See docs/page-format.md.
+import type { ArtPath, ArtScaling } from './art';
 
 export const COLS = 27;
 export const ROWS = 44;
@@ -139,12 +140,21 @@ export interface Sequence {
   rotate?: Rotation;
 }
 
+/** Imported artwork placed like a box: shapes in the art's own units, fitted or stretched into the area. See format/art.ts. */
+export interface Art extends Area {
+  type: 'art';
+  view_box: [number, number, number, number];
+  paths: ArtPath[];
+  /** `fit` (default) keeps the art's proportions and centers it; `stretch` fills the area. */
+  scaling?: ArtScaling;
+}
+
 /** Every element can belong to a group: elements with the same `group` are edited together. Printing ignores it. */
 export interface Grouped { group?: string }
 
-export type PageElement = (Pattern | Shade | Box | Rule | Checkboxes | Text | Sequence) & Grouped;
+export type PageElement = (Pattern | Shade | Box | Rule | Checkboxes | Text | Sequence | Art) & Grouped;
 export type ElementType = PageElement['type'];
-export const ELEMENT_TYPES: readonly ElementType[] = ['pattern', 'shade', 'box', 'rule', 'checkboxes', 'text', 'sequence'];
+export const ELEMENT_TYPES: readonly ElementType[] = ['pattern', 'shade', 'box', 'rule', 'checkboxes', 'text', 'sequence', 'art'];
 
 export interface Page {
   format: 'dotwork-page';
@@ -191,4 +201,5 @@ export const DEFAULTS = {
   letter: 'A',
   sequenceTone: 'black',
   iconSize: 1,
+  scaling: 'fit',
 } as const;

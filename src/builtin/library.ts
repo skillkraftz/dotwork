@@ -12,6 +12,7 @@ import {
   questionsPage, weeklyPage, weeklyReflection, yearGoals, yearIndex,
 } from './pages';
 import { builtinWidgets } from './widgets';
+import { builtinArt } from './art';
 
 // The pages, spreads and widgets that come with Dotwork: every page of the owner's books, as closely as the format allows.
 
@@ -72,6 +73,7 @@ export const BUILTIN_SPREADS: readonly Spread[] = [
 ];
 
 export const BUILTIN_WIDGETS = builtinWidgets();
+export const BUILTIN_ART = builtinArt();
 
 /** Whether a built-in of this kind already has this name. */
 export const isBuiltinName = (kind: 'page' | 'spread' | 'book', name: string): boolean =>

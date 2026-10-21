@@ -2,6 +2,7 @@ import {
   ALIGNS, ALONGS, DEFAULTS, DIRECTIONS, DOT_SIZES, ICON_SIZES, PATTERNS, RULE_WEIGHTS, SEQUENCE_VALUES, SIDES, TEXT_SIZES, TEXT_STYLES,
   TEXT_TONES, WEIGHTS, type BoxSide, type PageElement, type Pattern, type Sequence, type SequenceValues, type Shade,
 } from './format/types';
+import { ART_SCALINGS } from './format/art';
 import { cleanTones, toneAt } from './format/shade';
 import { SHADE_TONES } from './render';
 import { iconGlyph } from './icons/glyph';
@@ -87,6 +88,7 @@ export function describe(el: PageElement): string {
     case 'pattern': return `${el.pattern} · ${fmt(el.x)},${fmt(el.y)} ${fmt(el.w)}×${fmt(el.h)}${group}`;
     case 'shade': return `shade ${el.tones}${el.along && el.along !== 'rows' ? ` ${el.along}` : ''} · ${fmt(el.x)},${fmt(el.y)} ${fmt(el.w)}×${fmt(el.h)}${group}`;
     case 'sequence': return `${el.values === 'icons' ? 'icons' : `sequence ${el.values ?? DEFAULTS.values}`} · ${fmt(el.x)},${fmt(el.y)} ×${el.count}${group}`;
+    case 'art': return `art ${el.paths.length} path${el.paths.length === 1 ? '' : 's'} · ${fmt(el.x)},${fmt(el.y)} ${fmt(el.w)}×${fmt(el.h)}${group}`;
     case 'box': return `box · ${fmt(el.x)},${fmt(el.y)} ${fmt(el.w)}×${fmt(el.h)}${group}`;
     case 'rule': return `rule · ${fmt(el.x1)},${fmt(el.y1)} → ${fmt(el.x2)},${fmt(el.y2)}${group}`;
     case 'checkboxes': return `checkboxes · ${fmt(el.x)},${fmt(el.y)} ×${el.count}${group}`;
@@ -537,6 +539,9 @@ export class Panel {
           choice('weight', 'Weight', WEIGHTS, DEFAULTS.boxWeight)];
         break;
       }
+      case 'art':
+        fields = [h('div', { class: 'grid2' }, ...area()), choice('scaling', 'Scaling', ART_SCALINGS, DEFAULTS.scaling, 'prop-scaling')];
+        break;
       case 'rule':
         fields = [h('div', { class: 'grid2' }, num('x1', 'x1'), num('y1', 'y1'), num('x2', 'x2'), num('y2', 'y2')),
           choice('weight', 'Weight', RULE_WEIGHTS, DEFAULTS.ruleWeight)];

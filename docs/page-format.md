@@ -155,6 +155,34 @@ grid, mostly from Lucide, ISC licence, see `src/icons/LICENSE.txt`). Names:
 Icons are drawn with thin round-capped lines, 0.26 mm at one cell and 0.36 mm at
 two; the moon phases also have a solid part.
 
+### `art`: imported artwork
+
+Artwork placed on the grid like a box. Dotwork reads an SVG file once and stores the result inside the page, so the page
+file is self-contained and a reader never opens an SVG.
+
+| Field | Meaning |
+|-------|---------|
+| `x`, `y`, `w`, `h` | The rectangle the art fills, as for `box`. |
+| `view_box` | `[x, y, width, height]`: the art's own drawing area, in the units the paths use. Width and height greater than 0. |
+| `paths` | The shapes, bottom to top. At least one, at most 200. |
+| `scaling` | `"fit"` (default): keep the art's proportions and center it in the rectangle. `"stretch"`: fill the rectangle. |
+
+Each path is `{ "d": "...", "fill": "light", "stroke": "black", "stroke_mm": 0.3 }`:
+
+- `d` is path data in the art's units using only **absolute `M`, `L`, `C` and `Z`** (move, line, cubic curve, close),
+  written as `M10 20L30 40C1 2 3 4 5 6Z`: a command letter, then exactly its numbers (2, 2, 6 and 0), separated by spaces.
+  A path starts with `M`, and `L` and `C` need a current point (after a `Z`, start again with `M`). Dotwork's importer turns circles,
+  ellipses, rectangles, lines, polylines, polygons, arcs, quadratic curves, relative commands and every `transform` into this form.
+  Every point, control points included, lies inside `view_box` (a 1% margin is allowed). At most 40,000 characters of path data in all.
+- `fill` and `stroke` are `"black"`, `"dark"`, `"medium"`, `"light"`, `"gray"`, `"white"` or `"none"`. Black is black, white
+  is white, gray is the gray of gray text, and dark, medium and light are the shade tones (the printed PDFs use the book's
+  print tones for these, as they do for `shade` and gray `text`). A path with no fill and no stroke draws nothing.
+- `stroke_mm` is the line width in mm, from 0 to 3, and greater than 0 when there is a stroke. It is a width on paper: **resizing the art
+  does not change it**. Lines are drawn with butt caps and mitered joins. Paths are filled with the non-zero rule.
+
+Fit scales the view box by the larger of what fits the width and the height (mm per unit = `min(w x 3 / view_box width, h x 3 / view_box height)`),
+centered; stretch scales the two directions separately. A reader draws `d` through that scale and offset and leaves `stroke_mm` alone.
+
 ### `text`: a label or heading
 
 | Field | Meaning |
@@ -224,7 +252,7 @@ not have `"side": "left"` or whose `right` page does not have
 A reader must reject a file with the wrong `format`, an unknown `version`, an
 unknown element type or field value, a coordinate that is not a multiple of
 0.5, an element outside the grid or above the first usable row (y = 1, or y = 0 when row 0 is free), an element on the page number's corner, a diagonal rule, a
-`checkboxes` or `sequence` element whose items leave the grid, a `shade` whose `tones` are not the letters L, M, D and B, an empty `group`, a `sequence`
+`checkboxes` or `sequence` element whose items leave the grid, a `shade` whose `tones` are not the letters L, M, D and B, an `art` whose `view_box`, `paths`, path data, tones or line widths break the rules above (or whose points leave the view box), an empty `group`, a `sequence`
 with a text item of more than two characters or an unknown icon name, or an unknown token, and say
 which rule failed. Overlap is allowed.
 

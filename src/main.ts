@@ -26,6 +26,7 @@ import { badDraftProblem, loadDraft as loadStored, saveDraft, type DraftLoad, ty
 import { errorProblem, issuesProblem, problemView, type Problem } from './problems';
 import { AdvancedPicker, type AdvancedChoice } from './advanced';
 import { NameDialog } from './namedialog';
+import { importArtFile } from './art/report';
 import { WidgetStore } from './widgets';
 import { BUILTIN_PAGES, isBuiltinName } from './builtin/library';
 
@@ -262,6 +263,7 @@ const toolbar = new Toolbar($('tools'), {
   },
   widgets() { closeContextMenu(); notify(null); picker.showWidgets(); },
   icons() { closeContextMenu(); notify(null); picker.showIconTool(); },
+  art() { closeContextMenu(); notify(null); artFile.click(); },
 });
 const canvasOf = (store: Store) => (store === stores.page ? canvases.page : store === stores.left ? canvases.left : canvases.right);
 
@@ -305,7 +307,23 @@ async function saveWidget() {
   notify(`Saved “${name}”. Find it under Advanced.`);
 }
 
-// ---- Advanced: sequence, icon and saved widgets ----
+// ---- Advanced: sequence, icon, saved widgets and art ----
+
+/** The Art button: choose an SVG file, save it as art, and have it ready to put on the page. */
+const artFile = Object.assign(document.createElement('input'), { type: 'file', accept: '.svg,image/svg+xml', hidden: true });
+artFile.dataset.key = 'art-file';
+artFile.onchange = async () => {
+  const file = artFile.files?.[0];
+  artFile.value = '';
+  if (!file) return;
+  const r = await importArtFile(file, widgets);
+  if (!r.ok) { notifyProblems([r.problem]); return; }
+  all.forEach((s) => s.setWidget(r.widget));
+  setTools('widget');
+  if (r.problem) show([problemView(r.problem), h('p', {}, `Tap the page to put “${r.name}” there; drag to choose the spot.`)], false);
+  else notify(`Imported “${r.name}”. Tap the page to put it there; drag to choose the spot.`);
+};
+document.body.append(artFile);
 
 const picker = new AdvancedPicker(widgets, nameDialog, (choice: AdvancedChoice) => {
   if (choice.kind === 'icon') all.forEach((s) => s.setIcon(choice.icon));

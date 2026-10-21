@@ -79,7 +79,7 @@ describe('the bottom bar (phone)', () => {
     expect(await contextLabels(app)).toEqual(['Pattern', 'Shade', 'Box', 'Rule', 'Text']);
     await shot(app, 'phone-draw');
     await hit(app, '#advanced');
-    expect(await contextLabels(app)).toEqual(['Sequence', 'Icon', 'Checks', 'Widgets']);
+    expect(await contextLabels(app)).toEqual(['Sequence', 'Icon', 'Checks', 'Widgets', 'Art']);
     await shot(app, 'phone-advanced');
     await hit(app, '#bar-select');
     await bar(app, 'more');
