@@ -46,9 +46,19 @@ export const BUILTIN_PAGES: readonly Page[] = [
 /** The built-in page of this name, if it is there: the pages from examples/pages can be taken out. */
 export const findBuiltinPage = (name: string): Page | undefined => BUILTIN_PAGES.find((p) => p.name === name);
 
-/** A spread of two built-in pages; none when either was taken out of examples/pages. */
+const quoteList = (names: string[]) => names.map((n) => `“${n}”`).join(' and ');
+
+/** What the Library should say about built-ins that are not there or not as designed, because a page was taken out of examples/pages. */
+export interface BuiltinNotice { tab: 'spreads' | 'books'; text: string }
+export const BUILTIN_NOTICES: BuiltinNotice[] = [];
+
+/** The pages of this list that are not built in: the names of those taken out of examples/pages. */
+export const missingPages = (names: readonly string[]): string[] => [...new Set(names)].filter((n) => !findBuiltinPage(n));
+
+/** A spread of two built-in pages; none when either was taken out of examples/pages, and the Library says so. */
 const spread = (name: string, left: string, right: string): Spread[] => {
   const [l, r] = [findBuiltinPage(left), findBuiltinPage(right)];
+  if (!l || !r) BUILTIN_NOTICES.push({ tab: 'spreads', text: `“${name}” is left out: ${quoteList(missingPages([left, right]))} isn't in examples/pages.` });
   return l && r ? [buildSpread(name, l, r)] : [];
 };
 

@@ -135,7 +135,7 @@ for (const device of ['phone', 'tablet', 'desktop'] as Device[]) {
       expect(placed).toHaveLength(2);
       expect(placed[1]).toMatchObject({ x: 14, y: 20, w: 10, h: 6, fills: { 'left-half': 'none' }, strokes: { 'centre-line': 'none' } });
       // Energy draws the filled left half and the centre line; Engagement draws neither
-      expect(await page.locator('#canvas path.art[stroke-linecap="round"]').count()).toBe(5 + 4);
+      expect(await page.locator('#canvas path.art[stroke-linecap="round"]').count()).toBe(3 + 2);
       await shot(app, `${device}-gauge-presets`);
       await choose(app, 'edit', '#mode-preview');
       await shot(app, `${device}-gauge-presets-preview`);
@@ -152,21 +152,24 @@ for (const device of ['phone', 'tablet', 'desktop'] as Device[]) {
       await bar(app, 'properties');
       await page.waitForSelector('[data-key="prop-path-left-half-fill"]');
       const keys = await page.locator('[data-key^="prop-path-"]').evaluateAll((els) => els.map((e) => e.getAttribute('data-key')));
-      expect(keys).toEqual(['prop-path-left-half-fill', 'prop-path-right-half-fill', 'prop-path-top-tick-line', 'prop-path-centre-line-line']);
+      expect(keys).toEqual(['prop-path-left-half-fill', 'prop-path-right-half-fill', 'prop-path-centre-line-line', 'prop-path-ticks-line']);
       expect(await missingHelp(app)).toEqual([]);
       await shot(app, `${device}-art-path-controls`);
 
       const roundLines = () => page.locator('#canvas path.art[stroke-linecap="round"]').count();
-      expect(await roundLines()).toBe(5);
+      expect(await roundLines()).toBe(3);
       await page.selectOption('[data-key="prop-path-centre-line-line"]', 'none');
       expect((await artElements(app))[0].strokes).toEqual({ 'centre-line': 'none' });
-      expect(await roundLines()).toBe(4);
+      expect(await roundLines()).toBe(2);
+      await page.selectOption('[data-key="prop-path-ticks-line"]', 'none');
+      expect(await roundLines()).toBe(1); // the ticks are gone too, and the baseline stays
+      await page.selectOption('[data-key="prop-path-ticks-line"]', 'as imported');
       await page.selectOption('[data-key="prop-path-left-half-fill"]', 'none');
       await page.selectOption('[data-key="prop-path-right-half-fill"]', 'dark');
       expect((await artElements(app))[0].fills).toEqual({ 'left-half': 'none', 'right-half': 'dark' });
       await page.selectOption('[data-key="prop-path-centre-line-line"]', 'as imported');
       expect((await artElements(app))[0].strokes).toBeUndefined();
-      expect(await roundLines()).toBe(5);
+      expect(await roundLines()).toBe(3);
       expect(app.errors).toEqual([]);
     });
 
@@ -211,7 +214,7 @@ for (const device of ['phone', 'tablet', 'desktop'] as Device[]) {
       await page.waitForSelector('#canvas');
       await page.evaluate(() => document.fonts.ready);
       expect(await artElements(app)).toHaveLength(6);
-      expect(await page.locator('#canvas path.art[stroke-linecap="round"]').count()).toBe(3 * 5 + 3 * 4);
+      expect(await page.locator('#canvas path.art[stroke-linecap="round"]').count()).toBe(3 * 3 + 3 * 2);
       await shot(app, `${device}-good-time-gauges`);
       await choose(app, 'edit', '#mode-preview');
       await shot(app, `${device}-good-time-gauges-preview`);
