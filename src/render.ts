@@ -1,12 +1,13 @@
 import {
   COLS, DEFAULTS, GRID_X_MM, GRID_Y_MM, PAGE_H_MM, PAGE_W_MM, PITCH_MM as P, ROWS,
-  type Page, type PageElement, type PageSide, type Pattern, type Shade, type Box, type Rule, type Checkboxes, type Text, type Sequence,
+  type Page, type PageElement, type PageSide, type Pattern, type Shade, type Box, type Rule, type Checkboxes, type Text, type Sequence, type Art,
 } from './format/types';
 import { isIcons, itemOrigin, itemSize, sequenceItems } from './format/sequence';
 import { ICON_GRID, ICONS } from './icons/icons';
 import { elementArea, headerOf, TEXT_INSET_MM, TEXT_SIZE_MM } from './format/bounds';
 import { expandTokens } from './format/tokens';
 import { shadeRects } from './format/shade';
+import { artPaths, type ArtTone } from './format/art';
 import { boundsOf, handlesFor, type Pt } from './geometry';
 
 /** Editor view box: the page plus a quiet margin around it. */
@@ -25,6 +26,19 @@ export const SHADE_TONES = { L: '#efefef', M: '#dcdcdc', D: '#bdbdbd' } as const
 /** Dots are 0.5 mm across, or this much when large. */
 export const DOT_MM = { small: 0.5, large: 0.9 } as const;
 export const TEXT_COLORS = { gray: '#808080', black: '#000' } as const;
+/** What art draws a tone in: the shade grays, the gray of gray text, black and white. `tones` are the printer's grays (or the screen's). */
+export function artColor(tone: Exclude<ArtTone, 'none'>, tones: { shade: { L: string; M: string; D: string }; grayText: string }): string {
+  switch (tone) {
+    case 'black': return '#000';
+    case 'white': return '#fff';
+    case 'gray': return tones.grayText;
+    case 'dark': return tones.shade.D;
+    case 'medium': return tones.shade.M;
+    case 'light': return tones.shade.L;
+  }
+}
+export const SCREEN_ART_TONES = { shade: SHADE_TONES, grayText: TEXT_COLORS.gray };
+
 export const BASELINE_MM = 0.6; // text sits this far above the bottom of its cell band
 
 export interface RenderOptions {
@@ -172,6 +186,15 @@ function sequenceMarkup(e: Sequence): string {
   return `<g font-size="${size}" text-anchor="middle" fill="${color}" xml:space="preserve">${texts}</g>`;
 }
 
+/** Art: its paths fitted into the area, with line widths in mm that a resize leaves alone. */
+function artMarkup(e: Art): string {
+  return artPaths(e).map((p) => {
+    const fill = p.fill === 'none' ? 'none' : artColor(p.fill, SCREEN_ART_TONES);
+    const line = p.stroke === 'none' ? '' : ` stroke="${artColor(p.stroke, SCREEN_ART_TONES)}" stroke-width="${n(p.stroke_mm)}"`;
+    return `<path d="${p.d}" fill="${fill}"${line}/>`;
+  }).join('');
+}
+
 export function elementMarkup(e: PageElement, expand: (t: string) => string = sample): string {
   switch (e.type) {
     case 'pattern': return patternMarkup(e);
@@ -181,6 +204,7 @@ export function elementMarkup(e: PageElement, expand: (t: string) => string = sa
     case 'checkboxes': return checkboxesMarkup(e);
     case 'text': return textMarkup(e, expand);
     case 'sequence': return sequenceMarkup(e);
+    case 'art': return artMarkup(e);
   }
 }
 

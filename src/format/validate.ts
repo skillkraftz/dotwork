@@ -4,6 +4,7 @@ import {
 } from './types';
 import { tonesProblem } from './shade';
 import { CLOSED_HEADER, checkboxSpan, headerOf, hitsCorner, insideGrid, limitsArea, type Header } from './bounds';
+import { ART_SCALINGS, artProblems } from './art';
 import { sequenceProblem, sequenceSpan } from './sequence';
 import { findUnknownTokens, TOKENS } from './tokens';
 import type { PageElement } from './types';
@@ -125,7 +126,8 @@ function validateElementInto(el: unknown, at: string, fail: Fail, header: Header
   switch (el.type) {
     case 'pattern':
     case 'shade':
-    case 'box': {
+    case 'box':
+    case 'art': {
       for (const k of ['x', 'y', 'w', 'h']) half(k);
       if (usable && ((el.w as number) <= 0 || (el.h as number) <= 0)) {
         fail('size', at, `"w" and "h" must be greater than 0 (got w=${el.w}, h=${el.h}).`);
@@ -144,6 +146,10 @@ function validateElementInto(el: unknown, at: string, fail: Fail, header: Header
         if (problem) fail('tones', `${at}.tones`, problem);
         choice('along', ALONGS);
         every();
+      }
+      if (el.type === 'art') {
+        choice('scaling', ART_SCALINGS);
+        for (const [path, message] of artProblems(el)) fail('art', `${at}.${path}`, message);
       }
       if (el.type === 'box') {
         choice('weight', WEIGHTS);

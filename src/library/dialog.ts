@@ -10,10 +10,12 @@ import oflUrl from '../fonts/OFL.txt?url';
 import type { BookTemplate } from '../builtin/templates';
 import type { Library, LibraryItem } from './library';
 import type { Favorites } from './favorites';
-import { TABS, TAB_LABEL, exampleId, spreadId, templateId, visibleEntries, widgetId, type Entry, type LibraryTab } from './browse';
+import { TABS, TAB_LABEL, artId, exampleId, spreadId, templateId, visibleEntries, widgetId, type Entry, type LibraryTab } from './browse';
 import { TemplateDialog } from './templatedialog';
 import { TEMPLATES } from '../builtin/templates';
-import { BUILTIN_SPREADS, BUILTIN_WIDGETS, asCopy } from '../builtin/library';
+import { BUILTIN_ART, BUILTIN_SPREADS, BUILTIN_WIDGETS, asCopy } from '../builtin/library';
+import { isArtWidget } from '../art/widget';
+import { importArtFile } from '../art/report';
 
 /** What can be saved from the editor right now. */
 export type SaveWhat = 'page' | 'spread' | 'left' | 'right' | 'book';
@@ -71,13 +73,14 @@ function widgetThumbnail(widget: Widget): string {
 }
 
 const when = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
-const KIND_LABEL = { page: 'Page', spread: 'Spread', book: 'Book', widget: 'Widget', template: 'Book template' } as const;
+const KIND_LABEL = { page: 'Page', spread: 'Spread', book: 'Book', widget: 'Widget', art: 'Art', template: 'Book template' } as const;
 /** Where the library opens: on pages (in a spread they are what you place), or on books when arranging one. */
 const VIEW_TAB = { page: 'pages', spread: 'pages', book: 'books' } as const;
 const KIND_TAB = { page: 'pages', spread: 'spreads', book: 'books' } as const;
+const isWidgetKind = (e: Entry): e is Extract<Entry, { kind: 'widget' | 'art' }> => e.kind === 'widget' || e.kind === 'art';
 
 /**
- * The library browser: search, tabs for pages, spreads, books, widgets and favorites, a star on every item, and the
+ * The library browser: search, tabs for pages, spreads, art, books, widgets and favorites, a star on every item, and the
  * built-in examples listed beside what is saved. Tapping an item opens or places it; renaming, duplicating and deleting
  * are in the ⋯ menu on each one.
  */
@@ -86,6 +89,7 @@ export class LibraryDialog {
   private msgEl = h('p', { class: 'lib-msg', role: 'status', hidden: true });
   private listEl = h('div', { class: 'lib-list' });
   private saveRow = h('div', { class: 'lib-save' });
+  private artRow = h('div', { class: 'lib-save', hidden: true });
   private search = h('input', { type: 'text', 'aria-label': 'Search by name', placeholder: 'Search by name', 'data-help': 'library-search', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', enterkeyhint: 'search' });
   private tabsBar = tabBar('Library sections', TABS.map((t) => [t, TAB_LABEL[t]] as [LibraryTab, string]), 'library-tab',
     (t) => { this.tab = t; this.menuFor = null; this.renderTabs(); void this.renderList(); });
@@ -101,12 +105,23 @@ export class LibraryDialog {
       file.value = '';
       if (f) await this.importBackup(f);
     };
+    const svgFile = h('input', { type: 'file', accept: '.svg,image/svg+xml', hidden: true, 'data-key': 'art-file' });
+    svgFile.onchange = async () => {
+      const f = svgFile.files?.[0];
+      svgFile.value = '';
+      if (f) await this.importArt(f);
+    };
+    this.artRow.append(
+      h('button', { type: 'button', class: 'primary', 'data-key': 'library-art-import', 'data-help': 'library-art-import', onclick: () => svgFile.click() }, 'Import SVG art'),
+      h('span', { class: 'hint' }, 'Shapes and colors come in; text, images and effects are left out.'),
+      svgFile);
     this.search.oninput = () => void this.renderList();
     this.dialog = h('dialog', { class: 'library browser', 'aria-label': 'Library' },
       h('header', {},
         h('h2', {}, 'Library'),
         h('button', { type: 'button', 'data-help': 'library-close', onclick: () => this.dialog.close() }, 'Close')),
       this.saveRow,
+      this.artRow,
       h('div', { class: 'lib-find' }, this.search, this.tabsBar.el),
       this.msgEl,
       this.listEl,
@@ -153,6 +168,16 @@ export class LibraryDialog {
 
   private renderTabs() {
     this.tabsBar.select(this.tab);
+    this.artRow.hidden = this.tab !== 'art';
+  }
+
+  /** Read an SVG file into the saved art, and say what came in and what was left out. */
+  private async importArt(file: File) {
+    const r = await importArtFile(file, this.host.widgets);
+    if (!r.ok) { this.say(r.problem); return; }
+    this.say(r.problem ?? `Imported “${r.name}”. Tap it to put it on the page.`);
+    if (r.problem) this.msgEl.prepend(h('p', {}, `Tap “${r.name}” to put it on the page.`));
+    await this.renderList();
   }
 
   // ---- saving ---------------------------------------------------------------
@@ -198,9 +223,11 @@ export class LibraryDialog {
     const examples = this.host.examples.map((data): Entry => ({ kind: 'page', id: exampleId(data), name: data.name, updated: null, example: true, data }));
     const spreads = BUILTIN_SPREADS.map((data): Entry => ({ kind: 'spread', id: spreadId(data), name: data.name, updated: null, example: true, data }));
     const templates = TEMPLATES.map((data): Entry => ({ kind: 'template', id: templateId(data), name: data.name, updated: null, example: true, data }));
-    const widgets = this.host.widgets.list().map((data): Entry => ({ kind: 'widget', id: widgetId(data), name: data.name, updated: null, example: false, data }));
+    const widgets = this.host.widgets.list().filter((w) => !isArtWidget(w)).map((data): Entry => ({ kind: 'widget', id: widgetId(data), name: data.name, updated: null, example: false, data }));
     const builtinWidgets = BUILTIN_WIDGETS.map((data): Entry => ({ kind: 'widget', id: widgetId(data), name: data.name, updated: null, example: true, data }));
-    return [...saved, ...examples, ...spreads, ...templates, ...widgets, ...builtinWidgets];
+    const art = [...this.host.widgets.list().filter(isArtWidget).map((data) => [data, false] as const), ...BUILTIN_ART.map((data) => [data, true] as const)]
+      .map(([data, example]): Entry => ({ kind: 'art', id: artId(data), name: data.name, updated: null, example, data }));
+    return [...saved, ...examples, ...spreads, ...templates, ...widgets, ...builtinWidgets, ...art];
   }
 
   private async renderList() {
@@ -210,6 +237,7 @@ export class LibraryDialog {
       const empty: Record<LibraryTab, string> = {
         pages: 'No pages yet. Save the page you are editing with the button above.',
         spreads: 'No spreads yet. Save the spread you are editing with the button above.',
+        art: 'No art yet. Import an SVG file with the button above.',
         books: 'No books yet. Save the book you are arranging with the button above.',
         widgets: 'No widgets yet. Select elements on a page, then More, Save as widget.',
         favorites: 'Nothing starred yet. Tap the star on anything to find it here.',
@@ -242,7 +270,7 @@ export class LibraryDialog {
     thumb.innerHTML = itemThumb(e);
     const starred = this.host.favorites.has(e.id);
     const title = this.renaming === e.id ? this.renameField(e) : h('strong', { class: 'lib-name', title: e.name }, e.name);
-    const meta = [KIND_LABEL[e.kind], e.example && e.kind !== 'template' ? 'example' : e.updated ? when(e.updated) : e.kind === 'widget' ? `${e.data.elements.length} element${e.data.elements.length === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ');
+    const meta = [KIND_LABEL[e.kind], e.example && e.kind !== 'template' ? 'example' : e.updated ? when(e.updated) : e.kind === 'widget' ? `${e.data.elements.length} element${e.data.elements.length === 1 ? '' : 's'}` : e.kind === 'art' ? 'imported' : ''].filter(Boolean).join(' · ');
     const open = h('button', {
       type: 'button', class: 'lib-open', 'data-key': 'library-item', 'data-help': 'library-item', 'data-kind': e.kind, 'aria-label': `${this.openVerb(e)} ${e.name}`,
       onclick: () => this.use(e),
@@ -263,7 +291,7 @@ export class LibraryDialog {
   }
 
   private openVerb(e: Entry) {
-    return e.kind === 'widget' ? 'Use widget' : e.kind === 'template' ? 'Build a book from' : e.kind === 'page' && this.host.pageTarget() ? `Place on the ${this.host.pageTarget()} page:` : 'Open';
+    return e.kind === 'widget' ? 'Use widget' : e.kind === 'art' ? 'Place art' : e.kind === 'template' ? 'Build a book from' : e.kind === 'page' && this.host.pageTarget() ? `Place on the ${this.host.pageTarget()} page:` : 'Open';
   }
 
   /** Rename, duplicate and delete; the built-in examples can only be copied. */
@@ -276,7 +304,7 @@ export class LibraryDialog {
     if (!e.example) {
       items.push(item('delete', 'Delete', async () => {
         if (!confirm(`Delete the saved ${e.kind} “${e.name}”? This can’t be undone.`)) { await this.renderList(); return; }
-        if (e.kind === 'widget') this.host.widgets.remove(e.data.id); else await this.library.remove(e.id);
+        if (isWidgetKind(e)) this.host.widgets.remove(e.data.id); else await this.library.remove(e.id);
         await this.renderList();
       }));
     }
@@ -290,7 +318,7 @@ export class LibraryDialog {
 
   private async copy(e: Entry) {
     if (e.kind === 'template') return;
-    if (e.kind === 'widget') this.host.widgets.add(`${e.name} copy`, e.data.elements);
+    if (isWidgetKind(e)) this.host.widgets.add(`${e.name} copy`, e.data.elements);
     else if (e.example) {
       const copy = asCopy(e.data as Page | Spread);
       const saved = e.kind === 'spread' ? await this.library.save('spread', copy.name, copy as Spread) : await this.library.save('page', copy.name, copy as Page);
@@ -309,7 +337,7 @@ export class LibraryDialog {
       this.renaming = null;
       if (commit) {
         try {
-          if (e.kind === 'widget') this.host.widgets.rename(e.data.id, input.value); else await this.library.rename(e.id, input.value);
+          if (isWidgetKind(e)) this.host.widgets.rename(e.data.id, input.value); else await this.library.rename(e.id, input.value);
         } catch (err) { this.say(errorProblem('Not renamed.', err)); }
       }
       await this.renderList();

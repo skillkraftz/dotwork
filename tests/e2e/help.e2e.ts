@@ -271,7 +271,7 @@ describe('every control has a help entry', () => {
     await page.waitForSelector('.lib-card input');
     expect(await missingHelp(app)).toEqual([]);
     await page.keyboard.press('Enter');
-    for (const tab of ['widgets', 'favorites']) {
+    for (const tab of ['art', 'widgets', 'favorites']) {
       await page.click(`dialog[aria-label="Library"] [data-tab="${tab}"]`);
       expect(await missingHelp(app), tab).toEqual([]);
     }

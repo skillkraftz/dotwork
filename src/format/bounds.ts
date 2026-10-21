@@ -16,6 +16,7 @@ export function elementArea(el: PageElement, text = el.type === 'text' ? el.text
     case 'pattern':
     case 'shade':
     case 'box':
+    case 'art':
       return { x: el.x, y: el.y, w: el.w, h: el.h };
     case 'rule':
       return {

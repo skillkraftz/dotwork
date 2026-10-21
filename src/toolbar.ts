@@ -39,6 +39,8 @@ export interface BarHandlers {
   /** Open the saved widgets / the icon grid. */
   widgets(): void;
   icons(): void;
+  /** Choose an SVG file to import as art. */
+  art(): void;
 }
 
 const ICON = {
@@ -58,6 +60,7 @@ const ICON = {
   sequence: '<path d="M4 6h3M4 12h3M4 18h3M11 6h9M11 12h9M11 18h9"/>',
   icon: '<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/>',
   checkboxes: '<rect x="4" y="4" width="7" height="7"/><rect x="4" y="13" width="7" height="7"/><path d="M14 7.5h6M14 16.5h6"/>',
+  art: '<path d="M4 17a8 8 0 0116 0z"/><path d="M8 17a4 4 0 018 0"/><path d="M12 17l3-5"/>',
   widgets: '<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/>',
 } as const;
 type IconName = keyof typeof ICON;
@@ -88,7 +91,8 @@ export class Toolbar {
     }
     if (s.mode === 'advanced') {
       const tool = (t: Tool, label: string, icon: IconName, run: () => void = () => k.tool(t)): Slot => ({ id: t, label, icon, help: `tool-${t}`, tool: t, pressed: s.tool === t, run });
-      return [tool('sequence', 'Sequence', 'sequence'), tool('icon', 'Icon', 'icon', () => k.icons()), tool('checkboxes', 'Checks', 'checkboxes'), tool('widget', 'Widgets', 'widgets', () => k.widgets())];
+      return [tool('sequence', 'Sequence', 'sequence'), tool('icon', 'Icon', 'icon', () => k.icons()), tool('checkboxes', 'Checks', 'checkboxes'), tool('widget', 'Widgets', 'widgets', () => k.widgets()),
+        { id: 'art', label: 'Art', icon: 'art', help: 'tool-art', run: () => k.art() }];
     }
     if (s.count === 0) {
       return [

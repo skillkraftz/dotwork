@@ -45,7 +45,7 @@ describe('Advanced on a phone (390 x 844, touch)', () => {
     const app = await open(env, 'phone');
     const { page } = app;
     await page.tap('#advanced');
-    expect((await page.locator('#bar-context button .label').allInnerTexts()).map((t) => t.trim())).toEqual(['Sequence', 'Icon', 'Checks', 'Widgets']);
+    expect((await page.locator('#bar-context button .label').allInnerTexts()).map((t) => t.trim())).toEqual(['Sequence', 'Icon', 'Checks', 'Widgets', 'Art']);
     await shot(app, 'phone-advanced-mode');
     await page.tap('#bar-context [data-action="widget"]');
     await page.waitForSelector('dialog.advanced[open]');
@@ -245,7 +245,7 @@ describe('Advanced on a desktop (1280 x 800, mouse)', () => {
     await seed(app);
     await page.keyboard.press('a');
     expect(await page.locator('#advanced').getAttribute('aria-pressed')).toBe('true');
-    expect((await page.locator('#bar-context button .label').allInnerTexts()).map((t) => t.trim())).toEqual(['Sequence', 'Icon', 'Checks', 'Widgets']);
+    expect((await page.locator('#bar-context button .label').allInnerTexts()).map((t) => t.trim())).toEqual(['Sequence', 'Icon', 'Checks', 'Widgets', 'Art']);
     await shot(app, 'desktop-advanced-mode');
     await page.keyboard.press('v');
 
