@@ -14,6 +14,12 @@ export function isDate(value: unknown): value is string {
   return Number.isFinite(ms) && toIso(ms) === value;
 }
 
+/** Today's date on the clock the person is using, not UTC (which turns evening into tomorrow). */
+export function todayIso(now: Date = new Date()): string {
+  const pad = (n: number, w = 2) => String(n).padStart(w, '0');
+  return `${pad(now.getFullYear(), 4)}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
+
 export const addDays = (iso: string, days: number): string => toIso(toMs(iso) + days * DAY_MS);
 
 /** 0 is Sunday. */

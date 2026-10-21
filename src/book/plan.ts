@@ -1,6 +1,7 @@
 import type { Page } from '../format/types';
-import { addDays, isDate, parts, shortDate, weekNumber, weekStart } from '../format/dates';
-import { designAt, getSlot, slotCount, type Book, type Design } from './book';
+import { addDays, isDate, parts, shortDate, todayIso, weekNumber, weekStart } from '../format/dates';
+import { pageSpan } from '../format/tokens';
+import { dateOf, designAt, getSlot, slotCount, type Book, type Design } from './book';
 
 /** Which pages "apply to more pages" reaches. Page numbers are 1-based; the covers are never part of a range. */
 export type Scope =
@@ -123,4 +124,38 @@ export function endOfRun(book: Book, slot: number): number {
   let n = slot;
   while (n < book.page_count && designKey(getSlot(book, n + 1)) === key) n++;
   return n;
+}
+
+const daysBetween = (a: string, b: string) => Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / 86_400_000);
+
+/**
+ * Where the Dates window starts for page `slot`: its own date if it has one, else the date after the nearest dated page
+ * before it, continuing that page's rhythm (a day later, or a week later when the dated pages before it are a week apart,
+ * or when it is itself a week page and the only one). With nothing before it, the nearest dated page after, a step back.
+ * Only a book with no dates at all starts from today.
+ */
+export function datesStart(book: Book, slot: number, today = todayIso()): { start: string; weekly: boolean } {
+  const own = dateOf(book, slot);
+  if (own) return { start: own, weekly: false };
+  const dated = (from: number, step: 1 | -1) => {
+    const found: number[] = [];
+    for (let n = from; n >= 1 && n <= book.page_count && found.length < 2; n += step) if (dateOf(book, n)) found.push(n);
+    return found;
+  };
+  const before = dated(slot - 1, -1), after = dated(slot + 1, 1);
+  const near = before[0] ?? after[0];
+  if (near === undefined) return { start: today, weekly: false };
+  const date = dateOf(book, near)!, other = before.length > 1 ? before[1] : before.length ? undefined : after[1];
+  const page = getSlot(book, near);
+  const weekly = other !== undefined ? Math.abs(daysBetween(dateOf(book, other)!, date)) >= 7 : !!page && pageSpan(page) === 'week';
+  return { start: addDays(date, (before.length ? 1 : -1) * (weekly ? 7 : 1)), weekly };
+}
+
+/** The date of a page for the Contents list: "Sun Nov 1", or for a run of pages "Nov 1 – Nov 28". Empty for undated pages. */
+export function datesLabel(book: Book, from: number, to: number): string {
+  const dates: string[] = [];
+  for (let n = from; n <= to; n++) { const d = dateOf(book, n); if (d) dates.push(d); }
+  if (!dates.length) return '';
+  const [a, z] = [dates[0], dates[dates.length - 1]];
+  return a === z ? shortDate(a) : `${shortDate(a)} – ${shortDate(z)}`;
 }
