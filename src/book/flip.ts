@@ -2,7 +2,10 @@ import { h } from '../panel';
 import type { Book } from './book';
 
 const SPEED_KEY = 'dotwork.book.flip-ms';
-export const FLIP_MS = { min: 100, max: 1000, step: 50, default: 200 };
+export const FLIP_MS = { min: 250, max: 3000, step: 250, default: 1000 };
+
+/** 250 ms to 3 s: "0.25 s", "1 s", "2.5 s". */
+const seconds = (ms: number) => `${ms / 1000} s per opening`;
 
 const savedSpeed = () => {
   try { const v = Number(localStorage.getItem(SPEED_KEY)); if (v >= FLIP_MS.min && v <= FLIP_MS.max) return v; } catch { /* ignore */ }
@@ -45,7 +48,7 @@ export function flipThrough(book: Book, render: (slot: number, align: string) =>
     prev.disabled = at <= 0;
     next.disabled = at >= last;
     play.textContent = playing ? 'Pause' : at >= last ? 'Play again' : 'Play';
-    speedLabel.textContent = `${ms} ms per opening`;
+    speedLabel.textContent = seconds(ms);
   };
   const tick = () => {
     clearTimeout(timer);
@@ -67,7 +70,7 @@ export function flipThrough(book: Book, render: (slot: number, align: string) =>
   };
   function step(direction: -1 | 1) { at = Math.max(0, Math.min(last, at + direction)); pause(); }
 
-  speed.oninput = () => { ms = Number(speed.value); try { localStorage.setItem(SPEED_KEY, String(ms)); } catch { /* ignore */ } speedLabel.textContent = `${ms} ms per opening`; tick(); };
+  speed.oninput = () => { ms = Number(speed.value); try { localStorage.setItem(SPEED_KEY, String(ms)); } catch { /* ignore */ } speedLabel.textContent = seconds(ms); tick(); };
   // A tap pauses while it plays; a tap on a paused opening stops there.
   stage.onclick = () => { if (playing) pause(); else dialog.close(); };
   dialog.addEventListener('keydown', (e) => {

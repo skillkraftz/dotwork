@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { box, open, shot, start, stop, touch, settle, type App, type Env } from './harness';
+import { bookMore, box, open, shot, start, stop, touch, settle, type App, type Env } from './harness';
 
 let env: Env;
 beforeAll(async () => { env = await start(); });
@@ -152,7 +152,7 @@ async function dates(app: App, device: string) {
   await click(app, page.getByRole('button', { name: /^Apply to \d+ pages$/ }));
   expect(await page.locator('.page-date').count()).toBe(0); // undated
 
-  await click(app, page.getByRole('button', { name: 'Dates…' }));
+  await bookMore(app, 'Dates…');
   await page.waitForSelector('dialog.dates[open]');
   // From and to default to this page and the end of the run sharing its design
   expect(await page.locator('[data-key="dates-from"]').inputValue()).toBe('1');
@@ -181,14 +181,14 @@ async function dates(app: App, device: string) {
   // Undo takes it back; Clear dates takes them off a range
   await click(app, page.getByRole('button', { name: 'Undo' }));
   expect((await saved(app)).dates).toBeUndefined();
-  await click(app, page.getByRole('button', { name: 'Dates…' }));
+  await bookMore(app, 'Dates…');
   await page.locator('[data-key="dates-from"]').fill('1');
   await page.locator('[data-key="dates-from"]').dispatchEvent('change');
   await page.locator('[data-key="dates-year"]').fill('2026');
   await page.locator('[data-key="dates-week"]').fill('43');
   await click(app, page.locator('dialog.dates [data-key="dates-set"]'));
   expect((await saved(app)).dates[0]).toBe('2026-10-18');
-  await click(app, page.getByRole('button', { name: 'Dates…' }));
+  await bookMore(app, 'Dates…');
   await page.locator('[data-key="dates-from"]').fill('3');
   await page.locator('[data-key="dates-from"]').dispatchEvent('change');
   await page.locator('[data-key="dates-to"]').fill('4');

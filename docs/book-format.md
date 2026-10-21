@@ -50,7 +50,7 @@ to the page format.
 | `print.shade_light_pct`, `print.shade_medium_pct`, `print.shade_dark_pct`, `print.gray_text_pct` | How dark the printed PDFs draw the light, medium and dark shade tones and the gray text (`"tone": "gray"` on text and sequences), as a percent of black: 0 is white, 100 is black. 0 to 100, fractions allowed. The defaults, 6.3, 13.7, 25.9 and 49.8, are the grays the editor and PNGs always use (#efefef, #dcdcdc, #bdbdbd, #808080), so a default book prints as it always did. They change `pages.pdf`, the print files, `cover.pdf` and the calibration sheets only, never the editor, the preview or PNGs. |
 | `pages` | Exactly `page_count` entries; entry *i* is page *i* + 1. A page, or `null` for a blank page. |
 | `dates` | Optional. Exactly `page_count` entries; entry *i* is the date of page *i* + 1, as `"YYYY-MM-DD"` (a real calendar day), or `null` for an undated page. A book without `dates` has none. The covers have no date. |
-| `recipe` | Optional. How **Build by week** made the pages, so it can be run again for another month. See **Recipe** below. |
+| `recipe` | Optional. The steps **Build book** made the pages from, so it can be run again for another month. See **Recipe** below. |
 | `cover.front` | The inside front cover, a left page facing page 1 when the book is open. A page or `null`. |
 | `cover.back` | The inside back cover, a right page facing the last page. A page or `null`. |
 
@@ -75,36 +75,39 @@ swapping pages moves their dates, and a page given a design with no date tokens 
 resizing the book (new pages start undated). **Dates…** starts from the nearest dated page before the current one,
 continuing its rhythm (a day or a week later), and from today (the local date, never UTC) only when the book has none.
 
-**Recipe.** **Build by week…** repeats a *section* of pages for each week touching a month, then places the pages
-after the weeks, filler, and an end. It replaces every interior page and its date, as one Undo step, and keeps
-what it needs to run again in `recipe`, so **Rebuild for another month** changes only the month:
+**Recipe.** **Build book…** builds every interior page from a list of *steps*, each repeating a *section* (a run
+of pages kept in the Library, see `library-format.md`). It replaces every interior page and its date, as one Undo step,
+and keeps the steps in `recipe`, so the book can be built again for another month by changing a step's month or start date:
 
 ```json
 "recipe": {
   "month": "2026-11",
-  "weekday": 0,
-  "section": { "pages": [ { "...": "page" }, null ], "days": [ 0, 0, 1, null ], "left": false },
-  "after": { "pages": [ { "...": "page" } ], "left": true },
-  "fill": { "pages": [ { "...": "page" } ], "left": true },
-  "fill_cut": true,
-  "end": { "pages": [ { "...": "page" } ], "left": true }
+  "gap": { "...": "a page; Notes when absent" },
+  "steps": [
+    { "section": { "...": "a dotwork-section" }, "repeat": { "kind": "weeks", "only_in_month": true } },
+    { "section": { "...": "a dotwork-section" }, "repeat": { "kind": "times", "count": 1 }, "start": "2026-11-01" },
+    { "section": { "...": "a dotwork-section" }, "repeat": { "kind": "fill" } }
+  ]
 }
 ```
 
 | Field | Meaning |
 |-------|---------|
-| `month` | The month built, `"YYYY-MM"`. |
-| `weekday` | The weekday (0 is Sunday) of the section's first date. The week containing the 1st of the month starts on the latest such weekday on or before it, and each repeat starts 7 days later, until a week starts after the month's last day. |
-| `section.pages` | Page designs copied from the book, `null` for a blank page. Each week repeats them in order. |
-| `section.days` | One entry per section page: its date as whole days after the repeat's first date, or `null` for an undated page. A **day page** (its tokens read its own day, `{weekday}` or `{day}`, with no offset and no `{months}`) dated outside the month is left out; every other page stays. |
-| `after`, `fill`, `end` | Optional parts. `after` is placed once after the weeks; `fill` repeats to fill the space left (whole repeats, or with `fill_cut` the last cut short to fit); `end` is placed on the last pages of the book. Pages in them that print a date are dated the 1st of the month. |
-| `left` | Whether the part began on a left-hand (even) page. Each part starts on the same side again: if it would begin on the other side, one Notes page is inserted first (for `end`, which sits on the last pages, the last page becomes the gap). Repeats of `fill` are not realigned. |
+| `month` | The month the steps start from, `"YYYY-MM"`: the month of every `weeks` step without a month of its own, and the 1st of it is the first date of every other step without a `start`. |
+| `gap` | The page that keeps parts on their side of the spine. A Notes page when absent. |
+| `steps` | Up to 40, laid out in order from page 1. Each holds a whole `section` (so the book file is self-contained), a `repeat`, and optionally a `start`. |
+| `repeat` | `{"kind": "times", "count": n}`: n repeats (1 to 400). `{"kind": "weeks", "month": "YYYY-MM", "only_in_month": b}`: one repeat for each week touching the month (`month` is optional, the recipe's by default); every repeat starts on the section's `weekday`, the week holding the 1st first, until a week starts after the month's last day. With `only_in_month`, a **day page** (its tokens read its own day, `{weekday}` or `{day}`, with no offset and no `{months}`) dated outside the month is left out; week pages and undated pages stay. `{"kind": "fill"}`: as many whole repeats as fit in the pages the other steps leave; at most one step may do this. The steps after it sit on the last pages of the book, and any pages left over stay blank between. |
+| `start` | The first date (`YYYY-MM-DD`) of a `times` or `fill` step; later repeats move it as the section's `move` says (`none`, a `day`, a `week` or a `month`, keeping the day of the month unless the month is too short). A `weeks` step ignores it. |
 
-The build can't be applied when it needs more pages than the book has; fewer leaves the rest blank.
+Each repeat of a section starts on the side of the spine the section began on (`left`). If it would begin on the other
+side, one gap page is inserted first; when steps after a `fill` don't end exactly on the last page, the pages after them are
+gap pages. A page dated by the section is dated its repeat's first date plus its `days`; an undated page stays undated.
+The build can't be applied when the steps need more pages than the book has (the window says by how many); fewer leaves
+the rest blank, and the window shows "38 of 52 used, 14 left" as the steps change.
 
 **Validation.** A reader rejects the whole file, and says which rule failed and
 where, if the format or version is wrong, `page_count` is not a multiple of 4,
-`pages` or `dates` has the wrong length, a date is not a real `YYYY-MM-DD` day, a print setting (any `print.*` number, the four offsets included) is missing or out of range, a `recipe` is malformed (its month, weekday, `days` or a page design), or a page breaks
+`pages` or `dates` has the wrong length, a date is not a real `YYYY-MM-DD` day, a print setting (any `print.*` number, the four offsets included) is missing or out of range, a `recipe` is malformed (its month, a step's `repeat` or `start`, more than one `fill`, or a section: see `library-format.md`), or a page breaks
 the page rules or sits on the wrong side. The page-number corner rule is not applied to the covers.
 
 ## What the print files contain

@@ -17,10 +17,10 @@
     { "type": "rule", "x1": 15, "y1": 1, "x2": 15, "y2": 19, "weight": "hair" },
     { "type": "text", "x": 0, "y": 1, "text": "Activity:" },
     { "type": "text", "x": 0, "y": 3, "text": "Reflections:" },
-    { "type": "text", "x": 19, "y": 1, "text": "Flow", "align": "right" },
-    { "type": "checkboxes", "x": 19, "y": 1, "count": 1 },
-    { "type": "text", "x": 24, "y": 2, "text": "0", "align": "center" },
-    { "type": "art", "x": 16, "y": 3, "w": 4, "h": 2, "view_box": [0,0,30,16], "paths": [
+    { "type": "text", "x": 19, "y": 1.5, "text": "Flow", "align": "right" },
+    { "type": "checkboxes", "x": 19, "y": 1.5, "count": 1, "size": 0.8 },
+    { "type": "text", "x": 24, "y": 1.5, "text": "0", "align": "center" },
+    { "type": "art", "x": 15.5, "y": 2, "w": 5, "h": 3, "view_box": [0,0,30,16], "paths": [
       { "id": "left-half", "d": "M15 14L3 14C3 7.373 8.373 2 15 2Z", "fill": "medium", "stroke": "none", "stroke_mm": 0 },
       { "id": "right-half", "d": "M15 14L15 2C21.627 2 27 7.373 27 14Z", "fill": "none", "stroke": "none", "stroke_mm": 0 },
       { "id": "centre-line", "d": "M15 2L15 14", "fill": "none", "stroke": "black", "stroke_mm": 0.25, "linecap": "round" },
@@ -29,7 +29,7 @@
       { "d": "M3 14C3 7.373 8.373 2 15 2C21.627 2 27 7.373 27 14", "fill": "none", "stroke": "black", "stroke_mm": 0.35 },
       { "d": "M16.1 14C16.1 14.608 15.608 15.1 15 15.1C14.392 15.1 13.9 14.608 13.9 14C13.9 13.392 14.392 12.9 15 12.9C15.608 12.9 16.1 13.392 16.1 14Z", "fill": "white", "stroke": "black", "stroke_mm": 0.25 }
     ], "fills": { "left-half": "none" }, "strokes": { "centre-line": "none" } },
-    { "type": "art", "x": 22, "y": 3, "w": 4, "h": 2, "view_box": [0,0,30,16], "paths": [
+    { "type": "art", "x": 21.5, "y": 2, "w": 5, "h": 3, "view_box": [0,0,30,16], "paths": [
       { "id": "left-half", "d": "M15 14L3 14C3 7.373 8.373 2 15 2Z", "fill": "medium", "stroke": "none", "stroke_mm": 0 },
       { "id": "right-half", "d": "M15 14L15 2C21.627 2 27 7.373 27 14Z", "fill": "none", "stroke": "none", "stroke_mm": 0 },
       { "id": "centre-line", "d": "M15 2L15 14", "fill": "none", "stroke": "black", "stroke_mm": 0.25, "linecap": "round" },
@@ -38,18 +38,18 @@
       { "d": "M3 14C3 7.373 8.373 2 15 2C21.627 2 27 7.373 27 14", "fill": "none", "stroke": "black", "stroke_mm": 0.35 },
       { "d": "M16.1 14C16.1 14.608 15.608 15.1 15 15.1C14.392 15.1 13.9 14.608 13.9 14C13.9 13.392 14.392 12.9 15 12.9C15.608 12.9 16.1 13.392 16.1 14Z", "fill": "white", "stroke": "black", "stroke_mm": 0.25 }
     ], "fills": { "left-half": "medium" }, "strokes": { "centre-line": "black" } },
-    { "type": "text", "x": 16, "y": 5, "text": "LO" },
-    { "type": "text", "x": 20, "y": 5, "text": "HI", "align": "right" },
-    { "type": "text", "x": 22, "y": 5, "text": "NEG" },
-    { "type": "text", "x": 26, "y": 5, "text": "POS", "align": "right" },
-    { "type": "text", "x": 18, "y": 6, "text": "Engagement", "align": "center" },
-    { "type": "text", "x": 24, "y": 6, "text": "Energy", "align": "center" },
+    { "type": "text", "x": 15.5, "y": 4.5, "text": "LO" },
+    { "type": "text", "x": 20.5, "y": 4.5, "text": "HI", "align": "right" },
+    { "type": "text", "x": 21, "y": 4.5, "text": "NEG" },
+    { "type": "text", "x": 27, "y": 4.5, "text": "POS", "align": "right" },
+    { "type": "text", "x": 18, "y": 5.5, "text": "Engagement", "align": "center" },
+    { "type": "text", "x": 24, "y": 5.5, "text": "Energy", "align": "center" },
     { "type": "text", "x": 0, "y": 7, "text": "Activity:" },
     { "type": "text", "x": 0, "y": 9, "text": "Reflections:" },
-    { "type": "text", "x": 19, "y": 7, "text": "Flow", "align": "right" },
-    { "type": "checkboxes", "x": 19, "y": 7, "count": 1 },
-    { "type": "text", "x": 24, "y": 8, "text": "0", "align": "center" },
-    { "type": "art", "x": 16, "y": 9, "w": 4, "h": 2, "view_box": [0,0,30,16], "paths": [
+    { "type": "text", "x": 19, "y": 7.5, "text": "Flow", "align": "right" },
+    { "type": "checkboxes", "x": 19, "y": 7.5, "count": 1, "size": 0.8 },
+    { "type": "text", "x": 24, "y": 7.5, "text": "0", "align": "center" },
+    { "type": "art", "x": 15.5, "y": 8, "w": 5, "h": 3, "view_box": [0,0,30,16], "paths": [
       { "id": "left-half", "d": "M15 14L3 14C3 7.373 8.373 2 15 2Z", "fill": "medium", "stroke": "none", "stroke_mm": 0 },
       { "id": "right-half", "d": "M15 14L15 2C21.627 2 27 7.373 27 14Z", "fill": "none", "stroke": "none", "stroke_mm": 0 },
       { "id": "centre-line", "d": "M15 2L15 14", "fill": "none", "stroke": "black", "stroke_mm": 0.25, "linecap": "round" },
@@ -58,7 +58,7 @@
       { "d": "M3 14C3 7.373 8.373 2 15 2C21.627 2 27 7.373 27 14", "fill": "none", "stroke": "black", "stroke_mm": 0.35 },
       { "d": "M16.1 14C16.1 14.608 15.608 15.1 15 15.1C14.392 15.1 13.9 14.608 13.9 14C13.9 13.392 14.392 12.9 15 12.9C15.608 12.9 16.1 13.392 16.1 14Z", "fill": "white", "stroke": "black", "stroke_mm": 0.25 }
     ], "fills": { "left-half": "none" }, "strokes": { "centre-line": "none" } },
-    { "type": "art", "x": 22, "y": 9, "w": 4, "h": 2, "view_box": [0,0,30,16], "paths": [
+    { "type": "art", "x": 21.5, "y": 8, "w": 5, "h": 3, "view_box": [0,0,30,16], "paths": [
       { "id": "left-half", "d": "M15 14L3 14C3 7.373 8.373 2 15 2Z", "fill": "medium", "stroke": "none", "stroke_mm": 0 },
       { "id": "right-half", "d": "M15 14L15 2C21.627 2 27 7.373 27 14Z", "fill": "none", "stroke": "none", "stroke_mm": 0 },
       { "id": "centre-line", "d": "M15 2L15 14", "fill": "none", "stroke": "black", "stroke_mm": 0.25, "linecap": "round" },
@@ -67,18 +67,18 @@
       { "d": "M3 14C3 7.373 8.373 2 15 2C21.627 2 27 7.373 27 14", "fill": "none", "stroke": "black", "stroke_mm": 0.35 },
       { "d": "M16.1 14C16.1 14.608 15.608 15.1 15 15.1C14.392 15.1 13.9 14.608 13.9 14C13.9 13.392 14.392 12.9 15 12.9C15.608 12.9 16.1 13.392 16.1 14Z", "fill": "white", "stroke": "black", "stroke_mm": 0.25 }
     ], "fills": { "left-half": "medium" }, "strokes": { "centre-line": "black" } },
-    { "type": "text", "x": 16, "y": 11, "text": "LO" },
-    { "type": "text", "x": 20, "y": 11, "text": "HI", "align": "right" },
-    { "type": "text", "x": 22, "y": 11, "text": "NEG" },
-    { "type": "text", "x": 26, "y": 11, "text": "POS", "align": "right" },
-    { "type": "text", "x": 18, "y": 12, "text": "Engagement", "align": "center" },
-    { "type": "text", "x": 24, "y": 12, "text": "Energy", "align": "center" },
+    { "type": "text", "x": 15.5, "y": 10.5, "text": "LO" },
+    { "type": "text", "x": 20.5, "y": 10.5, "text": "HI", "align": "right" },
+    { "type": "text", "x": 21, "y": 10.5, "text": "NEG" },
+    { "type": "text", "x": 27, "y": 10.5, "text": "POS", "align": "right" },
+    { "type": "text", "x": 18, "y": 11.5, "text": "Engagement", "align": "center" },
+    { "type": "text", "x": 24, "y": 11.5, "text": "Energy", "align": "center" },
     { "type": "text", "x": 0, "y": 13, "text": "Activity:" },
     { "type": "text", "x": 0, "y": 15, "text": "Reflections:" },
-    { "type": "text", "x": 19, "y": 13, "text": "Flow", "align": "right" },
-    { "type": "checkboxes", "x": 19, "y": 13, "count": 1 },
-    { "type": "text", "x": 24, "y": 14, "text": "0", "align": "center" },
-    { "type": "art", "x": 16, "y": 15, "w": 4, "h": 2, "view_box": [0,0,30,16], "paths": [
+    { "type": "text", "x": 19, "y": 13.5, "text": "Flow", "align": "right" },
+    { "type": "checkboxes", "x": 19, "y": 13.5, "count": 1, "size": 0.8 },
+    { "type": "text", "x": 24, "y": 13.5, "text": "0", "align": "center" },
+    { "type": "art", "x": 15.5, "y": 14, "w": 5, "h": 3, "view_box": [0,0,30,16], "paths": [
       { "id": "left-half", "d": "M15 14L3 14C3 7.373 8.373 2 15 2Z", "fill": "medium", "stroke": "none", "stroke_mm": 0 },
       { "id": "right-half", "d": "M15 14L15 2C21.627 2 27 7.373 27 14Z", "fill": "none", "stroke": "none", "stroke_mm": 0 },
       { "id": "centre-line", "d": "M15 2L15 14", "fill": "none", "stroke": "black", "stroke_mm": 0.25, "linecap": "round" },
@@ -87,7 +87,7 @@
       { "d": "M3 14C3 7.373 8.373 2 15 2C21.627 2 27 7.373 27 14", "fill": "none", "stroke": "black", "stroke_mm": 0.35 },
       { "d": "M16.1 14C16.1 14.608 15.608 15.1 15 15.1C14.392 15.1 13.9 14.608 13.9 14C13.9 13.392 14.392 12.9 15 12.9C15.608 12.9 16.1 13.392 16.1 14Z", "fill": "white", "stroke": "black", "stroke_mm": 0.25 }
     ], "fills": { "left-half": "none" }, "strokes": { "centre-line": "none" } },
-    { "type": "art", "x": 22, "y": 15, "w": 4, "h": 2, "view_box": [0,0,30,16], "paths": [
+    { "type": "art", "x": 21.5, "y": 14, "w": 5, "h": 3, "view_box": [0,0,30,16], "paths": [
       { "id": "left-half", "d": "M15 14L3 14C3 7.373 8.373 2 15 2Z", "fill": "medium", "stroke": "none", "stroke_mm": 0 },
       { "id": "right-half", "d": "M15 14L15 2C21.627 2 27 7.373 27 14Z", "fill": "none", "stroke": "none", "stroke_mm": 0 },
       { "id": "centre-line", "d": "M15 2L15 14", "fill": "none", "stroke": "black", "stroke_mm": 0.25, "linecap": "round" },
@@ -96,11 +96,11 @@
       { "d": "M3 14C3 7.373 8.373 2 15 2C21.627 2 27 7.373 27 14", "fill": "none", "stroke": "black", "stroke_mm": 0.35 },
       { "d": "M16.1 14C16.1 14.608 15.608 15.1 15 15.1C14.392 15.1 13.9 14.608 13.9 14C13.9 13.392 14.392 12.9 15 12.9C15.608 12.9 16.1 13.392 16.1 14Z", "fill": "white", "stroke": "black", "stroke_mm": 0.25 }
     ], "fills": { "left-half": "medium" }, "strokes": { "centre-line": "black" } },
-    { "type": "text", "x": 16, "y": 17, "text": "LO" },
-    { "type": "text", "x": 20, "y": 17, "text": "HI", "align": "right" },
-    { "type": "text", "x": 22, "y": 17, "text": "NEG" },
-    { "type": "text", "x": 26, "y": 17, "text": "POS", "align": "right" },
-    { "type": "text", "x": 18, "y": 18, "text": "Engagement", "align": "center" },
-    { "type": "text", "x": 24, "y": 18, "text": "Energy", "align": "center" }
+    { "type": "text", "x": 15.5, "y": 16.5, "text": "LO" },
+    { "type": "text", "x": 20.5, "y": 16.5, "text": "HI", "align": "right" },
+    { "type": "text", "x": 21, "y": 16.5, "text": "NEG" },
+    { "type": "text", "x": 27, "y": 16.5, "text": "POS", "align": "right" },
+    { "type": "text", "x": 18, "y": 17.5, "text": "Engagement", "align": "center" },
+    { "type": "text", "x": 24, "y": 17.5, "text": "Energy", "align": "center" }
   ]
 }

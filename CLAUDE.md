@@ -95,6 +95,18 @@ Dotwork's print export follows the same physical rules as journal-system
   are at least 44 px. Test every UI change at phone, tablet and desktop sizes,
   with touch emulation, and include screenshots of all three in the PR.
 
+## How to finish a task
+
+- Run the full unit suite, then the full e2e suite. Fix failures; re-run only the failing files until they pass, then run
+  both full suites once more at the end. A test that fails only in the full run is not "a flake" until it has failed and
+  passed again in a second full run; say what happened.
+- Never invent a stand-in for a file the owner says they attached. If it's missing, say so at the start, skip only what
+  depends on it, and list it in the PR.
+- Screenshots go in `docs/screenshots/` and are committed; nothing stays in a scratch folder. Take them after the last UI
+  change.
+- Last step, always: commit, push, open the PR (`gh pr create`), and end your final message with the PR's URL. If opening
+  it fails, quote the error.
+
 ## Roadmap
 
 1. Single-page editor (done, format version 1).
@@ -123,4 +135,8 @@ Dotwork's print export follows the same physical rules as journal-system
     listed in summary.txt (done).
 15. Local-date fixes, dates that travel with their pages, Build by week (a section repeated for each week of a month, with a
     recipe to rebuild for another month), and Flip through (done).
-16. Later: dials and other components, color, sharing, a page gallery.
+16. Sections (a Library item made from a run of book pages, with how its dates move) and the book builder (steps that
+    repeat sections: a number of times, each week of a month, or fill what's left; Build by week is now a preset of
+    steps), Flip through at 1 s by default, the Good Time page matched to its reference, and a Book bar that fits a phone
+    (done).
+17. Later: dials and other components, color, sharing, a page gallery.
