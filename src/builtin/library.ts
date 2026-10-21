@@ -1,11 +1,6 @@
 import { readPage } from '../format/read';
 import { buildSpread, type Spread } from '../format/spread';
 import type { Page } from '../format/types';
-import daily from '../../examples/daily-good-time.json';
-import dots from '../../examples/dot-grid-page.json';
-import idea from '../../examples/idea-page.json';
-import lined from '../../examples/lined-page.json';
-import shade from '../../examples/shade-and-lines.json';
 import { monthlyLayout } from './layout';
 import {
   blankPage, bookNotesPage, bookNotesSetup, monthlyPageIndex, monthlyTracker, notesPage, patternsPage, plainIndex, purposeCover,
@@ -13,14 +8,17 @@ import {
 } from './pages';
 import { builtinWidgets } from './widgets';
 import { builtinArt } from './art';
+import { pageFiles, skipped } from './examples';
 
 // The pages, spreads and widgets that come with Dotwork: every page of the owner's books, as closely as the format allows.
 
-const fromJson = (raw: unknown): Page => {
+/** The pages in examples/pages, in file order; one that isn't a valid page is skipped (the tests catch it). */
+const filePages = (files: Record<string, unknown> = pageFiles): Page[] => Object.entries(files).flatMap(([path, raw]) => {
   const r = readPage(raw);
-  if (!r.ok) throw new Error(`A built-in page is invalid: ${r.issues[0].message}`);
-  return r.page;
-};
+  if (r.ok) return [r.page];
+  skipped(path, r.issues[0].message);
+  return [];
+});
 
 /** The year and month the built-in samples are drawn for (the sample date of the editor). */
 const SAMPLE = { year: 2026, month: 10 };
@@ -28,13 +26,9 @@ const SAMPLE = { year: 2026, month: 10 };
 /** Every built-in page. Their names are reserved: a saved page can't take one. */
 export const BUILTIN_PAGES: readonly Page[] = [
   monthlyTracker(SAMPLE.year, SAMPLE.month),
-  fromJson(daily),
   weeklyReflection(),
   patternsPage(),
   questionsPage(),
-  fromJson(idea),
-  fromJson(lined),
-  fromJson(dots),
   blankPage(),
   notesPage(),
   weeklyPage('right', false),
@@ -46,30 +40,31 @@ export const BUILTIN_PAGES: readonly Page[] = [
   plainIndex(),
   bookNotesSetup(),
   bookNotesPage(),
-  fromJson(shade),
+  ...filePages(),
 ];
 
-export function builtinPage(name: string): Page {
-  const page = BUILTIN_PAGES.find((p) => p.name === name);
-  if (!page) throw new Error(`There is no built-in page called “${name}”.`);
-  return page;
-}
+/** The built-in page of this name, if it is there: the pages from examples/pages can be taken out. */
+export const findBuiltinPage = (name: string): Page | undefined => BUILTIN_PAGES.find((p) => p.name === name);
 
-const spread = (name: string, left: string, right: string) => buildSpread(name, builtinPage(left), builtinPage(right));
+/** A spread of two built-in pages; none when either was taken out of examples/pages. */
+const spread = (name: string, left: string, right: string): Spread[] => {
+  const [l, r] = [findBuiltinPage(left), findBuiltinPage(right)];
+  return l && r ? [buildSpread(name, l, r)] : [];
+};
 
 /** Pages that pair naturally, and the cover spread of each book. */
 export const BUILTIN_SPREADS: readonly Spread[] = [
-  spread('Lined spread', 'Lined page', 'Lined page'),
-  spread('Dot grid spread', 'Dot grid page', 'Dot grid page'),
-  spread('Notes spread', 'Notes', 'Notes'),
-  spread('Ideas spread', 'Idea page', 'Dot grid page'),
-  spread('Book notes spread', 'Book notes setup', 'Book notes'),
+  ...spread('Lined spread', 'Lined page', 'Lined page'),
+  ...spread('Dot grid spread', 'Dot grid page', 'Dot grid page'),
+  ...spread('Notes spread', 'Notes', 'Notes'),
+  ...spread('Ideas spread', 'Idea page', 'Dot grid page'),
+  ...spread('Book notes spread', 'Book notes setup', 'Book notes'),
   // A mirror: on each page the GOAL / day column / OUTCOME strip is on the outer edge and the lines run to the spine.
   buildSpread('Weekly spread', weeklyPage('left', true), weeklyPage('right', true)),
   buildSpread('Weekly spread (undated)', weeklyPage('left', false), weeklyPage('right', false)),
-  spread('Year planner covers', 'Year goals cover', 'Year index'),
-  spread('Monthly journal covers', 'Monthly tracker', 'Monthly page index'),
-  spread('Plain-book covers', 'Plain-book purpose cover', 'Plain-book index'),
+  ...spread('Year planner covers', 'Year goals cover', 'Year index'),
+  ...spread('Monthly journal covers', 'Monthly tracker', 'Monthly page index'),
+  ...spread('Plain-book covers', 'Plain-book purpose cover', 'Plain-book index'),
 ];
 
 export const BUILTIN_WIDGETS = builtinWidgets();

@@ -26,8 +26,7 @@ import { badDraftProblem, loadDraft as loadStored, saveDraft, type DraftLoad, ty
 import { errorProblem, issuesProblem, problemView, type Problem } from './problems';
 import { AdvancedPicker, type AdvancedChoice } from './advanced';
 import { NameDialog } from './namedialog';
-import { importArtFile } from './art/report';
-import { WidgetStore } from './widgets';
+import { WidgetStore, type Widget } from './widgets';
 import { BUILTIN_PAGES, isBuiltinName } from './builtin/library';
 
 const KEYS = { page: 'dotwork.page', left: 'dotwork.spread.left', right: 'dotwork.spread.right' } as const;
@@ -263,7 +262,7 @@ const toolbar = new Toolbar($('tools'), {
   },
   widgets() { closeContextMenu(); notify(null); picker.showWidgets(); },
   icons() { closeContextMenu(); notify(null); picker.showIconTool(); },
-  art() { closeContextMenu(); notify(null); artFile.click(); },
+  art() { closeContextMenu(); notify(null); picker.showArt(); },
 });
 const canvasOf = (store: Store) => (store === stores.page ? canvases.page : store === stores.left ? canvases.left : canvases.right);
 
@@ -309,29 +308,22 @@ async function saveWidget() {
 
 // ---- Advanced: sequence, icon, saved widgets and art ----
 
-/** The Art button: choose an SVG file, save it as art, and have it ready to put on the page. */
-const artFile = Object.assign(document.createElement('input'), { type: 'file', accept: '.svg,image/svg+xml', hidden: true });
-artFile.dataset.key = 'art-file';
-artFile.onchange = async () => {
-  const file = artFile.files?.[0];
-  artFile.value = '';
-  if (!file) return;
-  const r = await importArtFile(file, widgets);
-  if (!r.ok) { notifyProblems([r.problem]); return; }
-  all.forEach((s) => s.setWidget(r.widget));
-  setTools('widget');
-  if (r.problem) show([problemView(r.problem), h('p', {}, `Tap the page to put “${r.name}” there; drag to choose the spot.`)], false);
-  else notify(`Imported “${r.name}”. Tap the page to put it there; drag to choose the spot.`);
-};
-document.body.append(artFile);
-
 const picker = new AdvancedPicker(widgets, nameDialog, (choice: AdvancedChoice) => {
   if (choice.kind === 'icon') all.forEach((s) => s.setIcon(choice.icon));
   if (choice.kind === 'widget') all.forEach((s) => s.setWidget(choice.widget));
+  if (choice.kind === 'art') { armArt(choice.widget, choice.problem); return; }
   setTools(choice.kind);
   notify(choice.kind === 'icon' ? 'Tap a cell to place the icon, or drag along a run of cells to repeat it.'
     : `Tap the page to put “${choice.widget.name}” there; drag to choose the spot.`);
 });
+
+/** Arm the art tool, and say how to use it (with what an import left out, if it came from a file). */
+function armArt(art: Widget, problem: Problem | null = null) {
+  all.forEach((s) => s.setArt(art));
+  setTools('art');
+  const how = `Drag a rectangle on the page for “${art.name}” to fill, or tap to put it down at its first size.`;
+  if (problem) show([problemView(problem), h('p', {}, how)], false); else notify(how);
+}
 panel.saveWidget = () => void saveWidget();
 panel.pickIcon = (pick) => picker.pickIcon(pick);
 
@@ -607,6 +599,10 @@ const libraryDialog = new LibraryDialog(library, {
   widgets,
   favorites,
   pageTarget: () => (view === 'spread' ? active : null),
+  useArt(art) {
+    if (view === 'book') setView('page');
+    armArt(art);
+  },
   useWidget(widget) {
     if (view === 'book') setView('page');
     all.forEach((s) => s.setWidget(widget));

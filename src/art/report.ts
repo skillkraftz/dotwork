@@ -10,6 +10,9 @@ export type ArtFileResult =
 /** The art's name: the file's name without .svg. */
 export const artName = (fileName: string) => fileName.replace(/\.svg$/i, '').replace(/[_]+/g, ' ').trim() || 'Art';
 
+/** The name of art that comes with Dotwork: its file's name with the first letter capital and hyphens as spaces. */
+export const builtinArtName = (id: string) => { const n = artName(`${id.replace(/-/g, ' ')}.svg`); return n[0].toUpperCase() + n.slice(1); };
+
 /** Read an SVG file into the saved widgets as art. Says what was left out, or why nothing was imported. */
 export async function importArtFile(file: File, widgets: WidgetStore): Promise<ArtFileResult> {
   const name = artName(file.name);

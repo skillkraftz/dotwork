@@ -1,0 +1,6 @@
+{
+  "name": "S M T W T F S header",
+  "elements": [
+    { "type": "sequence", "x": 0, "y": 1, "count": 7, "direction": "across", "every": 3, "values": "list", "list": ["S", "M", "T", "W", "T", "F", "S"] }
+  ]
+}

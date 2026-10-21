@@ -40,6 +40,8 @@ export interface LibraryHost {
   placePage(page: Page, side: SpreadSide): void;
   /** Arm the widget tool, ready to be put on the page. */
   useWidget(widget: Widget): void;
+  /** Arm the art tool: drag a rectangle on the page for the art to fill, or tap to put it down at its first size. */
+  useArt(art: Widget): void;
   download(blob: Blob, filename: string): void;
   /** The window was closed; anything that lists the library can refresh. */
   closed?(): void;
@@ -65,7 +67,7 @@ function templateThumb(t: BookTemplate): string {
 }
 
 /** A widget drawn on its own, cropped to the cells it covers. */
-function widgetThumbnail(widget: Widget): string {
+export function widgetThumbnail(widget: Widget): string {
   const { w, h: hh } = widgetSize(widget);
   const page: Page = { ...emptyPage(), elements: placeWidget(widget, { x: 0, y: 1 }) };
   const pad = 2, x = GRID_X_MM - pad, y = GRID_Y_MM + PITCH_MM - pad;
@@ -175,8 +177,8 @@ export class LibraryDialog {
   private async importArt(file: File) {
     const r = await importArtFile(file, this.host.widgets);
     if (!r.ok) { this.say(r.problem); return; }
-    this.say(r.problem ?? `Imported “${r.name}”. Tap it to put it on the page.`);
-    if (r.problem) this.msgEl.prepend(h('p', {}, `Tap “${r.name}” to put it on the page.`));
+    this.say(r.problem ?? `Imported “${r.name}”. Tap it, then drag a rectangle on the page for it.`);
+    if (r.problem) this.msgEl.prepend(h('p', {}, `Tap “${r.name}”, then drag a rectangle on the page for it.`));
     await this.renderList();
   }
 
@@ -230,9 +232,15 @@ export class LibraryDialog {
     return [...saved, ...examples, ...spreads, ...templates, ...widgets, ...builtinWidgets, ...art];
   }
 
+  /** Counts the draws, so that a slow one can't land after a newer one and show an old search. */
+  private drawn = 0;
+
   private async renderList() {
-    const query = this.search.value;
-    const shown = visibleEntries(await this.entries(), this.tab, query, (id) => this.host.favorites.has(id));
+    const run = ++this.drawn;
+    const query = this.search.value, tab = this.tab;
+    const entries = await this.entries();
+    if (run !== this.drawn) return;
+    const shown = visibleEntries(entries, tab, query, (id) => this.host.favorites.has(id));
     if (!shown.length) {
       const empty: Record<LibraryTab, string> = {
         pages: 'No pages yet. Save the page you are editing with the button above.',
@@ -261,6 +269,7 @@ export class LibraryDialog {
       if (side) this.host.placePage(page, side); else this.host.openPage(page);
     } else if (e.kind === 'spread') this.host.openSpread(e.example ? asCopy(e.data) : e.data);
     else if (e.kind === 'book') this.host.openBook(e.data);
+    else if (e.kind === 'art') this.host.useArt(e.data);
     else this.host.useWidget(e.data);
     this.close();
   }

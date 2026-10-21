@@ -1,7 +1,7 @@
 // Turns an SVG file into art the page format can store: a view box and a list of paths, each filled and stroked with one
 // of the app's tones. Everything else in the file (text, images, gradients, filters, masks, scripts, styles, links to
 // other files) is left out, and the result says what was.
-import { ART_ID, ART_LIMITS, LONG_SIDE_CELLS, type ArtData, type ArtPath, type ArtTone } from '../format/art';
+import { ART_ID, ART_LIMITS, ART_LINECAPS, LONG_SIDE_CELLS, type ArtData, type ArtLinecap, type ArtPath, type ArtTone } from '../format/art';
 import { arcToCubics, compose, ellipseSegs, IDENTITY, meanScale, parseSvgPath, pathString, pointsOf, transformSegs, type Matrix, type Seg } from '../format/path';
 import { PITCH_MM } from '../format/types';
 import { artColor, SCREEN_ART_TONES } from '../render';
@@ -143,8 +143,26 @@ function pointSegs(points: string | undefined, close: boolean): Seg[] | null {
 
 // ---- walking the file --------------------------------------------------------------
 
-interface Paint { fill: ArtTone; stroke: ArtTone; width: number }
-const START: Paint = { fill: 'black', stroke: 'none', width: 1 };
+interface Paint { fill: ArtTone; stroke: ArtTone; width: number; cap: ArtLinecap; visible: boolean }
+const START: Paint = { fill: 'black', stroke: 'none', width: 1, cap: 'butt', visible: true };
+
+/**
+ * Presentation attributes the importer reads but cannot honor: each says, for a value, what is left out (or null when the
+ * value is the default and nothing is). Whatever turns up is listed in the import report.
+ */
+const IGNORED: Record<string, (value: string) => string | null> = {
+  'stroke-linejoin': (v) => (v === 'miter' || v === 'miter-clip' || v === 'inherit' ? null : `line joins (${v}; drawn mitered)`),
+  'stroke-miterlimit': (v) => (parseFloat(v) === 4 ? null : 'miter limits'),
+  'fill-rule': (v) => (v === 'evenodd' ? 'even-odd fills (drawn non-zero)' : null),
+  'stroke-dashoffset': (v) => (parseFloat(v) === 0 ? null : 'dash offsets'),
+  'paint-order': (v) => (v === 'normal' || v === 'fill' ? null : 'paint order'),
+  'vector-effect': (v) => (v === 'none' ? null : 'vector effects'),
+  'mix-blend-mode': (v) => (v === 'normal' ? null : 'blend modes'),
+  'marker-start': (v) => (v === 'none' ? null : 'markers'),
+  'marker-mid': (v) => (v === 'none' ? null : 'markers'),
+  'marker-end': (v) => (v === 'none' ? null : 'markers'),
+  'preserveAspectRatio': (v) => (/^xMidYMid(\s+meet)?$/.test(v.trim()) ? null : 'preserveAspectRatio (the art is fitted or stretched when placed)'),
+};
 
 /** Elements that draw nothing themselves or that we don't keep: a label for the report, or null to pass over silently. */
 const LEFT_OUT: Record<string, string | null> = {
@@ -174,7 +192,7 @@ export function importSvg(text: string): ArtImport {
   let root: XmlNode;
   try { root = parseXml(text); } catch (err) { return refuse(`This isn't a readable SVG file. ${(err as Error).message}`); }
 
-  const drawn: { id?: string; segs: Seg[]; fill: ArtTone; stroke: ArtTone; width: number }[] = [];
+  const drawn: { id?: string; segs: Seg[]; fill: ArtTone; stroke: ArtTone; width: number; cap: ArtLinecap }[] = [];
   const seen = new Set<string>();
 
   const paintOf = (node: XmlNode, parent: Paint): Paint => {
@@ -186,6 +204,17 @@ export function importSvg(text: string): ArtImport {
       const c = readColor(raw);
       if (c === 'inherit') continue;
       if (c === 'url') { drop('gradient and pattern paints (drawn in medium)'); out[key] = 'medium'; } else if (c === null) { drop(`colors that weren't understood (drawn in black)`); out[key] = 'black'; } else out[key] = c;
+    }
+    const cap = css['stroke-linecap'] ?? node.attrs['stroke-linecap'];
+    if (cap !== undefined && cap !== 'inherit') {
+      if (ART_LINECAPS.includes(cap.trim() as ArtLinecap)) out.cap = cap.trim() as ArtLinecap; else { drop(`line caps that weren't understood (drawn butt)`); out.cap = 'butt'; }
+    }
+    const vis = css.visibility ?? node.attrs.visibility;
+    if (vis !== undefined && vis !== 'inherit') out.visible = vis.trim() === 'visible';
+    for (const [name, label] of Object.entries(IGNORED)) {
+      const v = css[name.toLowerCase()] ?? node.attrs[name];
+      const what = v === undefined ? null : label(v.trim());
+      if (what) drop(what);
     }
     const w = css['stroke-width'] ?? node.attrs['stroke-width'];
     if (w !== undefined) { const v = length(w, 1); if (v !== null && v >= 0) out.width = v; }
@@ -260,12 +289,14 @@ export function importSvg(text: string): ArtImport {
       case 'polygon': segs = pointSegs(a.points, true); break;
       default: drop(`unsupported elements (${node.name})`); return;
     }
-    if (!segs || (fill === 'none' && (paint.stroke === 'none' || paint.width <= 0))) return;
+    if (!segs || !paint.visible) return;
     const stroked = paint.stroke !== 'none' && paint.width > 0;
     // The file's id names the path for the owner to recolor; a repeated or unusable one is not kept.
     const id = a.id !== undefined && ART_ID.test(a.id) && !seen.has(a.id) ? a.id : undefined;
+    // A shape with no fill and no line draws nothing, unless it is named: a placement can then give it a fill.
+    if (fill === 'none' && !stroked && !id) return;
     if (id) seen.add(id);
-    drawn.push({ ...(id ? { id } : {}), segs: transformSegs(segs, matrix), fill, stroke: stroked ? paint.stroke : 'none', width: stroked ? paint.width * meanScale(matrix) : 0 });
+    drawn.push({ ...(id ? { id } : {}), segs: transformSegs(segs, matrix), fill, stroke: stroked ? paint.stroke : 'none', width: stroked ? paint.width * meanScale(matrix) : 0, cap: paint.cap });
   };
   walk(root, IDENTITY, START);
 
@@ -296,6 +327,7 @@ export function importSvg(text: string): ArtImport {
   const paths: ArtPath[] = drawn.map((d) => ({
     ...(d.id ? { id: d.id } : {}), d: pathString(d.segs), fill: d.fill, stroke: d.stroke,
     stroke_mm: d.stroke === 'none' ? 0 : Math.min(ART_LIMITS.stroke_mm, Math.max(0.05, +(d.width * mmPerUnit).toFixed(2))),
+    ...(d.stroke !== 'none' && d.cap !== 'butt' ? { linecap: d.cap } : {}),
   }));
   const chars = paths.reduce((n, p) => n + p.d.length, 0);
   if (chars > ART_LIMITS.chars) return refuse(`The shapes need ${chars} characters of path data; art may have at most ${ART_LIMITS.chars}. Simplify the drawing and try again.`);

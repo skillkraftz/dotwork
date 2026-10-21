@@ -6,7 +6,7 @@ export type BarMode = 'select' | 'draw' | 'advanced';
 
 /** The tools each mode can arm. */
 export const DRAW_TOOLS: readonly Tool[] = ['pattern', 'shade', 'box', 'rule', 'text'];
-export const ADVANCED_TOOLS: readonly Tool[] = ['sequence', 'icon', 'checkboxes', 'widget'];
+export const ADVANCED_TOOLS: readonly Tool[] = ['sequence', 'icon', 'checkboxes', 'widget', 'art'];
 
 /** Which mode a tool belongs to (null for Select, which is no tool at all). */
 export function modeOfTool(tool: Tool): BarMode {
@@ -39,7 +39,7 @@ export interface BarHandlers {
   /** Open the saved widgets / the icon grid. */
   widgets(): void;
   icons(): void;
-  /** Choose an SVG file to import as art. */
+  /** Open the saved art, to pick one or import an SVG file. */
   art(): void;
 }
 
@@ -92,7 +92,7 @@ export class Toolbar {
     if (s.mode === 'advanced') {
       const tool = (t: Tool, label: string, icon: IconName, run: () => void = () => k.tool(t)): Slot => ({ id: t, label, icon, help: `tool-${t}`, tool: t, pressed: s.tool === t, run });
       return [tool('sequence', 'Sequence', 'sequence'), tool('icon', 'Icon', 'icon', () => k.icons()), tool('checkboxes', 'Checks', 'checkboxes'), tool('widget', 'Widgets', 'widgets', () => k.widgets()),
-        { id: 'art', label: 'Art', icon: 'art', help: 'tool-art', run: () => k.art() }];
+        tool('art', 'Art', 'art', () => k.art())];
     }
     if (s.count === 0) {
       return [

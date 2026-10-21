@@ -1,13 +1,14 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { PDFDocument } from 'pdf-lib';
+import { LineCapStyle, PDFDocument } from 'pdf-lib';
 import { describe, expect, it, vi } from 'vitest';
 import { importSvg, MAX_SVG_BYTES } from '../src/art/import';
-import { artMatrix, artPaths, defaultSize } from '../src/format/art';
+import { artMatrix, artPaths, canFill, canStroke, defaultSize } from '../src/format/art';
+import { artFromDrag } from '../src/geometry';
 import { pointsOf, parseStored } from '../src/format/path';
 import { formatIssue, validatePage } from '../src/format/validate';
 import type { Art, Page } from '../src/format/types';
-import { pageContent } from '../src/render';
+import { artColor, pageContent, SCREEN_ART_TONES } from '../src/render';
 import { color, drawPage } from '../src/print/draw';
 import { makeWidget, placeWidget } from '../src/widgets';
 
@@ -301,16 +302,19 @@ describe('art in a page file', () => {
     expect(rules(base(art({ y: 0, x: 0, w: 2 }), { identity: '', side: 'left' }))).toEqual(['header-corner']);
     expect(rules(base(art({ y: 0, x: 24, w: 3 }), { identity: '', page_number: false }))).toEqual([]);
   });
-  it('accepts the half-donut example page', () => {
-    const page = JSON.parse(readFileSync(join(__dirname, '..', 'examples', 'good-time-gauges.json'), 'utf8'));
-    expect(page.elements.filter((e: { type: string }) => e.type === 'art')).toHaveLength(2);
+  it('accepts the Good Time example page, with its six gauges', () => {
+    const page = JSON.parse(readFileSync(join(__dirname, '..', 'examples', 'pages', 'daily-good-time.json'), 'utf8'));
+    const gauges = page.elements.filter((e: { type: string }) => e.type === 'art');
+    expect(gauges).toHaveLength(6);
+    // Engagement (left) and Energy (right) of each row
+    expect(gauges.map((g: Art) => g.fills?.['left-half'])).toEqual(['none', 'medium', 'none', 'medium', 'none', 'medium']);
+    expect(gauges.map((g: Art) => g.strokes?.['centre-line'])).toEqual(['none', 'black', 'none', 'black', 'none', 'black']);
     expect(validatePage(page)).toEqual([]);
   });
 });
 
 describe('the half-donut gauge', () => {
   const text = readFileSync(join(__dirname, 'fixtures', 'half-donut-gauge.svg'), 'utf8');
-  it('is the same file as the example', () => expect(readFileSync(join(__dirname, '..', 'examples', 'half-donut-gauge.svg'), 'utf8')).toBe(text));
   it('imports as three tinted wedges, a needle and a hub, with nothing left out', () => {
     const r = importSvg(text);
     if (!r.ok) throw new Error(r.reason);
@@ -336,45 +340,147 @@ describe('library art is copied into the page', () => {
   });
 });
 
-describe('named paths and per-placement fills', () => {
-  const halves = readFileSync(join(__dirname, '..', 'examples', 'gauge-halves.svg'), 'utf8');
-  const imported = () => { const r = importSvg(halves); if (!r.ok) throw new Error(r.reason); return r.art; };
-  const placed = (fills?: Art['fills']): Art => ({ type: 'art', x: 2, y: 2, w: 10, h: 6, ...imported(), ...(fills ? { fills } : {}) });
+const gaugeSvg = readFileSync(join(__dirname, '..', 'examples', 'art', 'gauge.svg'), 'utf8');
+const gaugeArt = () => { const r = importSvg(gaugeSvg); if (!r.ok) throw new Error(r.reason); return r; };
+const gauge = (extra: Partial<Art> = {}): Art => ({ type: 'art', x: 2, y: 2, w: 10, h: 6, ...gaugeArt().art, ...extra });
+const energy = () => gauge({ fills: { 'left-half': 'medium' }, strokes: { 'centre-line': 'black' } });
+const engagement = () => gauge({ fills: { 'left-half': 'none' }, strokes: { 'centre-line': 'none' } });
+const pageWith = (el: object) => ({ format: 'dotwork-page', version: 2, name: 'T', identity: 'x', grid: { cols: 27, rows: 44, pitch_mm: 3 }, elements: [el] });
 
-  it('keeps the ids from the file, and not repeated or unusable ones', () => {
-    expect(imported().paths.map((p) => p.id)).toEqual(['left-half', 'right-half', undefined]);
-    const r = importSvg(svg('<rect id="a" width="2" height="2"/><rect id="a" width="3" height="3"/><rect id="1bad" width="4" height="4"/>'));
-    expect(r.ok && r.art.paths.map((p) => p.id)).toEqual(['a', undefined, undefined]);
+describe('the gauge', () => {
+  it('imports with nothing left out: its ids, round line ends, and the unfilled right half kept', () => {
+    const r = gaugeArt();
+    expect(r.dropped).toEqual([]);
+    expect(r.art.view_box).toEqual([0, 0, 30, 16]);
+    expect(r.art.paths.map((p) => p.id)).toEqual(['left-half', 'right-half', undefined, undefined, 'top-tick', 'centre-line', undefined, undefined, undefined]);
+    expect(r.art.paths.map((p) => p.linecap)).toEqual([undefined, undefined, 'round', 'round', 'round', 'round', 'round', undefined, undefined]);
+    expect(r.art.paths[0]).toMatchObject({ fill: 'medium', stroke: 'none', stroke_mm: 0 });
+    expect(r.art.paths[1]).toMatchObject({ fill: 'none', stroke: 'none' });
   });
-  it('right-half set to dark: the screen draws it dark and the other half as imported', () => {
-    expect(artPaths(placed()).map((p) => p.fill)).toEqual(['light', 'light', 'black']);
-    const dark = placed({ 'right-half': 'dark' });
-    expect(artPaths(dark).map((p) => p.fill)).toEqual(['light', 'dark', 'black']);
-    const m = markup(dark);
-    expect(m.match(/fill="#bdbdbd"/g)).toHaveLength(1);
-    expect(m.match(/fill="#efefef"/g)).toHaveLength(1);
-    expect(markup(placed({ 'left-half': 'none' }))).toContain('fill="none" stroke="#000"');
+
+  it('offers a fill to closed or filled paths and a line to stroked ones, and nothing that changes nothing', () => {
+    const named = Object.fromEntries(gaugeArt().art.paths.filter((p) => p.id).map((p) => [p.id, [canFill(p), canStroke(p)]]));
+    expect(named).toEqual({ 'left-half': [true, false], 'right-half': [true, false], 'top-tick': [false, true], 'centre-line': [false, true] });
+    // a closed path with a line gets both; an open filled path gets a fill (the file closes it); a bare open one gets neither
+    expect(canFill({ d: 'M0 0L5 0L5 5Z', fill: 'none' })).toBe(true);
+    expect(canStroke({ stroke: 'black', stroke_mm: 0.3 })).toBe(true);
+    expect(canFill({ d: 'M0 0L5 0L5 5', fill: 'light' })).toBe(true);
+    expect(canFill({ d: 'M0 0L5 5', fill: 'none' })).toBe(false);
+    expect(canStroke({ stroke: 'none', stroke_mm: 0 })).toBe(false);
   });
-  it('right-half set to dark: the PDF draws the same path in the printer\'s dark tone', async () => {
+
+  it('is the Energy dial by default: the left half in medium, the centre line on', () => {
+    const drawn = artPaths(gauge());
+    expect(drawn).toHaveLength(8); // right-half draws nothing
+    expect(drawn[0]).toMatchObject({ fill: 'medium', stroke: 'none' });
+    expect(artPaths(energy())).toEqual(drawn);
+      });
+
+  it('is the Engagement dial with the left half unfilled and the centre line off; the top tick still shows', () => {
+    const drawsPath = (el: Art, id: string) => artPaths({ ...el, paths: el.paths.filter((p) => p.id === id) }).length > 0;
+    const e = engagement();
+    expect(artPaths(e)).toHaveLength(artPaths(energy()).length - 2);
+    expect(drawsPath(e, 'top-tick')).toBe(true);
+    expect(drawsPath(e, 'centre-line')).toBe(false);
+    expect(drawsPath(e, 'left-half')).toBe(false);
+    expect(drawsPath(energy(), 'centre-line')).toBe(true);
+    expect(drawsPath(energy(), 'left-half')).toBe(true);
+  });
+
+  it('draws both dials on screen with round caps, and gray lines when asked', () => {
+    expect(markup(energy()).match(/stroke-linecap="round"/g)).toHaveLength(5);
+    expect(markup(engagement()).match(/stroke-linecap="round"/g)).toHaveLength(4);
+    const medium = `fill="${artColor('medium', SCREEN_ART_TONES)}"`;
+    expect(markup(energy())).toContain(medium);
+    expect(markup(engagement())).not.toContain(medium);
+    const gray = artPaths(gauge({ strokes: { 'centre-line': 'gray' } }));
+    expect(gray.filter((p) => p.stroke === 'gray')).toHaveLength(1);
+  });
+
+  it('draws both dials in the PDF with round line caps, the same paths as the screen', async () => {
     const tones = { shade: { L: '#f1f1f1', M: '#d1d1d1', D: '#a1a1a1' }, grayText: '#707070' };
-    const pdf = await PDFDocument.create();
-    const sheet = pdf.addPage();
-    const spy = vi.spyOn(sheet, 'drawSvgPath');
-    const el = placed({ 'right-half': 'dark' });
-    drawPage(sheet, pageOf(el), { x: 0, y: 0, sheetHeight: 139.7, fonts: {} as never, pageNumber: null, expand: (t) => t, tones });
-    expect(spy.mock.calls.map((c) => c[0])).toEqual(artPaths(el).map((p) => p.d));
-    expect(spy.mock.calls[0][1]).toMatchObject({ color: color('#f1f1f1') });
-    expect(spy.mock.calls[1][1]).toMatchObject({ color: color('#a1a1a1') });
-    expect(spy.mock.calls[2][1]).toMatchObject({ color: color('#000000') });
+    for (const [el, rounds] of [[energy(), 5], [engagement(), 4]] as const) {
+      const pdf = await PDFDocument.create();
+      const sheet = pdf.addPage();
+      const spy = vi.spyOn(sheet, 'drawSvgPath');
+      drawPage(sheet, pageOf(el), { x: 0, y: 0, sheetHeight: 139.7, fonts: {} as never, pageNumber: null, expand: (t) => t, tones });
+      expect(spy.mock.calls.map((c) => c[0])).toEqual(artPaths(el).map((p) => p.d));
+      const caps = spy.mock.calls.map((c) => (c[1] as { borderLineCap?: number }).borderLineCap);
+      expect(caps.filter((c) => c === LineCapStyle.Round)).toHaveLength(rounds);
+      const medium = spy.mock.calls.filter((c) => JSON.stringify((c[1] as { color?: unknown }).color) === JSON.stringify(color('#d1d1d1')));
+      expect(medium).toHaveLength(rounds === 5 ? 1 : 0); // the left half is medium in Energy, and gone in Engagement
+    }
   });
-  it('validates ids and fills', () => {
-    const page = (el: object) => ({ format: 'dotwork-page', version: 2, name: 'T', identity: 'x', grid: { cols: 27, rows: 44, pitch_mm: 3 }, elements: [el] });
-    expect(validatePage(page(placed({ 'right-half': 'dark' })))).toEqual([]);
-    expect(validatePage(page(placed({ nope: 'dark' }))).map((i) => i.rule)).toEqual(['art']);
-    expect(validatePage(page(placed({ 'right-half': 'black' as never }))).map((i) => i.rule)).toEqual(['art']);
-    const dup = placed(); dup.paths[1].id = 'left-half';
-    expect(validatePage(page(dup)).map((i) => i.rule)).toEqual(['art']);
-    const bad = placed(); bad.paths[0].id = 'has space';
-    expect(validatePage(page(bad)).map((i) => i.rule)).toEqual(['art']);
+
+  it('validates fills and strokes', () => {
+    expect(validatePage(pageWith(energy()))).toEqual([]);
+    expect(validatePage(pageWith(gauge({ strokes: { nope: 'black' } }))).map((i) => i.rule)).toEqual(['art']);
+    expect(validatePage(pageWith(gauge({ strokes: { 'centre-line': 'dark' as never } }))).map((i) => i.rule)).toEqual(['art']);
+    expect(validatePage(pageWith(gauge({ fills: { nope: 'dark' } }))).map((i) => i.rule)).toEqual(['art']);
+    expect(validatePage(pageWith(gauge({ fills: { 'left-half': 'black' as never } }))).map((i) => i.rule)).toEqual(['art']);
+    const cap = gauge(); cap.paths[2].linecap = 'pointy' as never;
+    expect(validatePage(pageWith(cap)).map((i) => i.rule)).toEqual(['art']);
+    const dup = gauge(); dup.paths[1].id = 'left-half';
+    expect(validatePage(pageWith(dup)).map((i) => i.rule)).toEqual(['art']);
+    const bad = gauge(); bad.paths[0].id = 'has space';
+    expect(validatePage(pageWith(bad)).map((i) => i.rule)).toEqual(['art']);
+  });
+
+  it('a line with no line of its own can\'t be given one', () => {
+    expect(artPaths(gauge({ strokes: { 'left-half': 'black' } }))[0]).toMatchObject({ stroke: 'none', stroke_mm: 0 });
+  });
+});
+
+describe('line caps and ignored attributes', () => {
+  const cap = (attrs: string, wrap = (b: string) => b) => {
+    const r = importSvg(svg(wrap(`<line x1="1" y1="1" x2="9" y2="9" stroke="#000" ${attrs}/>`)));
+    if (!r.ok) throw new Error(r.reason);
+    return r;
+  };
+  it('reads stroke-linecap from the attribute, the style and a parent group', () => {
+    expect(cap('stroke-linecap="round"').art.paths[0].linecap).toBe('round');
+    expect(cap('style="stroke-linecap:square"').art.paths[0].linecap).toBe('square');
+    expect(cap('', (b) => `<g stroke-linecap="round">${b}</g>`).art.paths[0].linecap).toBe('round');
+    expect(cap('stroke-linecap="butt"', (b) => `<g stroke-linecap="round">${b}</g>`).art.paths[0].linecap).toBeUndefined();
+    expect(cap('').art.paths[0].linecap).toBeUndefined();
+  });
+  it('says when a line cap could not be understood', () => {
+    const r = cap('stroke-linecap="pointy"');
+    expect(r.dropped.join()).toContain('line caps');
+    expect(r.art.paths[0].linecap).toBeUndefined();
+  });
+  it('lists the attributes it ignores, and says nothing about their defaults', () => {
+    const body = '<path d="M0 0L9 0L9 9Z" fill="#000" stroke="#000" stroke-linejoin="round" fill-rule="evenodd" stroke-miterlimit="10" stroke-dashoffset="2" vector-effect="non-scaling-stroke" paint-order="stroke"/>';
+    const r = importSvg(svg(body));
+    expect(r.dropped.join('\n')).toMatch(/line joins/);
+    for (const what of [/line joins/, /even-odd/, /miter limits/, /dash offsets/, /vector effects/, /paint order/]) expect(r.dropped.join('\n')).toMatch(what);
+    expect(importSvg(svg('<path d="M0 0L9 0L9 9Z" stroke="#000" stroke-linejoin="miter" fill-rule="nonzero" stroke-miterlimit="4" visibility="visible"/>', 'viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet"')).dropped).toEqual([]);
+    expect(importSvg(svg('<rect width="5" height="5"/>', 'viewBox="0 0 100 100" preserveAspectRatio="none"')).dropped.join()).toContain('preserveAspectRatio');
+  });
+  it('does not draw what is hidden', () => {
+    const r = importSvg(svg('<rect width="5" height="5"/><g visibility="hidden"><rect width="6" height="6"/></g>'));
+    expect(r.ok && r.art.paths).toHaveLength(1);
+  });
+  it('keeps the file\'s own attributes out of the report when they do nothing (ids, metadata, namespaces)', () => {
+    expect(importSvg(svg('<metadata><x:data xmlns:x="urn:x">AAAA</x:data></metadata><rect id="a" data-x="1" width="5" height="5"/>')).dropped).toEqual([]);
+  });
+});
+
+describe('art drawn into a rectangle', () => {
+  const base: Art = { type: 'art', x: 0, y: 1, w: 10, h: 5.5, view_box: [0, 0, 30, 16], paths: [{ d: 'M0 0L30 16', fill: 'none', stroke: 'black', stroke_mm: 0.3 }], fills: { a: 'none' } };
+  it('fills the dragged rectangle, whichever way it was dragged, keeping the preset', () => {
+    expect(artFromDrag(base, { x: 4, y: 6 }, { x: 10, y: 9 })).toMatchObject({ x: 4, y: 6, w: 6, h: 3, fills: { a: 'none' } });
+    expect(artFromDrag(base, { x: 10, y: 9 }, { x: 4, y: 6 })).toMatchObject({ x: 4, y: 6, w: 6, h: 3 });
+  });
+  it('puts it down at its first size when tapped, kept on the page and below the header', () => {
+    expect(artFromDrag(base, { x: 3, y: 10 }, { x: 3, y: 10 })).toMatchObject({ x: 3, y: 10, w: 10, h: 5.5 });
+    expect(artFromDrag(base, { x: 27, y: 44 }, { x: 27, y: 44 })).toMatchObject({ x: 17, y: 38.5 });
+    expect(artFromDrag(base, { x: 0, y: 0 }, { x: 0, y: 0 }, 1)).toMatchObject({ x: 0, y: 1 });
+  });
+  it('is nothing for a line with no inside, and an independent copy', () => {
+    expect(artFromDrag(base, { x: 3, y: 10 }, { x: 8, y: 10 })).toBeNull();
+    const el = artFromDrag(base, { x: 3, y: 3 }, { x: 9, y: 6 })!;
+    el.paths[0].d = 'M0 0L1 1';
+    expect(base.paths[0].d).toBe('M0 0L30 16');
   });
 });

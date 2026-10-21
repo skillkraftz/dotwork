@@ -1,4 +1,4 @@
-import { COLS, DEFAULTS, ROWS, type Area, type IconSize, type PageElement, type Rule, type TextTone } from './format/types';
+import { COLS, DEFAULTS, ROWS, type Area, type Art, type IconSize, type PageElement, type Rule, type TextTone } from './format/types';
 import { CLOSED_HEADER, elementArea, hitsCorner, insideGrid, limitsArea, type Header } from './format/bounds';
 
 export interface Pt { x: number; y: number }
@@ -300,4 +300,16 @@ export function touchedBy(el: PageElement, area: Area): boolean {
     case 'checkboxes': return checkboxCells(el).some((c) => overlap(c, area));
     default: return overlap(elementArea(el), area);
   }
+}
+
+/**
+ * Art drawn like a box: the rectangle dragged from `a` to `b` is where the art goes (fitted or stretched, as its
+ * scaling says). A tap, with no drag, puts it down at its first size with its top-left corner there, kept on the page.
+ */
+export function artFromDrag(art: Art, a: Pt, b: Pt, top = 1): Art | null {
+  const r = areaFromPoints(a, b);
+  const { group: _group, ...rest } = structuredClone(art) as Art & { group?: string };
+  if (r.w > 0 && r.h > 0) return { ...rest, ...r };
+  if (r.w > 0 || r.h > 0) return null; // a line has no inside to fit the art into
+  return { ...rest, x: Math.max(0, Math.min(COLS - art.w, a.x)), y: Math.max(top, Math.min(ROWS - art.h, a.y)) };
 }

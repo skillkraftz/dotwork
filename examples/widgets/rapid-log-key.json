@@ -1,0 +1,13 @@
+{
+  "name": "Rapid-log key",
+  "elements": [
+    { "type": "sequence", "x": 0, "y": 1, "count": 7, "direction": "down", "values": "icons", "icons": ["task", "done", "migrated", "scheduled", "note", "event", "priority"], "tone": "black" },
+    { "type": "text", "x": 1, "y": 1, "text": "task" },
+    { "type": "text", "x": 1, "y": 2, "text": "done" },
+    { "type": "text", "x": 1, "y": 3, "text": "migrated" },
+    { "type": "text", "x": 1, "y": 4, "text": "scheduled" },
+    { "type": "text", "x": 1, "y": 5, "text": "note" },
+    { "type": "text", "x": 1, "y": 6, "text": "event" },
+    { "type": "text", "x": 1, "y": 7, "text": "priority" }
+  ]
+}

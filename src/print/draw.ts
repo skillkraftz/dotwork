@@ -193,12 +193,13 @@ export function drawPage(pdf: PDFPage, page: Page, o: PageDrawOptions): void {
 
   // The paths are in mm from the grid's corner, the same ones the screen draws; the scale turns mm into points and, being
   // inside the path's transform, leaves each stroke width (in mm) as it is.
+  const CAPS = { butt: LineCapStyle.Butt, round: LineCapStyle.Round, square: LineCapStyle.Projecting } as const;
   const art = (e: Art) => {
     for (const p of artPaths(e)) {
       pdf.drawSvgPath(p.d, {
         x: X(0), y: Y(0), scale: len(1),
         ...(p.fill === 'none' ? {} : { color: color(artColor(p.fill, tones)) }),
-        ...(p.stroke === 'none' ? {} : { borderColor: color(artColor(p.stroke, tones)), borderWidth: p.stroke_mm }),
+        ...(p.stroke === 'none' ? {} : { borderColor: color(artColor(p.stroke, tones)), borderWidth: p.stroke_mm, borderLineCap: CAPS[p.linecap] }),
       });
     }
   };

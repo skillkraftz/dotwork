@@ -448,6 +448,10 @@ dialog.advanced header h2 { flex: 1; }
 .widget-row { display: flex; gap: 6px; align-items: stretch; }
 .widget-use { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; text-align: left; padding: 6px 12px; min-height: var(--tap); background: #fff; }
 .widget-use small { color: var(--gray-4); }
+.widget-use.art-use { flex-direction: row; align-items: center; gap: 12px; }
+.art-text { display: flex; flex-direction: column; min-width: 0; }
+.art-thumb { flex: none; width: 96px; height: 56px; display: flex; align-items: center; justify-content: center; }
+.art-thumb svg { max-width: 100%; max-height: 100%; }
 .icon-options { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; align-items: center; margin: 12px 0 0; }
 .icon-options .seg { display: flex; }
 .icon-options .seg button { flex: 1; min-height: var(--tap); }

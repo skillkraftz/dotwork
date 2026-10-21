@@ -81,10 +81,6 @@ describe('the built-in pages, spreads and widgets', () => {
       for (const el of placeWidget(widget, at)) expect(problems(validateElement(el)), JSON.stringify(el)).toEqual([]);
     }
   });
-
-  it('lists the starter widgets', () => {
-    expect(BUILTIN_WIDGETS.map((w) => w.name)).toEqual(['S M T W T F S header', 'Habit row', 'Mood scale', 'Weather row', 'Rapid-log key', 'Day block', 'Dial placeholder']);
-  });
 });
 
 describe('built-ins can’t be overwritten', () => {

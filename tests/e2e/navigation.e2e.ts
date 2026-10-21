@@ -253,8 +253,10 @@ describe('the library', () => {
     const all = await page.locator('.lib-card').count();
 
     // search matches names, any order, any case
+    // the list is redrawn a moment after typing: wait for what it should show rather than for a while
+    const shown = () => page.locator('.lib-card .lib-name').allInnerTexts();
     await page.locator('[data-help="library-search"]').fill('TRACKER month');
-    expect(await page.locator('.lib-card .lib-name').allInnerTexts()).toEqual(['Monthly tracker']);
+    await expect.poll(shown).toEqual(['Monthly tracker']);
     await page.locator('[data-help="library-search"]').fill('zzz');
     await page.waitForSelector('[data-key="library-empty"]');
     expect(await page.locator('.lib-card').count()).toBe(0);
@@ -281,8 +283,7 @@ describe('the library', () => {
     await star.click();
     await page.waitForSelector('.lib-card[data-name="Monthly tracker"] .lib-star[aria-pressed="true"]');
     await page.click('[data-tab="favorites"]');
-    await page.waitForFunction(() => document.querySelectorAll('.lib-card').length === 1);
-    expect(await page.locator('.lib-card .lib-name').allInnerTexts()).toEqual(['Monthly tracker']);
+    await expect.poll(shown).toEqual(['Monthly tracker']);
     await page.locator('[data-help="library-search"]').fill('nothing like it');
     await page.waitForSelector('[data-key="library-empty"]'); // search works inside Favorites too
     await page.locator('[data-help="library-search"]').fill('');
@@ -290,8 +291,7 @@ describe('the library', () => {
     await page.waitForSelector('#canvas');
     await choose(app, 'edit', '#library');
     await page.click('[data-tab="favorites"]');
-    await page.waitForFunction(() => document.querySelectorAll('.lib-card').length === 1);
-    expect(await page.locator('.lib-card .lib-name').allInnerTexts()).toEqual(['Monthly tracker']);
+    await expect.poll(shown).toEqual(['Monthly tracker']);
     await page.locator('.lib-card .lib-star').click(); // unstar
     await page.waitForSelector('[data-key="library-empty"]');
     noErrors(app);

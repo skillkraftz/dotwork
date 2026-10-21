@@ -31,17 +31,19 @@ the identity by the spine. Version 1 files are converted when imported.
   small or large, and "include the first edge" adds the top (or left) line.
 - **Advanced** places a **Sequence**, an **Icon** (about 60 line icons from a big tappable grid), **Checks**, or one of your
   **Widgets**. Save a selection from More; widgets are kept in the browser, beside the library.
-- **Art** is an SVG file placed on the grid like a box. Advanced, then Art (or Library, Art tab, Import SVG art) reads
-  the file once into a small stored form: a view box and a list of paths, each filled and stroked in one of the app's
-  tones (black, dark, medium, light, gray, white or none). Circles, ellipses, rectangles, lines, polylines and polygons
-  become paths and every transform is applied, so nothing depends on the file afterwards. Text, images, gradients, filters,
-  masks, scripts, styles and links to other files are left out, and a notice lists what was (Copy details has it all);
-  an empty or oversized result is refused with the reason. The art is stored inline in the page file. **Fit** keeps its
-  proportions and centers it, **Stretch** fills the area; line widths are in mm and stay the same when you resize. Paths keep their SVG `id`s; the properties list each named path with a fill (as imported, none, light, medium or dark) that is stored on that placement
-  (`fills`), so one gauge file can be placed twice with different halves shaded. The
-  screen and the PDF draw the same paths, the PDF with the printer's tones. Try `examples/half-donut-gauge.svg`, or
-  `examples/gauge-halves.svg` (named left-half and right-half), or
-  `examples/good-time-gauges.json`, the Good Time page with two half-donut gauges.
+- **Art** is an SVG file placed on the grid like a box. Advanced, then Art, opens the art that comes with Dotwork and
+  anything you imported, with a button to import an SVG file (the Library's Art tab lists the same art). Pick one, then
+  press and drag a rectangle on the page and the art fits into it (or tap to put it down at its first size). The file is
+  read once into a small stored form: a view box and a list of paths, each filled and stroked in one of the app's tones
+  (black, dark, medium, light, gray, white or none), with round or square line ends kept. Circles, ellipses, rectangles,
+  lines, polylines and polygons become paths and every transform is applied, so nothing depends on the file afterwards.
+  Text, images, gradients, filters, masks, scripts, styles, links to other files and presentation attributes that can't be
+  honored (line joins, even-odd fills and so on) are left out, and a notice lists what was (Copy details has it all); an
+  empty or oversized result is refused with the reason. **Fit** keeps its proportions and centers it, **Stretch** fills the
+  area; line widths are in mm and stay the same when you resize. Paths keep their SVG `id`s; the properties list each named
+  path with the control that applies: a fill (as imported, none, light, medium or dark) for a closed or filled path, a line
+  (as imported, none, gray or black) for a stroked one, stored on that placement (`fills`, `strokes`). So one gauge file
+  places as both the Engagement and Energy gauges. The screen and the PDF draw the same paths, the PDF with the printer's tones.
 - **Layers** lists every element from top (drawn last) to bottom. Tap a name to select that element and open its
   properties. Hide, lock, delete, and reorder with the arrows or by dragging a row. Hiding and locking are for editing
   only; they are not saved in the file.
@@ -108,7 +110,8 @@ npm run test:e2e # drives the app in headless Chromium at phone, tablet and desk
 The current page autosaves to your browser's localStorage. Use the Export button for
 JSON, PNG (the whole 88.9 x 139.7 mm page, 600 DPI by default) and PDF.
 Built-in pages live in [src/builtin/](src/builtin/) (pages that depend on a date are drawn in code) and
-[examples/](examples/) (plain page files), and show in the Library; they recreate journal-system's pages. Compare
+[examples/](examples/) (page files, widgets and art, each in its own folder; whatever is in a folder shows in the Library, see
+its [README](examples/README.md)), and recreate journal-system's pages. Compare
 them with `reference/` in [docs/screenshots/](docs/screenshots/)
 (`compare-*.png`: reference on the left, Dotwork's export on the right).
 

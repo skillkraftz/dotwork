@@ -2,11 +2,12 @@ import { GRID_X_MM, GRID_Y_MM, PITCH_MM as P, type Area, type PageElement } from
 import { validateElement } from './format/validate';
 import { headerOf } from './format/bounds';
 import {
-  cellPoint, elementFromDrag, boundsOf, HANDLE_CURSOR, hitElement, hitHandle, hitHandlePoint, moveGroup, resizeElement, snapPoint, snapStep,
+  artFromDrag, cellPoint, elementFromDrag, boundsOf, HANDLE_CURSOR, hitElement, hitHandle, hitHandlePoint, moveGroup, resizeElement, snapPoint, snapStep,
   tapCandidates, touchedBy, cycleHit, type Handle, type Pt,
 } from './geometry';
 import { membersOf } from './groups';
 import { placeWidget } from './widgets';
+import { artOf } from './art/widget';
 import { addElement, addElements } from './actions';
 import { LongPress } from './longpress';
 import { EDIT_BOX, EDIT_VIEWBOX, FIT_BOX, pageContent } from './render';
@@ -219,6 +220,7 @@ export class Canvas {
   /** What a press-and-drag with the current drawing tool would add to the page, if anything. */
   private placed(d: { start: Pt; cur: Pt }): PageElement[] {
     const { store } = this;
+    if (store.tool === 'art') { const el = store.art && artFromDrag(artOf(store.art), d.start, d.cur, this.header().top); return el ? [el] : []; }
     if (store.tool === 'widget') return store.widget ? placeWidget(store.widget, d.cur) : [];
     if (store.tool === 'select' || store.tool === 'text') return [];
     const el = elementFromDrag(store.tool, d.start, d.cur, store.icon);
