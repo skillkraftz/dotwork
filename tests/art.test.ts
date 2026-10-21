@@ -335,3 +335,46 @@ describe('library art is copied into the page', () => {
     expect(widget.elements[0]).toMatchObject({ paths: [{ d: 'M0 0L10 5' }] });
   });
 });
+
+describe('named paths and per-placement fills', () => {
+  const halves = readFileSync(join(__dirname, '..', 'examples', 'gauge-halves.svg'), 'utf8');
+  const imported = () => { const r = importSvg(halves); if (!r.ok) throw new Error(r.reason); return r.art; };
+  const placed = (fills?: Art['fills']): Art => ({ type: 'art', x: 2, y: 2, w: 10, h: 6, ...imported(), ...(fills ? { fills } : {}) });
+
+  it('keeps the ids from the file, and not repeated or unusable ones', () => {
+    expect(imported().paths.map((p) => p.id)).toEqual(['left-half', 'right-half', undefined]);
+    const r = importSvg(svg('<rect id="a" width="2" height="2"/><rect id="a" width="3" height="3"/><rect id="1bad" width="4" height="4"/>'));
+    expect(r.ok && r.art.paths.map((p) => p.id)).toEqual(['a', undefined, undefined]);
+  });
+  it('right-half set to dark: the screen draws it dark and the other half as imported', () => {
+    expect(artPaths(placed()).map((p) => p.fill)).toEqual(['light', 'light', 'black']);
+    const dark = placed({ 'right-half': 'dark' });
+    expect(artPaths(dark).map((p) => p.fill)).toEqual(['light', 'dark', 'black']);
+    const m = markup(dark);
+    expect(m.match(/fill="#bdbdbd"/g)).toHaveLength(1);
+    expect(m.match(/fill="#efefef"/g)).toHaveLength(1);
+    expect(markup(placed({ 'left-half': 'none' }))).toContain('fill="none" stroke="#000"');
+  });
+  it('right-half set to dark: the PDF draws the same path in the printer\'s dark tone', async () => {
+    const tones = { shade: { L: '#f1f1f1', M: '#d1d1d1', D: '#a1a1a1' }, grayText: '#707070' };
+    const pdf = await PDFDocument.create();
+    const sheet = pdf.addPage();
+    const spy = vi.spyOn(sheet, 'drawSvgPath');
+    const el = placed({ 'right-half': 'dark' });
+    drawPage(sheet, pageOf(el), { x: 0, y: 0, sheetHeight: 139.7, fonts: {} as never, pageNumber: null, expand: (t) => t, tones });
+    expect(spy.mock.calls.map((c) => c[0])).toEqual(artPaths(el).map((p) => p.d));
+    expect(spy.mock.calls[0][1]).toMatchObject({ color: color('#f1f1f1') });
+    expect(spy.mock.calls[1][1]).toMatchObject({ color: color('#a1a1a1') });
+    expect(spy.mock.calls[2][1]).toMatchObject({ color: color('#000000') });
+  });
+  it('validates ids and fills', () => {
+    const page = (el: object) => ({ format: 'dotwork-page', version: 2, name: 'T', identity: 'x', grid: { cols: 27, rows: 44, pitch_mm: 3 }, elements: [el] });
+    expect(validatePage(page(placed({ 'right-half': 'dark' })))).toEqual([]);
+    expect(validatePage(page(placed({ nope: 'dark' }))).map((i) => i.rule)).toEqual(['art']);
+    expect(validatePage(page(placed({ 'right-half': 'black' as never }))).map((i) => i.rule)).toEqual(['art']);
+    const dup = placed(); dup.paths[1].id = 'left-half';
+    expect(validatePage(page(dup)).map((i) => i.rule)).toEqual(['art']);
+    const bad = placed(); bad.paths[0].id = 'has space';
+    expect(validatePage(page(bad)).map((i) => i.rule)).toEqual(['art']);
+  });
+});

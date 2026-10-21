@@ -1,8 +1,8 @@
 import {
   ALIGNS, ALONGS, DEFAULTS, DIRECTIONS, DOT_SIZES, ICON_SIZES, PATTERNS, RULE_WEIGHTS, SEQUENCE_VALUES, SIDES, TEXT_SIZES, TEXT_STYLES,
-  TEXT_TONES, WEIGHTS, type BoxSide, type PageElement, type Pattern, type Sequence, type SequenceValues, type Shade,
+  TEXT_TONES, WEIGHTS, type Art, type BoxSide, type PageElement, type Pattern, type Sequence, type SequenceValues, type Shade,
 } from './format/types';
-import { ART_SCALINGS } from './format/art';
+import { ART_FILLS, ART_SCALINGS, type ArtFill } from './format/art';
 import { cleanTones, toneAt } from './format/shade';
 import { SHADE_TONES } from './render';
 import { iconGlyph } from './icons/glyph';
@@ -540,7 +540,7 @@ export class Panel {
         break;
       }
       case 'art':
-        fields = [h('div', { class: 'grid2' }, ...area()), choice('scaling', 'Scaling', ART_SCALINGS, DEFAULTS.scaling, 'prop-scaling')];
+        fields = [h('div', { class: 'grid2' }, ...area()), choice('scaling', 'Scaling', ART_SCALINGS, DEFAULTS.scaling, 'prop-scaling'), ...this.artFills(store, i, id, el, ctls)];
         break;
       case 'rule':
         fields = [h('div', { class: 'grid2' }, num('x1', 'x1'), num('y1', 'y1'), num('x2', 'x2'), num('y2', 'y2')),
@@ -588,6 +588,28 @@ export class Panel {
     this.lockedHint.hidden = !locked;
     this.propCtls = ctls;
     for (const c of ctls) c.sync();
+  }
+
+  /** The named paths of art, each with a fill chosen for this placement (or the one the file gave it). */
+  private artFills(store: Store, i: number, id: number, el: Art, ctls: Ctl[]): Child[] {
+    const named = el.paths.filter((p) => p.id !== undefined);
+    if (!named.length) return [];
+    const AS_IMPORTED = 'as imported';
+    const rows = named.map((p) => {
+      const read = () => (store.idAt(i) === id ? (store.page.elements[i] as Art).fills?.[p.id!] ?? AS_IMPORTED : AS_IMPORTED);
+      const select = this.select(`prop-path-${p.id}`, 'prop-path-fill', [AS_IMPORTED, ...ART_FILLS], read(), (v) => {
+        const problem = this.edit(store, i, id, null, (x) => {
+          const a = x as Art;
+          const fills = { ...a.fills };
+          if (v === AS_IMPORTED) delete fills[p.id!]; else fills[p.id!] = v as ArtFill;
+          if (Object.keys(fills).length) a.fills = fills; else delete a.fills;
+        });
+        if (problem) select.value = read();
+      });
+      ctls.push({ sync: () => { const v = read(); if (select.value !== v) select.value = v; }, flush() {} });
+      return h('label', { class: 'field' }, `${p.id} fill`, select);
+    });
+    return [h('h3', {}, 'Paths'), ...rows];
   }
 
   private widgetButton() {

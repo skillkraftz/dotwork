@@ -165,9 +165,12 @@ file is self-contained and a reader never opens an SVG.
 | `x`, `y`, `w`, `h` | The rectangle the art fills, as for `box`. |
 | `view_box` | `[x, y, width, height]`: the art's own drawing area, in the units the paths use. Width and height greater than 0. |
 | `paths` | The shapes, bottom to top. At least one, at most 200. |
+| `fills` | Optional. `{ "right-half": "dark" }`: for this placement, the fill of the paths with those ids, in place of the path's own `fill`. Values are `"none"`, `"light"`, `"medium"` or `"dark"`; every key must be the `id` of a path. |
 | `scaling` | `"fit"` (default): keep the art's proportions and center it in the rectangle. `"stretch"`: fill the rectangle. |
 
-Each path is `{ "d": "...", "fill": "light", "stroke": "black", "stroke_mm": 0.3 }`:
+Each path is `{ "id": "right-half", "d": "...", "fill": "light", "stroke": "black", "stroke_mm": 0.3 }`:
+
+- `id` is optional: the `id` the shape had in the SVG file (letters, digits and `_ . : -`, starting with a letter, up to 40 characters), unique within the art. It names the path so a placement can recolor it with `fills`.
 
 - `d` is path data in the art's units using only **absolute `M`, `L`, `C` and `Z`** (move, line, cubic curve, close),
   written as `M10 20L30 40C1 2 3 4 5 6Z`: a command letter, then exactly its numbers (2, 2, 6 and 0), separated by spaces.

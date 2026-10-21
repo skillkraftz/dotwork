@@ -1,7 +1,7 @@
 // Turns an SVG file into art the page format can store: a view box and a list of paths, each filled and stroked with one
 // of the app's tones. Everything else in the file (text, images, gradients, filters, masks, scripts, styles, links to
 // other files) is left out, and the result says what was.
-import { ART_LIMITS, LONG_SIDE_CELLS, type ArtData, type ArtPath, type ArtTone } from '../format/art';
+import { ART_ID, ART_LIMITS, LONG_SIDE_CELLS, type ArtData, type ArtPath, type ArtTone } from '../format/art';
 import { arcToCubics, compose, ellipseSegs, IDENTITY, meanScale, parseSvgPath, pathString, pointsOf, transformSegs, type Matrix, type Seg } from '../format/path';
 import { PITCH_MM } from '../format/types';
 import { artColor, SCREEN_ART_TONES } from '../render';
@@ -174,7 +174,8 @@ export function importSvg(text: string): ArtImport {
   let root: XmlNode;
   try { root = parseXml(text); } catch (err) { return refuse(`This isn't a readable SVG file. ${(err as Error).message}`); }
 
-  const drawn: { segs: Seg[]; fill: ArtTone; stroke: ArtTone; width: number }[] = [];
+  const drawn: { id?: string; segs: Seg[]; fill: ArtTone; stroke: ArtTone; width: number }[] = [];
+  const seen = new Set<string>();
 
   const paintOf = (node: XmlNode, parent: Paint): Paint => {
     const css = style(node);
@@ -261,7 +262,10 @@ export function importSvg(text: string): ArtImport {
     }
     if (!segs || (fill === 'none' && (paint.stroke === 'none' || paint.width <= 0))) return;
     const stroked = paint.stroke !== 'none' && paint.width > 0;
-    drawn.push({ segs: transformSegs(segs, matrix), fill, stroke: stroked ? paint.stroke : 'none', width: stroked ? paint.width * meanScale(matrix) : 0 });
+    // The file's id names the path for the owner to recolor; a repeated or unusable one is not kept.
+    const id = a.id !== undefined && ART_ID.test(a.id) && !seen.has(a.id) ? a.id : undefined;
+    if (id) seen.add(id);
+    drawn.push({ ...(id ? { id } : {}), segs: transformSegs(segs, matrix), fill, stroke: stroked ? paint.stroke : 'none', width: stroked ? paint.width * meanScale(matrix) : 0 });
   };
   walk(root, IDENTITY, START);
 
@@ -290,7 +294,7 @@ export function importSvg(text: string): ArtImport {
   // Lines keep their width in mm: as wide as they look when the art is first placed.
   const mmPerUnit = (LONG_SIDE_CELLS * PITCH_MM) / Math.max(view_box[2], view_box[3]);
   const paths: ArtPath[] = drawn.map((d) => ({
-    d: pathString(d.segs), fill: d.fill, stroke: d.stroke,
+    ...(d.id ? { id: d.id } : {}), d: pathString(d.segs), fill: d.fill, stroke: d.stroke,
     stroke_mm: d.stroke === 'none' ? 0 : Math.min(ART_LIMITS.stroke_mm, Math.max(0.05, +(d.width * mmPerUnit).toFixed(2))),
   }));
   const chars = paths.reduce((n, p) => n + p.d.length, 0);

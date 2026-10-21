@@ -37,8 +37,10 @@ the identity by the spine. Version 1 files are converted when imported.
   become paths and every transform is applied, so nothing depends on the file afterwards. Text, images, gradients, filters,
   masks, scripts, styles and links to other files are left out, and a notice lists what was (Copy details has it all);
   an empty or oversized result is refused with the reason. The art is stored inline in the page file. **Fit** keeps its
-  proportions and centers it, **Stretch** fills the area; line widths are in mm and stay the same when you resize. The
+  proportions and centers it, **Stretch** fills the area; line widths are in mm and stay the same when you resize. Paths keep their SVG `id`s; the properties list each named path with a fill (as imported, none, light, medium or dark) that is stored on that placement
+  (`fills`), so one gauge file can be placed twice with different halves shaded. The
   screen and the PDF draw the same paths, the PDF with the printer's tones. Try `examples/half-donut-gauge.svg`, or
+  `examples/gauge-halves.svg` (named left-half and right-half), or
   `examples/good-time-gauges.json`, the Good Time page with two half-donut gauges.
 - **Layers** lists every element from top (drawn last) to bottom. Tap a name to select that element and open its
   properties. Hide, lock, delete, and reorder with the arrows or by dragging a row. Hiding and locking are for editing

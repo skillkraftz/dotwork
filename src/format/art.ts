@@ -8,8 +8,16 @@ export type ArtTone = (typeof ART_TONES)[number];
 export const ART_SCALINGS = ['fit', 'stretch'] as const;
 export type ArtScaling = (typeof ART_SCALINGS)[number];
 
+/** The fills the owner can give a named path on a page. */
+export const ART_FILLS = ['none', 'light', 'medium', 'dark'] as const;
+export type ArtFill = (typeof ART_FILLS)[number];
+/** Path ids are short plain names, as in the SVG file. */
+export const ART_ID = /^[A-Za-z][A-Za-z0-9_.:-]{0,39}$/;
+
 /** One shape of the art, in the art's own units (the view box). */
 export interface ArtPath {
+  /** The id the path had in the SVG file, if it had a usable one. Unique within the art. */
+  id?: string;
   /** Absolute M, L, C and Z commands only. */
   d: string;
   fill: ArtTone;
@@ -50,11 +58,17 @@ export function artProblems(el: Record<string, unknown>): [string, string][] {
   }
   if (el.paths.length > ART_LIMITS.paths) out.push(['paths', `Art may have at most ${ART_LIMITS.paths} paths (got ${el.paths.length}).`]);
   let chars = 0;
+  const ids = new Set<string>();
   el.paths.forEach((p: unknown, i: number) => {
     const at = `paths[${i}]`;
     if (!isObject(p)) { out.push([at, 'A path must be an object { d, fill, stroke, stroke_mm }.']); return; }
     for (const k of ['fill', 'stroke'] as const) {
       if (!ART_TONES.includes(p[k] as ArtTone)) out.push([`${at}.${k}`, `"${k}" must be one of ${ART_TONES.map((t) => JSON.stringify(t)).join(', ')}, got ${JSON.stringify(p[k])}.`]);
+    }
+    if (p.id !== undefined) {
+      if (typeof p.id !== 'string' || !ART_ID.test(p.id)) out.push([`${at}.id`, `"id" must be a short name of letters, digits and _ . : - starting with a letter, got ${JSON.stringify(p.id)}.`]);
+      else if (ids.has(p.id)) out.push([`${at}.id`, `Two paths are called "${p.id}"; ids must be unique.`]);
+      else ids.add(p.id);
     }
     const w = p.stroke_mm;
     if (!isNum(w) || w < 0 || w > ART_LIMITS.stroke_mm) out.push([`${at}.stroke_mm`, `"stroke_mm" must be a number from 0 to ${ART_LIMITS.stroke_mm} (got ${JSON.stringify(w)}).`]);
@@ -67,6 +81,13 @@ export function artProblems(el: Record<string, unknown>): [string, string][] {
     const stray = pointsOf(parsed.segs).find(([x, y]) => x < box![0] - sx || x > box![0] + box![2] + sx || y < box![1] - sy || y > box![1] + box![3] + sy);
     if (stray) out.push([`${at}.d`, `Path data reaches (${stray[0]}, ${stray[1]}), outside the view box [${box.join(', ')}].`]);
   });
+  if (el.fills !== undefined) {
+    if (!isObject(el.fills)) out.push(['fills', '"fills" must be an object of path id to fill.']);
+    else for (const [id, tone] of Object.entries(el.fills)) {
+      if (!ids.has(id)) out.push([`fills.${id}`, `"fills" names "${id}", but no path has that id.`]);
+      else if (!ART_FILLS.includes(tone as ArtFill)) out.push([`fills.${id}`, `A fill must be one of ${ART_FILLS.map((t) => JSON.stringify(t)).join(', ')}, got ${JSON.stringify(tone)}.`]);
+    }
+  }
   if (chars > ART_LIMITS.chars) out.push(['paths', `The path data is ${chars} characters; art may have at most ${ART_LIMITS.chars}.`]);
   return out;
 }
@@ -90,8 +111,10 @@ export function artPaths(el: Art): DrawnArtPath[] {
   const m = artMatrix(el);
   return el.paths.flatMap((p) => {
     const parsed = parseStored(p.d);
-    if (!parsed.ok || (p.fill === 'none' && p.stroke === 'none')) return [];
-    return [{ d: pathString(transformSegs(parsed.segs, m)), fill: p.fill, stroke: p.stroke, stroke_mm: p.stroke === 'none' ? 0 : p.stroke_mm }];
+    if (!parsed.ok) return [];
+    const fill = (p.id !== undefined && el.fills?.[p.id]) || p.fill;
+    if (fill === 'none' && p.stroke === 'none') return [];
+    return [{ d: pathString(transformSegs(parsed.segs, m)), fill, stroke: p.stroke, stroke_mm: p.stroke === 'none' ? 0 : p.stroke_mm }];
   });
 }
 

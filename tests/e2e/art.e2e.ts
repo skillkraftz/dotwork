@@ -28,6 +28,8 @@ async function small(app: App, scope: string) {
   }, scope);
 }
 
+const halves = readFileSync('examples/gauge-halves.svg');
+
 for (const device of ['phone', 'tablet', 'desktop'] as Device[]) {
   describe(`art on a ${device}`, () => {
     it('imports an SVG from Advanced, reports what was left out, and places and resizes it', async () => {
@@ -74,6 +76,29 @@ for (const device of ['phone', 'tablet', 'desktop'] as Device[]) {
       await page.waitForSelector('[data-key="prop-scaling"], #panel [data-help="prop-scaling"]');
       expect(await missingHelp(app)).toEqual([]);
       await shot(app, `${device}-art-properties`);
+      expect(app.errors).toEqual([]);
+    });
+
+    it('lists a placed art\'s named paths and sets right-half to dark for that placement', async () => {
+      const app = await open(env, device);
+      const { page } = app;
+      await hit(app, '#advanced');
+      await page.setInputFiles('input[data-key="art-file"]', { name: 'gauge-halves.svg', mimeType: 'image/svg+xml', buffer: halves });
+      await page.waitForFunction(() => document.querySelector('#notice')?.textContent?.includes('Imported'));
+      await tap(app, await cellToClient(app, 4, 6));
+      await tool(app, 'select');
+      await tap(app, await cellToClient(app, 9, 8));
+      await bar(app, 'properties');
+      await page.waitForSelector('[data-key="prop-path-right-half"]');
+      expect(await page.locator('[data-key="prop-path-left-half"]').isVisible()).toBe(true);
+      expect(await missingHelp(app)).toEqual([]);
+      expect(await page.locator('#canvas path[fill="#bdbdbd"]').count()).toBe(0);
+      await page.selectOption('[data-key="prop-path-right-half"]', 'dark');
+      expect((await artElements(app))[0].fills).toEqual({ 'right-half': 'dark' });
+      expect(await page.locator('#canvas path[fill="#bdbdbd"]').count()).toBe(1);
+      await shot(app, `${device}-art-named-paths`);
+      await page.selectOption('[data-key="prop-path-right-half"]', 'as imported');
+      expect((await artElements(app))[0].fills).toBeUndefined();
       expect(app.errors).toEqual([]);
     });
 
