@@ -22,6 +22,15 @@ export function todayIso(now: Date = new Date()): string {
 
 export const addDays = (iso: string, days: number): string => toIso(toMs(iso) + days * DAY_MS);
 
+/** The date `months` calendar months on (or before, when negative), keeping the day of the month unless it is too long for that month: Jan 31 + 1 is Feb 28. */
+export function addMonths(iso: string, months: number): string {
+  const { year, month, day } = parts(iso);
+  const index = year * 12 + (month - 1) + months, y = Math.floor(index / 12), m = (index % 12) + 1;
+  const pad = (n: number, w = 2) => String(n).padStart(w, '0');
+  const last = parts(addDays(`${pad(m === 12 ? y + 1 : y, 4)}-${pad(m === 12 ? 1 : m + 1)}-01`, -1)).day;
+  return `${pad(y, 4)}-${pad(m)}-${pad(Math.min(day, last))}`;
+}
+
 /** 0 is Sunday. */
 export const dayOfWeek = (iso: string): number => new Date(toMs(iso)).getUTCDay();
 

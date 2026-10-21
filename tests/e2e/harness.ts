@@ -207,3 +207,10 @@ export async function missingHelp(app: App): Promise<string[]> {
     return out;
   }, Object.keys(HELP));
 }
+
+/** Open the Book view's More menu and choose an item from it. */
+export async function bookMore(app: App, item: string) {
+  const press = async (target: ReturnType<App['page']['locator']>) => { if (app.touch) { await target.tap(); await settle(app); } else await target.click(); };
+  await press(app.page.locator('[data-key="book-more"]'));
+  await press(app.page.getByRole('menuitem', { name: item }));
+}

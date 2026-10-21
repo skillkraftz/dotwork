@@ -1,7 +1,7 @@
 import { PAGE_H_MM, PAGE_W_MM } from '../format/types';
 import type { Page } from '../format/types';
 import { withSide, type Spread } from '../format/spread';
-import { addDays, formatDate, parts, sundayOf, weekNumber } from '../format/dates';
+import { addDays, formatDate, parts, sundayOf, todayIso, weekNumber } from '../format/dates';
 import { MONTH_NAMES } from '../builtin/calendar';
 import { pageContent, thumbnailSvg } from '../render';
 import { h, tabBar } from '../panel';
@@ -10,7 +10,10 @@ import type { Library, LibraryItem } from '../library/library';
 import { applyDesign, blankPage, bookExpand, bookPage, dateOf, fillSlots, getSlot, readBook, setDates, setSlot, slotCount, slotSide, type Book, type Design, type Facing } from './book';
 import { BUILTIN_SPREADS } from '../builtin/library';
 import { checkPrintSettings, signatureSizes } from './impose';
-import { applyWeeks, planWeeks, recipeFrom, sectionMonth, weeksSummary, type PageRange } from './weeks';
+import { applyBuild, buildSummary, guessMove, planSteps, sectionFrom, stepLine, type BuildPlan } from './build';
+import { MOVES, MOVE_LABEL, readSection, type Move, type Recipe, type Section, type Step } from './sections';
+import { notesPage } from '../builtin/pages';
+import { BUILTIN_SECTIONS, PRESETS } from '../builtin/sections';
 import { flipThrough } from './flip';
 import { contentsRows, datesLabel, datesStart, datesSummary, designName, endOfRun, listPages, opening, planDates, scopeSlots, slotLabel, whatChanges, type DatePlan, type Scope } from './plan';
 
@@ -91,13 +94,20 @@ export class Arranger {
   private scopeFrom = 1;
   private datesDialog: HTMLDialogElement;
   private datesBody = h('div', { class: 'apply-body' });
-  private weeksDialog: HTMLDialogElement;
-  private weeksBody = h('div', { class: 'apply-body' });
-  /** What the Build by week window is set to. A part with a missing page number is left out. */
-  private building = {
-    section: [1, 10] as [number, number], year: 2026, month: 1, cut: false, rebuild: false,
-    after: [null, null] as [number | null, number | null], fill: [null, null] as [number | null, number | null], end: [null, null] as [number | null, number | null],
-  };
+  private buildDialog: HTMLDialogElement;
+  private buildBody = h('div', { class: 'apply-body' });
+  private buildTitle = h('h2', {});
+  /** What the book builder window is set to: the recipe being edited, and whether it is listing steps, sections to add, or gap pages. */
+  private recipe: Recipe = { month: '2026-01', steps: [] };
+  private buildView: 'steps' | 'add' | 'gap' = 'steps';
+  /** What the steps list redraws when a number or date changes, so that typing doesn't lose its place. */
+  private buildRefs: { summary: HTMLElement; go: HTMLButtonElement; lines: HTMLElement[] } | null = null;
+  private savedSections: Section[] = [];
+  private sectionDialog: HTMLDialogElement;
+  private sectionBody = h('div', { class: 'apply-body' });
+  /** What the Save pages as a section window is set to. */
+  private sectioning = { from: 1, to: 1, name: '', move: 'none' as Move };
+  private moreOpen = false;
   /** What the Dates window is set to; its first and last page are kept apart from the plan. */
   private dating = { mode: 'week' as 'week' | 'day', year: 2026, week: 1, start: '2026-01-01', from: 1, to: 1 };
 
@@ -113,11 +123,17 @@ export class Arranger {
     this.datesDialog = h('dialog', { class: 'library apply dates', 'aria-label': 'Dates' },
       h('header', {}, h('h2', {}, 'Dates'), h('button', { type: 'button', 'data-help': 'dates-close', onclick: () => this.datesDialog.close() }, 'Close')),
       this.datesBody) as HTMLDialogElement;
-    this.weeksDialog = h('dialog', { class: 'library apply weeks', 'aria-label': 'Build by week' },
-      h('header', {}, h('h2', {}, 'Build by week'), h('button', { type: 'button', 'data-help': 'weeks-close', onclick: () => this.weeksDialog.close() }, 'Close')),
-      this.weeksBody) as HTMLDialogElement;
-    for (const d of [this.picker, this.apply, this.datesDialog, this.weeksDialog]) d.addEventListener('click', (e) => { if (e.target === d) d.close(); });
-    document.body.append(this.picker, this.apply, this.datesDialog, this.weeksDialog);
+    this.buildDialog = h('dialog', { class: 'library apply build', 'aria-label': 'Book builder' },
+      h('header', {}, this.buildTitle, h('button', { type: 'button', 'data-help': 'build-close', onclick: () => this.buildDialog.close() }, 'Close')),
+      this.buildBody) as HTMLDialogElement;
+    this.sectionDialog = h('dialog', { class: 'library apply section-save', 'aria-label': 'Save pages as a section' },
+      h('header', {}, h('h2', {}, 'Save pages as a section'), h('button', { type: 'button', 'data-help': 'section-close', onclick: () => this.sectionDialog.close() }, 'Close')),
+      this.sectionBody) as HTMLDialogElement;
+    for (const d of [this.picker, this.apply, this.datesDialog, this.buildDialog, this.sectionDialog]) d.addEventListener('click', (e) => { if (e.target === d) d.close(); });
+    document.body.append(this.picker, this.apply, this.datesDialog, this.buildDialog, this.sectionDialog);
+    document.addEventListener('pointerdown', (e) => {
+      if (this.moreOpen && !(e.target as HTMLElement).closest('.book-more')) { this.moreOpen = false; this.renderBar(); }
+    }, true);
 
     this.stage.addEventListener('pointerdown', (e) => { this.swipe = e.pointerType === 'mouse' ? null : { x: e.clientX, y: e.clientY }; });
     this.stage.addEventListener('pointercancel', () => { this.swipe = null; });
@@ -153,7 +169,9 @@ export class Arranger {
 
   /** Refresh the list of saved designs, e.g. when the view is shown. */
   async refreshDesigns() {
-    this.saved = (await this.host.library.list()).filter((i) => i.kind !== 'book');
+    const items = await this.host.library.list();
+    this.saved = items.filter((i) => i.kind === 'page' || i.kind === 'spread');
+    this.savedSections = items.flatMap((i) => (i.kind === 'section' ? [i.data] : []));
     if (this.picker.open) this.renderPicker();
   }
 
@@ -229,11 +247,19 @@ export class Arranger {
 
   private renderBar() {
     const undo = h('button', { type: 'button', disabled: this.undoStack.length === 0, onclick: () => this.undo(), 'data-help': 'book-undo', title: 'Undo the last change to the book' }, 'Undo');
+    const item = (help: string, label: string, run: () => void) =>
+      h('button', { type: 'button', role: 'menuitem', 'data-key': help, 'data-help': help, onclick: () => { this.moreOpen = false; this.renderBar(); run(); } }, label);
+    // The less-used actions sit in a menu, so that the bar fits a phone without scrolling sideways.
+    const more = h('div', { class: 'book-more' },
+      h('button', { type: 'button', 'data-key': 'book-more', 'data-help': 'book-more', 'aria-haspopup': 'menu', 'aria-expanded': String(this.moreOpen), onclick: () => { this.moreOpen = !this.moreOpen; this.renderBar(); } }, 'More ▾'),
+      this.moreOpen ? h('div', { class: 'menu-list', role: 'menu', 'aria-label': 'More for the book' },
+        item('book-dates', 'Dates…', () => this.openDates()),
+        item('book-save-section', 'Save pages as a section…', () => this.openSaveSection()),
+        item('book-flip', 'Flip through', () => this.flip())) : null);
     this.bar.replaceChildren(
       undo,
-      h('button', { type: 'button', 'data-help': 'book-dates', onclick: () => this.openDates() }, 'Dates…'),
-      h('button', { type: 'button', 'data-help': 'book-weeks', onclick: () => this.openWeeks() }, 'Build by week…'),
-      h('button', { type: 'button', 'data-help': 'book-flip', onclick: () => this.flip() }, 'Flip through'),
+      h('button', { type: 'button', 'data-key': 'book-build', 'data-help': 'book-build', onclick: () => void this.openBuild() }, 'Build book…'),
+      more,
       h('button', { type: 'button', class: 'primary', 'data-help': 'book-export', onclick: () => this.host.exportFiles(this.book) }, 'Print files…'),
     );
     this.updateWarning();
@@ -553,85 +579,226 @@ export class Arranger {
     update();
   }
 
-  // ---- build by week -------------------------------------------------------------
+  // ---- save pages as a section -----------------------------------------------------
 
-  private openWeeks() {
-    const b = this.book, w = this.building;
-    const last = b.page_count;
-    // The section runs from page 1 to the page before the second week's first dated page.
-    const base = b.dates?.findIndex(Boolean) ?? -1;
-    const from = base >= 0 ? base + 1 : 1;
-    let to = Math.min(last, from + 9);
-    if (base >= 0) {
-      const next = b.dates!.findIndex((d, i) => i > base && !!d && d >= addDays(b.dates![base]!, 7));
-      if (next > base) to = next;
-    }
-    w.section = [from, to];
-    const m = sectionMonth(b, from, to);
-    if (m) { w.year = m.year; w.month = m.month; }
-    w.rebuild = !!b.recipe;
-    if (b.recipe) { const [y, mo] = b.recipe.month.split('-').map(Number); w.year = y; w.month = mo; }
-    this.renderWeeks();
-    this.weeksDialog.showModal();
+  private openSaveSection() {
+    const s = this.sectioning, last = this.book.page_count;
+    s.from = s.to = Math.max(1, Math.min(last, this.slot));
+    s.name = '';
+    s.move = guessMove(this.book, s.from, s.to);
+    this.renderSaveSection();
+    this.sectionDialog.showModal();
   }
 
-  private renderWeeks() {
-    const b = this.book, w = this.building, recipe = b.recipe;
-    const rebuilding = w.rebuild && !!recipe;
-    const summary = h('div', { class: 'apply-summary', role: 'status' });
-    const go = h('button', { type: 'button', class: 'primary', 'data-key': 'weeks-go', 'data-help': 'weeks-go' });
-    const pair = (a: [number | null, number | null]): PageRange | null => (a[0] !== null && a[1] !== null ? [a[0], a[1]] : null);
+  private renderSaveSection() {
+    const b = this.book, s = this.sectioning;
+    const summary = h('p', { class: 'apply-summary', role: 'status' });
+    const save = h('button', { type: 'button', class: 'primary', 'data-key': 'section-save', 'data-help': 'section-save' }, 'Save section');
+    const range = (): [number, number] => [Math.min(s.from, s.to), Math.max(s.from, s.to)];
     const update = () => {
-      const made = rebuilding ? { ...recipe!, month: `${String(w.year).padStart(4, '0')}-${String(w.month).padStart(2, '0')}` }
-        : recipeFrom(b, { section: w.section, year: w.year, month: w.month, after: pair(w.after), fill: pair(w.fill), fillCut: w.cut, end: pair(w.end) });
-      if ('problem' in made) { summary.textContent = made.problem; go.disabled = true; go.textContent = 'Build'; return; }
-      const plan = planWeeks(made, b.page_count);
-      summary.replaceChildren(...weeksSummary(plan, b.page_count).map((line) => h('p', {}, line)));
-      go.disabled = plan.over > 0;
-      go.textContent = `${rebuilding ? 'Rebuild for' : 'Build'} ${monthTitle(w.month)} ${w.year}`;
-      go.onclick = () => {
-        this.weeksDialog.close();
-        let off: number[] = [];
-        this.edit(() => { off = applyWeeks(b, plan); });
-        this.slot = Math.min(this.slot, b.page_count);
-        this.say([`Built ${plan.weeks} week${plan.weeks === 1 ? '' : 's'} of ${monthTitle(w.month)}. Undo takes it back.`, this.numberOffNote(off)].filter(Boolean).join(' '));
-      };
+      const [lo, hi] = range();
+      const dated = Array.from({ length: hi - lo + 1 }, (_, i) => dateOf(b, lo + i)).some(Boolean);
+      summary.textContent = `${hi === lo ? `Page ${lo}` : `Pages ${lo}–${hi}`}: ${hi - lo + 1} page${hi === lo ? '' : 's'}, starting on a ${lo % 2 === 0 ? 'left' : 'right'} page. ${dated ? 'Their dates are kept relative to the first dated page.' : 'None has a date, so its dates can’t move.'}`;
+      save.onclick = () => void this.saveSection();
     };
-    const num = (label: string, value: number | null, help: string, set: (n: number | null) => void, min = 1, max = b.page_count) => {
-      const input = h('input', { type: 'number', value: value ?? '', min, max, inputmode: 'numeric', 'aria-label': label, 'data-key': `weeks-${label.toLowerCase().replace(/\W+/g, '-')}`, 'data-help': help });
-      input.oninput = () => { const v = Math.round(Number(input.value)); set(input.value && Number.isFinite(v) ? Math.max(min, Math.min(max, v)) : null); update(); };
+    const num = (label: string, key: 'from' | 'to', help: string) => {
+      const input = h('input', { type: 'number', value: s[key], min: 1, max: b.page_count, inputmode: 'numeric', 'aria-label': label, 'data-key': `section-${key}`, 'data-help': help });
+      const read = () => { const v = Math.round(Number(input.value)); if (input.value && Number.isFinite(v)) { s[key] = Math.max(1, Math.min(b.page_count, v)); update(); } };
+      input.oninput = read;
+      input.onchange = () => { read(); input.value = String(s[key]); };
       return h('label', { class: 'compact' }, label, input);
     };
-    const part = (title: string, key: 'section' | 'after' | 'fill' | 'end', hint: string) => {
-      const v = w[key] as (number | null)[];
-      return h('div', { class: 'weeks-part' }, h('strong', {}, title), h('span', { class: 'hint' }, hint),
-        h('div', { class: 'row' }, num('From page', v[0], `weeks-${key}`, (n) => { v[0] = n; }), num('To page', v[1], `weeks-${key}`, (n) => { v[1] = n; })));
-    };
-    const year = num('Year', w.year, 'weeks-year', (n) => { if (n !== null) w.year = n; }, 1900, 2200);
-    const month = h('select', { 'aria-label': 'Month', 'data-key': 'weeks-month', 'data-help': 'weeks-month' }, ...MONTH_NAMES.map((_, i) => h('option', { value: i + 1, selected: i + 1 === w.month }, monthTitle(i + 1))));
-    month.onchange = () => { w.month = Number(month.value); update(); };
-    const cut = h('input', { type: 'checkbox', checked: w.cut, 'aria-label': 'Cut the last repeat short', 'data-key': 'weeks-cut', 'data-help': 'weeks-cut' });
-    cut.onchange = () => { w.cut = cut.checked; update(); };
-    const monthRow = h('div', { class: 'row' }, h('label', { class: 'compact' }, 'Month', month), year);
-    this.weeksBody.replaceChildren(...(rebuilding
-      ? [
-        h('p', { class: 'hint' }, `Built from the pages saved with this book. Change the month to build it again; nothing else changes.`),
-        monthRow,
-        h('div', { class: 'weeks-foot' }, summary, h('div', { class: 'row' }, go,
-          h('button', { type: 'button', 'data-key': 'weeks-from-pages', 'data-help': 'weeks-from-pages', onclick: () => { w.rebuild = false; this.renderWeeks(); } }, 'Build from pages instead…'),
-          h('button', { type: 'button', 'data-help': 'weeks-cancel', onclick: () => this.weeksDialog.close() }, 'Cancel'))),
-      ]
-      : [
-        h('p', { class: 'hint' }, 'Repeats a section of pages once for each week touching a month. Dated pages for days outside the month are left out. This replaces every page of the book, and Undo takes it back.'),
-        part('Section', 'section', 'The pages of one week, already dated for its first week (a weekly page, the days, a reflection, notes).'),
-        monthRow,
-        part('After the weeks', 'after', 'Pages placed once, such as the month’s review. Leave empty for none.'),
-        part('Fill', 'fill', 'Pages repeated to fill the space left, such as idea pages. Leave empty for none.'),
-        h('label', { class: 'choice' }, cut, 'Cut the last repeat short to fit'),
-        part('End', 'end', 'Pages placed last, such as the book notes. Leave empty for none.'),
-        h('div', { class: 'weeks-foot' }, summary, h('div', { class: 'row' }, go, h('button', { type: 'button', 'data-help': 'weeks-cancel', onclick: () => this.weeksDialog.close() }, 'Cancel'))),
-      ]));
+    const name = h('input', { type: 'text', value: s.name, placeholder: 'Name', maxlength: 80, 'aria-label': 'Name', 'data-key': 'section-name', 'data-help': 'section-name', autocomplete: 'off' });
+    name.oninput = () => { s.name = name.value; };
+    const move = h('select', { 'aria-label': 'Each time it repeats, its dates', 'data-key': 'section-move', 'data-help': 'section-move' },
+      ...MOVES.map((m) => h('option', { value: m, selected: m === s.move }, MOVE_LABEL[m])));
+    move.onchange = () => { s.move = move.value as Move; };
+    this.sectionBody.replaceChildren(
+      h('p', { class: 'hint' }, 'Saves a run of this book’s pages to the Library, with its dates, so the book builder can repeat it. A section keeps the side of the spine it began on.'),
+      h('div', { class: 'row' }, num('From page', 'from', 'section-from'), num('To page', 'to', 'section-to')),
+      h('label', { class: 'compact wide' }, 'Name', name),
+      h('label', { class: 'compact wide' }, 'Each repeat, its dates', move),
+      summary,
+      h('div', { class: 'row' }, save, h('button', { type: 'button', 'data-help': 'section-cancel', onclick: () => this.sectionDialog.close() }, 'Cancel')));
     update();
+  }
+
+  private async saveSection() {
+    const s = this.sectioning, [lo, hi] = [Math.min(s.from, s.to), Math.max(s.from, s.to)];
+    const name = s.name.trim() || (hi === lo ? `Page ${lo}` : `Pages ${lo}–${hi}`);
+    const section = sectionFrom(this.book, lo, hi, name, s.move);
+    const check = readSection(section);
+    if (!check.ok) { this.say(`Not saved: ${check.issues[0].message}`); this.sectionDialog.close(); return; }
+    const existing = await this.host.library.findByName('section', name);
+    if (existing && !confirm(`Replace the saved section “${existing.name}”?`)) return;
+    try {
+      await this.host.library.save('section', name, section);
+    } catch (err) {
+      this.say(`Not saved: ${err instanceof Error ? err.message : String(err)}`);
+      this.sectionDialog.close();
+      return;
+    }
+    this.sectionDialog.close();
+    await this.refreshDesigns();
+    this.say(`Saved the section “${name}” (${section.pages.length} page${section.pages.length === 1 ? '' : 's'}). Find it in Library, Sections, and add it to the book with Build book.`);
+  }
+
+  // ---- the book builder ------------------------------------------------------------
+
+  private async openBuild() {
+    const b = this.book;
+    await this.refreshDesigns();
+    const first = b.dates?.find(Boolean);
+    this.recipe = b.recipe ? structuredClone(b.recipe) : { month: (first ?? todayIso()).slice(0, 7), steps: [] };
+    this.buildView = 'steps';
+    this.renderBuild();
+    this.buildDialog.showModal();
+  }
+
+  /** The recipe's month as its year and its month number. */
+  private get recipeMonth() { const [year, month] = this.recipe.month.split('-').map(Number); return { year, month }; }
+
+  private renderBuild() {
+    if (this.buildView !== 'steps') return this.renderChooser();
+    const r = this.recipe;
+    this.buildTitle.textContent = 'Book builder';
+    const summary = h('div', { class: 'apply-summary', role: 'status' });
+    const go = h('button', { type: 'button', class: 'primary', 'data-key': 'build-go', 'data-help': 'build-go' }, 'Generate book');
+    const lines: HTMLElement[] = [];
+    this.buildRefs = { summary, go, lines };
+
+    const { year, month } = this.recipeMonth;
+    const setMonth = (y: number, m: number) => { r.month = `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}`; this.refreshBuild(); };
+    const monthSel = h('select', { 'aria-label': 'Month', 'data-key': 'build-month', 'data-help': 'build-month' },
+      ...MONTH_NAMES.map((_, i) => h('option', { value: i + 1, selected: i + 1 === month }, monthTitle(i + 1))));
+    monthSel.onchange = () => setMonth(this.recipeMonth.year, Number(monthSel.value));
+    const yearIn = h('input', { type: 'number', value: year, min: 1900, max: 2200, inputmode: 'numeric', 'aria-label': 'Year', 'data-key': 'build-year', 'data-help': 'build-year' });
+    yearIn.oninput = () => { const v = Math.round(Number(yearIn.value)); if (yearIn.value && v >= 1900 && v <= 2200) setMonth(v, this.recipeMonth.month); };
+
+    const fillTaken = r.steps.some((s) => s.repeat.kind === 'fill');
+    const stepCard = (step: Step, i: number) => {
+      const rep = step.repeat;
+      const sec = step.section;
+      const kind = h('select', { 'aria-label': `Step ${i + 1}: how often`, 'data-key': 'step-repeat', 'data-help': 'build-step-repeat' },
+        h('option', { value: 'times', selected: rep.kind === 'times' }, 'A number of times'),
+        h('option', { value: 'weeks', selected: rep.kind === 'weeks' }, 'Each week of a month'),
+        h('option', { value: 'fill', selected: rep.kind === 'fill', disabled: fillTaken && rep.kind !== 'fill' }, 'Fill what’s left'));
+      kind.onchange = () => {
+        delete step.start;
+        step.repeat = kind.value === 'weeks' ? { kind: 'weeks', only_in_month: true } : kind.value === 'fill' ? { kind: 'fill' } : { kind: 'times', count: 1 };
+        this.renderBuild();
+      };
+      const controls: HTMLElement[] = [h('label', { class: 'compact wide' }, 'Repeat', kind)];
+      if (rep.kind === 'times') controls.push(this.countField(rep.count, `Step ${i + 1}: times`, (n) => { rep.count = n; this.refreshBuild(); }));
+      if (rep.kind === 'weeks') {
+        const only = h('input', { type: 'checkbox', checked: rep.only_in_month, 'aria-label': `Step ${i + 1}: only days in the month`, 'data-key': 'step-only', 'data-help': 'build-step-only' });
+        only.onchange = () => { rep.only_in_month = only.checked; this.refreshBuild(); };
+        const m = h('input', { type: 'month', value: rep.month ?? '', 'aria-label': `Step ${i + 1}: month`, 'data-key': 'step-month', 'data-help': 'build-step-start' });
+        m.oninput = m.onchange = () => { if (m.value) rep.month = m.value; else delete rep.month; this.refreshBuild(); };
+        controls.push(h('label', { class: 'compact wide' }, 'Other month', m), h('label', { class: 'choice' }, only, 'Only days in the month'));
+      } else {
+        const start = h('input', { type: 'date', value: step.start ?? '', 'aria-label': `Step ${i + 1}: first date`, 'data-key': 'step-start', 'data-help': 'build-step-start' });
+        start.oninput = start.onchange = () => { if (start.value) step.start = start.value; else delete step.start; this.refreshBuild(); };
+        controls.push(h('label', { class: 'compact wide' }, 'First date', start));
+      }
+      const tool = (help: string, label: string, text: string, disabled: boolean, run: () => void) =>
+        h('button', { type: 'button', class: 'step-tool', 'data-key': help, 'data-help': help, 'aria-label': `${label} step ${i + 1}`, disabled, onclick: run }, text);
+      const move = (to: number) => { const [x] = r.steps.splice(i, 1); r.steps.splice(to, 0, x); this.renderBuild(); };
+      const line = h('p', { class: 'hint step-adds' });
+      lines.push(line);
+      return h('li', { class: 'step-card', 'data-step': i },
+        h('div', { class: 'step-head' },
+          h('strong', {}, `${i + 1}. ${sec.name}`),
+          h('span', { class: 'step-tools' },
+            tool('build-step-up', 'Move up', '↑', i === 0, () => move(i - 1)),
+            tool('build-step-down', 'Move down', '↓', i === r.steps.length - 1, () => move(i + 1)),
+            tool('build-step-remove', 'Remove', '✕', false, () => { r.steps.splice(i, 1); this.renderBuild(); }))),
+        h('p', { class: 'hint' }, `${sec.pages.length} page${sec.pages.length === 1 ? '' : 's'} · starts on a ${sec.left ? 'left' : 'right'} page · dates ${sec.move === 'none' ? 'stay the same' : MOVE_LABEL[sec.move].toLowerCase()} each repeat`),
+        h('div', { class: 'step-controls' }, ...controls),
+        line);
+    };
+
+    const gapName = r.gap?.name ?? 'Notes';
+    this.buildBody.replaceChildren(
+      h('p', { class: 'hint' }, 'Builds the whole book from steps. Each step repeats a section from the Library. This replaces every page of the book, and Undo takes it back. To build another month, change the month and generate again.'),
+      h('div', { class: 'row' }, h('label', { class: 'compact' }, 'Month', monthSel), h('label', { class: 'compact' }, 'Year', yearIn)),
+      h('div', { class: 'row' }, h('span', { class: 'hint' }, 'Start from'),
+        ...PRESETS.map((p) => h('button', { type: 'button', 'data-key': `build-preset-${p.id}`, 'data-help': 'build-preset', title: p.description, onclick: () => { r.steps = structuredClone(p.steps); this.renderBuild(); } }, p.name))),
+      r.steps.length ? h('ol', { class: 'steps' }, ...r.steps.map(stepCard)) : h('p', { class: 'hint', 'data-key': 'build-empty' }, 'No steps yet. Start from a preset, or add a section as the first step.'),
+      h('div', { class: 'row' },
+        h('button', { type: 'button', 'data-key': 'build-add', 'data-help': 'build-add', onclick: () => { this.buildView = 'add'; this.renderBuild(); } }, 'Add a step…'),
+        h('button', { type: 'button', 'data-key': 'build-gap', 'data-help': 'build-gap', onclick: () => { this.buildView = 'gap'; this.renderBuild(); } }, `Gap page: ${gapName}…`)),
+      h('div', { class: 'build-foot' }, summary, h('div', { class: 'row' }, go, h('button', { type: 'button', 'data-help': 'build-cancel', onclick: () => this.buildDialog.close() }, 'Cancel'))));
+    this.refreshBuild();
+  }
+
+  /** A number of repeats with − and + buttons. */
+  private countField(value: number, label: string, set: (n: number) => void) {
+    const input = h('input', { type: 'text', inputmode: 'numeric', value: String(value), autocomplete: 'off', 'aria-label': label, 'data-key': 'step-count', 'data-help': 'build-step-count' });
+    let n = value;
+    const clamp = (v: number) => Math.max(1, Math.min(400, Math.round(v)));
+    input.oninput = () => { const v = parseInt(input.value, 10); if (Number.isFinite(v)) { n = clamp(v); set(n); } };
+    input.onblur = () => { input.value = String(n); };
+    const step = (dir: 1 | -1) => h('button', {
+      type: 'button', class: 'step', 'data-key': `step-count-${dir > 0 ? 'inc' : 'dec'}`, 'data-help': dir > 0 ? 'step-inc' : 'step-dec', 'aria-label': `${dir > 0 ? 'More' : 'Fewer'}: ${label}`,
+      onmousedown: (e: Event) => e.preventDefault(),
+      onclick: () => { n = clamp(n + dir); input.value = String(n); set(n); },
+    }, dir > 0 ? '+' : '−');
+    return h('div', { class: 'field num step-count' }, h('label', {}, 'Times'), h('div', { class: 'stepper' }, step(-1), input, step(1)));
+  }
+
+  /** Re-plan after any change and update the summary, each step's line and the Generate button, without redrawing the controls. */
+  private refreshBuild() {
+    const refs = this.buildRefs;
+    if (!refs) return;
+    const b = this.book, r = this.recipe;
+    const plan: BuildPlan = planSteps(r, b.page_count);
+    refs.summary.replaceChildren(...buildSummary(plan, b.page_count).map((line, i) => h('p', { class: i === 0 ? 'usage' : '' }, line)));
+    r.steps.forEach((step, i) => { if (refs.lines[i]) refs.lines[i].textContent = `Adds ${stepLine(step, plan.steps[i], r.month)}`; });
+    refs.go.disabled = !!plan.problem || r.steps.length === 0;
+    refs.go.onclick = () => {
+      this.buildDialog.close();
+      let off: number[] = [];
+      this.edit(() => { off = applyBuild(b, plan); });
+      this.slot = Math.min(this.slot, b.page_count);
+      this.say([
+        `Built the book from ${r.steps.length} step${r.steps.length === 1 ? '' : 's'}: ${plan.used} of ${b.page_count} pages used. Undo takes it back.`,
+        plan.gaps.length ? `Added a gap page (${plan.gapName}) on ${listPages(plan.gaps)}.` : '', this.numberOffNote(off),
+      ].filter(Boolean).join(' '));
+    };
+  }
+
+  /** The list a step is added from (sections), or the gap page is chosen from (pages). */
+  private renderChooser() {
+    const adding = this.buildView === 'add';
+    this.buildTitle.textContent = adding ? 'Add a step' : 'Gap page';
+    const back = h('button', { type: 'button', 'data-key': 'build-back', 'data-help': 'build-back', onclick: () => { this.buildView = 'steps'; this.renderBuild(); } }, 'Back to the steps');
+    const card = (name: string, hint: string, pages: (Page | null)[], pick: () => void) => {
+      const thumb = h('div', { class: 'thumb' });
+      thumb.innerHTML = thumbnailSvg(pages.slice(0, 2).map((p) => p ?? blankPage('right')));
+      return h('button', { type: 'button', class: 'design wide', 'data-key': 'build-pick', 'data-help': 'build-pick', 'data-name': name, onclick: pick },
+        thumb, h('span', { class: 'design-title' }, name), h('span', { class: 'hint' }, hint));
+    };
+    const group = (title: string, cards: HTMLElement[], empty: string) => [h('h3', {}, title), cards.length ? h('div', { class: 'design-list' }, ...cards) : h('p', { class: 'hint' }, empty)];
+    if (adding) {
+      const add = (section: Section) => () => {
+        this.recipe.steps.push({ section: structuredClone(section), repeat: { kind: 'times', count: 1 } });
+        this.buildView = 'steps';
+        this.renderBuild();
+      };
+      const sectionCard = (s: Section) => card(s.name, `${s.pages.length} page${s.pages.length === 1 ? '' : 's'} · dates ${s.move === 'none' ? 'stay the same' : MOVE_LABEL[s.move].toLowerCase()}`, s.pages, add(s));
+      this.buildBody.replaceChildren(back,
+        ...group('Saved sections', this.savedSections.map(sectionCard), 'None yet. In the Book view, More, Save pages as a section.'),
+        ...group('Built-in sections', BUILTIN_SECTIONS.map(sectionCard), ''));
+    } else {
+      const pick = (page: Page | null) => () => { if (page) this.recipe.gap = structuredClone(page); else delete this.recipe.gap; this.buildView = 'steps'; this.renderBuild(); };
+      const pageCard = (p: Page) => card(p.name, 'Page', [p], pick(p));
+      this.buildBody.replaceChildren(back,
+        h('p', { class: 'hint' }, 'The page that fills in so a part starts on the same side of the spine. Notes unless you choose another.'),
+        h('div', { class: 'design-list' }, card('Notes', 'The default', [notesPage()], pick(null))),
+        ...group('Saved pages', this.saved.filter((i) => i.kind === 'page').map((i) => pageCard(i.data as Page)), 'No saved pages yet.'),
+        ...group('Built-in pages', this.host.examples.filter((p) => p.name !== 'Notes').map(pageCard), ''));
+    }
   }
 
   // ---- flip through --------------------------------------------------------------

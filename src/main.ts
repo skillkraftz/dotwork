@@ -28,6 +28,7 @@ import { AdvancedPicker, type AdvancedChoice } from './advanced';
 import { NameDialog } from './namedialog';
 import { WidgetStore, type Widget } from './widgets';
 import { BUILTIN_PAGES, isBuiltinName } from './builtin/library';
+import { isBuiltinSection } from './builtin/sections';
 
 const KEYS = { page: 'dotwork.page', left: 'dotwork.spread.left', right: 'dotwork.spread.right' } as const;
 const VIEW_KEY = 'dotwork.view';
@@ -88,7 +89,7 @@ const cur = () => (view === 'page' ? stores.page : stores[active]);
 const widgets = new WidgetStore((() => { try { return localStorage; } catch { return null; } })());
 const nameDialog = new NameDialog();
 
-const library = new Library(typeof indexedDB === 'undefined' ? new MemoryBackend() : idbBackend, undefined, undefined, isBuiltinName);
+const library = new Library(typeof indexedDB === 'undefined' ? new MemoryBackend() : idbBackend, undefined, undefined, (kind, name) => (kind === 'section' ? isBuiltinSection(name) : isBuiltinName(kind, name)));
 
 // ---- notices -------------------------------------------------------------
 

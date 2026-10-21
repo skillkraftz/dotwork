@@ -312,6 +312,8 @@ describe('every control has a help entry', () => {
       await page.waitForSelector('dialog.apply[open]');
       expect(await missingHelp(app), `${device} apply`).toEqual([]);
       await go('dialog.apply button[data-help="apply-cancel"]');
+      await go('button[data-help="book-more"]');
+      expect(await missingHelp(app), `${device} book more menu`).toEqual([]);
       await go('button[data-help="book-dates"]');
       await page.waitForSelector('dialog.dates[open]');
       expect(await missingHelp(app), `${device} dates`).toEqual([]);

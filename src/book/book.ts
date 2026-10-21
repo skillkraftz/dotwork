@@ -6,6 +6,7 @@ import { withSide, type SpreadSide } from '../format/spread';
 import { headerOf, hitsCorner } from '../format/bounds';
 import type { ValidationIssue } from '../format/validate';
 import { DEFAULT_PRINT, type PrintSettings } from './impose';
+import { readRecipe, type Recipe } from './sections';
 
 /** A book: a page count, a design for every page you have filled, and the two inside covers. See docs/book-format.md. */
 export interface Book {
@@ -21,30 +22,8 @@ export interface Book {
   /** Index 0 is page 1: the date its tokens are filled from, as 'YYYY-MM-DD', or null. Missing means no page has a date. */
   dates?: (string | null)[];
   cover: { front: Page | null; back: Page | null };
-  /** How "Build by week" made the pages, so it can be run again for another month. See docs/book-format.md. */
+  /** The steps the book builder made the pages from, so it can be run again for another month. See docs/book-format.md. */
   recipe?: Recipe;
-}
-
-/** One part of a recipe: page designs copied out of the book, and whether the part began on a left-hand page. */
-export interface RecipePart {
-  pages: (Page | null)[];
-  /** The section only: each page's date as days after the section's first date, or null for an undated page. */
-  days?: (number | null)[];
-  left: boolean;
-}
-
-/** What "Build by week" was given. The weeks repeat `section` for each week touching `month`; the other parts are optional. */
-export interface Recipe {
-  /** The month built, 'YYYY-MM'. */
-  month: string;
-  /** The weekday (0 is Sunday) the section's first date falls on, so every repeat starts on it. */
-  weekday: number;
-  section: RecipePart;
-  after?: RecipePart;
-  fill?: RecipePart;
-  /** The fill's last repeat is cut short to fit the space left (otherwise only whole repeats are placed). */
-  fill_cut?: boolean;
-  end?: RecipePart;
 }
 
 /** What a book file may hold for each print setting: the file format's limits, which the settings fields keep to. */
@@ -274,41 +253,6 @@ export function readBook(input: unknown): ReadBookResult {
     converted,
     book: { format: 'dotwork-book', version: 1, name: input.name as string, page_count: count as number, page_numbers: input.page_numbers as boolean, print: print as unknown as PrintSettings, pages, ...(dates ? { dates } : {}), cover, ...(recipe ? { recipe } : {}) },
   };
-}
-
-/** Check a recipe: its month and weekday, and every page design inside it against the page format. */
-function readRecipe(raw: unknown, fail: (rule: string, path: string, message: string) => void): Recipe | undefined {
-  if (!isObject(raw)) { fail('recipe', 'recipe', '"recipe" must be an object.'); return undefined; }
-  const month = raw.month;
-  if (typeof month !== 'string' || !isDate(`${month}-01`)) fail('recipe', 'recipe.month', `"month" must be a month written YYYY-MM, got ${JSON.stringify(month)}.`);
-  if (!Number.isInteger(raw.weekday) || (raw.weekday as number) < 0 || (raw.weekday as number) > 6) fail('recipe', 'recipe.weekday', `"weekday" must be a whole number from 0 (Sunday) to 6, got ${JSON.stringify(raw.weekday)}.`);
-  if (raw.fill_cut !== undefined && typeof raw.fill_cut !== 'boolean') fail('recipe', 'recipe.fill_cut', '"fill_cut" must be true or false.');
-  const part = (value: unknown, key: string, section: boolean): RecipePart | undefined => {
-    if (!isObject(value) || !Array.isArray(value.pages) || value.pages.length === 0 || typeof value.left !== 'boolean') {
-      fail('recipe', `recipe.${key}`, `"${key}" must be an object with a non-empty "pages" list and "left" true or false.`);
-      return undefined;
-    }
-    const pages = value.pages.map((p: unknown, i: number) => {
-      if (p === null) return null;
-      const r = readPage(p);
-      if (r.ok) return r.page;
-      for (const issue of r.issues) fail(issue.rule, `recipe.${key}.pages[${i}].${issue.path}`, issue.message);
-      return null;
-    });
-    let days: (number | null)[] | undefined;
-    if (section) {
-      const d = value.days;
-      if (!Array.isArray(d) || d.length !== pages.length || d.some((x) => x !== null && !Number.isInteger(x))) {
-        fail('recipe', `recipe.${key}.days`, '"days" must list a whole number of days or null for each page of the section.');
-      } else days = d as (number | null)[];
-    }
-    return { pages, ...(days ? { days } : {}), left: value.left };
-  };
-  const section = part(raw.section, 'section', true);
-  const optional = (key: 'after' | 'fill' | 'end') => (raw[key] === undefined ? undefined : part(raw[key], key, false));
-  const [after, fill, end] = [optional('after'), optional('fill'), optional('end')];
-  if (!section || typeof month !== 'string') return undefined;
-  return { month, weekday: raw.weekday as number, section, ...(after ? { after } : {}), ...(fill ? { fill } : {}), ...(raw.fill_cut ? { fill_cut: true } : {}), ...(end ? { end } : {}) };
 }
 
 /** The page that stands in for a slot with nothing in it. */

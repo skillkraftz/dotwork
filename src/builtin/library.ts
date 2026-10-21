@@ -9,6 +9,7 @@ import {
 import { builtinWidgets } from './widgets';
 import { builtinArt } from './art';
 import { pageFiles, skipped } from './examples';
+import type { Section } from '../book/sections';
 
 // The pages, spreads and widgets that come with Dotwork: every page of the owner's books, as closely as the format allows.
 
@@ -80,9 +81,9 @@ export const BUILTIN_SPREADS: readonly Spread[] = [
 export const BUILTIN_WIDGETS = builtinWidgets();
 export const BUILTIN_ART = builtinArt();
 
-/** Whether a built-in of this kind already has this name. */
-export const isBuiltinName = (kind: 'page' | 'spread' | 'book', name: string): boolean =>
+/** Whether a built-in page or spread has this name (the built-in sections are checked by `isBuiltinSection`, which needs this file). */
+export const isBuiltinName = (kind: 'page' | 'spread' | 'book' | 'section', name: string): boolean =>
   (kind === 'page' ? BUILTIN_PAGES : kind === 'spread' ? BUILTIN_SPREADS : []).some((d) => d.name === name.trim());
 
 /** A built-in can't be changed, so opening or placing one gives an editable copy under its own name plus “copy”. */
-export const asCopy = <T extends Page | Spread>(design: T): T => ({ ...structuredClone(design), name: `${design.name} copy` });
+export const asCopy = <T extends Page | Spread | Section>(design: T): T => ({ ...structuredClone(design), name: `${design.name} copy` });

@@ -56,7 +56,7 @@ body {
 .menu-list button[aria-checked='true'] { background: var(--gray-1); font-weight: 700; }
 .menu-list button[aria-checked='true']::before { content: '✓'; position: absolute; left: 10px; }
 
-button, select, input[type='text'], input[type='number'], input[type='date'] {
+button, select, input[type='text'], input[type='number'], input[type='date'], input[type='month'] {
   font: inherit; color: inherit; background: #fff;
   border: 1px solid var(--gray-3); border-radius: 0; padding: 3px 8px;
 }
@@ -252,8 +252,9 @@ dialog.calibrate { width: min(640px, calc(100% - 28px)); }
 #book { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--gray-1); }
 #book[hidden] { display: none; }
 .book-bar { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-bottom: 1px solid var(--gray-2); background: #fff; }
-.book-bar { overflow-x: auto; }
 .book-bar .primary { margin-left: auto; }
+.book-more { position: relative; }
+.book-more .menu-list { left: auto; right: 0; }
 .book-body { flex: 1; display: flex; min-height: 0; }
 .book-main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .book-nav { display: flex; align-items: center; gap: 6px; padding: 6px 12px; background: #fff; border-bottom: 1px solid var(--gray-2); }
@@ -335,9 +336,9 @@ body.help-mode button, body.help-mode select, body.help-mode input, body.help-mo
 
 /* ---- touch sizes: any narrow screen, and any touch screen ---- */
 @media (max-width: 999px), (pointer: coarse) {
-  button, select, input[type='text'], input[type='number'], input[type='date'] { min-height: var(--tap); }
+  button, select, input[type='text'], input[type='number'], input[type='date'], input[type='month'] { min-height: var(--tap); }
   button { min-width: var(--tap); }
-  input[type='text'], input[type='number'], input[type='date'], select { font-size: 16px; }
+  input[type='text'], input[type='number'], input[type='date'], input[type='month'], select { font-size: 16px; }
   input[type='checkbox'] { width: 22px; height: 22px; }
   button.icon { min-width: var(--tap); }
   .layer { min-height: var(--tap); }
@@ -433,6 +434,7 @@ body.help-mode button, body.help-mode select, body.help-mode input, body.help-mo
   .design .thumb svg { height: min(260px, 42vh); }
   dialog.picker .picker-body { padding: 4px 12px 20px; }
   dialog.apply .apply-body { padding: 12px; }
+  .build-foot { bottom: -12px; margin: 0 -12px -12px; padding: 8px 12px 12px; }
 }
 
 /* ---- Advanced picker, icon grid, name window, multi-select ---- */
@@ -504,12 +506,23 @@ dialog.ask footer { justify-content: flex-end; }
 .problem-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .problem-actions button { min-height: 44px; }
 
-/* build by week */
-dialog.weeks { width: min(600px, calc(100% - 28px)); }
-.weeks-part { display: flex; flex-direction: column; gap: 4px; }
-.weeks-part .hint { margin: 0; }
-.weeks-foot { position: sticky; bottom: -14px; margin: 0 -14px -14px; padding: 8px 14px 14px; background: #fff; border-top: 1px solid var(--gray-2); display: flex; flex-direction: column; gap: 8px; }
-.weeks-foot .apply-summary { max-height: 30vh; overflow-y: auto; }
+/* book builder */
+dialog.build { width: min(640px, calc(100% - 28px)); }
+.steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.step-card { border: 1px solid var(--gray-3); background: #fff; padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+.step-card .hint { margin: 0; }
+.step-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.step-head strong { min-width: 0; overflow-wrap: anywhere; }
+.step-tools { display: flex; gap: 4px; flex: none; }
+.step-tool { width: var(--tap); min-width: var(--tap); min-height: var(--tap); padding: 0; }
+.step-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; }
+.apply-body .step-controls label.compact.wide { flex: 1 1 200px; justify-content: space-between; }
+.apply-body label.compact.wide select, .apply-body label.compact.wide input[type='date'], .apply-body label.compact.wide input[type='month'], .apply-body label.compact.wide input[type='text'] { width: auto; flex: 1; min-width: 0; max-width: 260px; }
+.step-count { display: flex; align-items: center; gap: 8px; color: var(--gray-4); }
+.step-count .stepper { margin: 0; width: 140px; }
+.build-foot { position: sticky; bottom: -14px; margin: 0 -14px -14px; padding: 8px 14px 14px; background: #fff; border-top: 1px solid var(--gray-2); display: flex; flex-direction: column; gap: 8px; }
+.build-foot .apply-summary { max-height: 30vh; overflow-y: auto; }
+.apply-summary .usage { font-weight: 700; }
 .apply-summary p + p { margin-top: 4px; }
 
 /* flip through */
