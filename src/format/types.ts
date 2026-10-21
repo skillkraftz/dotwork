@@ -1,5 +1,5 @@
 // Dotwork page format, version 2. See docs/page-format.md.
-import type { ArtFill, ArtPath, ArtScaling } from './art';
+import type { ArtFill, ArtPath, ArtScaling, ArtStroke } from './art';
 
 export const COLS = 27;
 export const ROWS = 44;
@@ -149,6 +149,8 @@ export interface Art extends Area {
   scaling?: ArtScaling;
   /** Per placement, the fill of named paths (by their `id`) in place of the one the art came with. */
   fills?: Record<string, ArtFill>;
+  /** Per placement, the line of named paths (by their `id`) in place of the one the art came with. */
+  strokes?: Record<string, ArtStroke>;
 }
 
 /** Every element can belong to a group: elements with the same `group` are edited together. Printing ignores it. */

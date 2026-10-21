@@ -2,7 +2,7 @@ import {
   ALIGNS, ALONGS, DEFAULTS, DIRECTIONS, DOT_SIZES, ICON_SIZES, PATTERNS, RULE_WEIGHTS, SEQUENCE_VALUES, SIDES, TEXT_SIZES, TEXT_STYLES,
   TEXT_TONES, WEIGHTS, type Art, type BoxSide, type PageElement, type Pattern, type Sequence, type SequenceValues, type Shade,
 } from './format/types';
-import { ART_FILLS, ART_SCALINGS, type ArtFill } from './format/art';
+import { ART_FILLS, ART_SCALINGS, ART_STROKES, canFill, canStroke, type ArtPath } from './format/art';
 import { cleanTones, toneAt } from './format/shade';
 import { SHADE_TONES } from './render';
 import { iconGlyph } from './icons/glyph';
@@ -590,26 +590,33 @@ export class Panel {
     for (const c of ctls) c.sync();
   }
 
-  /** The named paths of art, each with a fill chosen for this placement (or the one the file gave it). */
+  /**
+   * The named paths of art, each with the controls that can change something for it: a fill if it is closed or filled,
+   * a line if it has one. Each is chosen for this placement only, or left as the file had it.
+   */
   private artFills(store: Store, i: number, id: number, el: Art, ctls: Ctl[]): Child[] {
-    const named = el.paths.filter((p) => p.id !== undefined);
-    if (!named.length) return [];
     const AS_IMPORTED = 'as imported';
-    const rows = named.map((p) => {
-      const read = () => (store.idAt(i) === id ? (store.page.elements[i] as Art).fills?.[p.id!] ?? AS_IMPORTED : AS_IMPORTED);
-      const select = this.select(`prop-path-${p.id}`, 'prop-path-fill', [AS_IMPORTED, ...ART_FILLS], read(), (v) => {
+    const rows: Child[] = [];
+    const control = <K extends 'fills' | 'strokes'>(path: ArtPath, key: K, word: string, tones: readonly string[], help: string) => {
+      const read = () => (store.idAt(i) === id ? (store.page.elements[i] as Art)[key]?.[path.id!] ?? AS_IMPORTED : AS_IMPORTED);
+      const select = this.select(`prop-path-${path.id}-${word}`, help, [AS_IMPORTED, ...tones], read(), (v) => {
         const problem = this.edit(store, i, id, null, (x) => {
           const a = x as Art;
-          const fills = { ...a.fills };
-          if (v === AS_IMPORTED) delete fills[p.id!]; else fills[p.id!] = v as ArtFill;
-          if (Object.keys(fills).length) a.fills = fills; else delete a.fills;
+          const chosen: Record<string, string> = { ...a[key] };
+          if (v === AS_IMPORTED) delete chosen[path.id!]; else chosen[path.id!] = v;
+          if (Object.keys(chosen).length) (a as Record<K, unknown>)[key] = chosen; else delete a[key];
         });
         if (problem) select.value = read();
       });
       ctls.push({ sync: () => { const v = read(); if (select.value !== v) select.value = v; }, flush() {} });
-      return h('label', { class: 'field' }, `${p.id} fill`, select);
-    });
-    return [h('h3', {}, 'Paths'), ...rows];
+      rows.push(h('label', { class: 'field' }, `${path.id} ${word}`, select));
+    };
+    for (const p of el.paths) {
+      if (p.id === undefined) continue;
+      if (canFill(p)) control(p, 'fills', 'fill', ART_FILLS, 'prop-path-fill');
+      if (canStroke(p)) control(p, 'strokes', 'line', ART_STROKES, 'prop-path-line');
+    }
+    return rows.length ? [h('h3', {}, 'Paths'), ...rows] : [];
   }
 
   private widgetButton() {

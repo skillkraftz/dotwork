@@ -4,7 +4,7 @@ import type { IconChoice } from './geometry';
 import type { Widget } from './widgets';
 
 export type Mode = 'edit' | 'preview';
-export type Tool = 'select' | 'pattern' | 'shade' | 'box' | 'rule' | 'checkboxes' | 'text' | 'sequence' | 'icon' | 'widget';
+export type Tool = 'select' | 'pattern' | 'shade' | 'box' | 'rule' | 'checkboxes' | 'text' | 'sequence' | 'icon' | 'widget' | 'art';
 
 const MAX_HISTORY = 200;
 const COALESCE_MS = 1000;
@@ -27,6 +27,8 @@ export class Store {
   /** What the icon tool places, and what the widget tool places: set by the Advanced picker. */
   icon: IconChoice = { name: 'star', size: 1, tone: 'black' };
   widget: Widget | null = null;
+  /** The art the art tool draws into a rectangle (a widget of one art element). */
+  art: Widget | null = null;
   mode: Mode = 'edit';
   tool: Tool = 'select';
   halfCells = false;
@@ -216,6 +218,12 @@ export class Store {
   /** Choose the icon the icon tool places. */
   setIcon(icon: IconChoice) {
     this.icon = icon;
+    this.emit();
+  }
+
+  /** Choose the art the art tool places. */
+  setArt(art: Widget | null) {
+    this.art = art;
     this.emit();
   }
 

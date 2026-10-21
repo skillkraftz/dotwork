@@ -2,7 +2,7 @@ import { emptyBook, setDates, setSlot, type Book } from '../book/book';
 import type { Page } from '../format/types';
 import { MONTH_NAMES } from './calendar';
 import { BOOK_PAGES, ideaBookLayout, monthlyLayout, yearLayout, type Slot } from './layout';
-import { builtinPage } from './library';
+import { findBuiltinPage } from './library';
 import { monthlyPageIndex, monthlyTracker, notesPage, patternsPage, plainIndex, purposeCover, questionsPage, weeklyPage, weeklyReflection, yearGoals, yearIndex, blankPage } from './pages';
 
 /** A question a template asks: a whole number in a range. */
@@ -17,15 +17,18 @@ export interface BookTemplate {
   build(answers?: Record<string, number>): Book;
 }
 
+/** A page from examples/pages, or the notes page if it has been taken out of the package. */
+const example = (name: string): Page => findBuiltinPage(name) ?? notesPage();
+
 /** The design for a slot of a layout. */
 function designFor(s: Slot, slotNumber: number): Page {
   switch (s.kind) {
-    case 'daily': return builtinPage('Daily Good Time Journal');
+    case 'daily': return example('Daily Good Time Journal');
     case 'reflection': return weeklyReflection(s.identity);
     case 'patterns': return patternsPage(s.identity);
     case 'questions': return questionsPage(s.identity);
-    case 'idea': return builtinPage('Idea page');
-    case 'dots': return builtinPage('Dot grid page');
+    case 'idea': return example('Idea page');
+    case 'dots': return example('Dot grid page');
     case 'notes': return notesPage();
     case 'weekly': return weeklyPage(slotNumber % 2 ? 'right' : 'left', true); // the day column stays on the outer edge
   }
@@ -84,7 +87,7 @@ export const TEMPLATES: readonly BookTemplate[] = [
   yearPlanner,
   monthlyJournal,
   plain('blank-journal', 'Blank journal', '52 blank pages, with the purpose cover and the plain-book index.', all('notes'), () => blankPage()),
-  plain('lined-journal', 'Lined journal', '52 lined pages, with the purpose cover and the plain-book index.', all('notes'), () => builtinPage('Lined page')),
+  plain('lined-journal', 'Lined journal', '52 lined pages, with the purpose cover and the plain-book index.', all('notes'), () => example('Lined page')),
   plain('dot-grid-journal', 'Dot grid journal', '52 dot grid pages, with the purpose cover and the plain-book index.', all('dots')),
   plain('idea-book', 'Idea book', 'Idea spreads throughout (an idea page facing a dot grid), with the purpose cover and the plain-book index.', ideaBookLayout),
 ];

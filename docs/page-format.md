@@ -166,11 +166,12 @@ file is self-contained and a reader never opens an SVG.
 | `view_box` | `[x, y, width, height]`: the art's own drawing area, in the units the paths use. Width and height greater than 0. |
 | `paths` | The shapes, bottom to top. At least one, at most 200. |
 | `fills` | Optional. `{ "right-half": "dark" }`: for this placement, the fill of the paths with those ids, in place of the path's own `fill`. Values are `"none"`, `"light"`, `"medium"` or `"dark"`; every key must be the `id` of a path. |
+| `strokes` | Optional. `{ "centre-line": "none" }`: for this placement, the line of the paths with those ids, in place of the path's own `stroke`. Values are `"none"`, `"gray"` or `"black"`; every key must be the `id` of a path. A path with no line of its own can't be given one. |
 | `scaling` | `"fit"` (default): keep the art's proportions and center it in the rectangle. `"stretch"`: fill the rectangle. |
 
-Each path is `{ "id": "right-half", "d": "...", "fill": "light", "stroke": "black", "stroke_mm": 0.3 }`:
+Each path is `{ "id": "right-half", "d": "...", "fill": "light", "stroke": "black", "stroke_mm": 0.3, "linecap": "round" }`:
 
-- `id` is optional: the `id` the shape had in the SVG file (letters, digits and `_ . : -`, starting with a letter, up to 40 characters), unique within the art. It names the path so a placement can recolor it with `fills`.
+- `id` is optional: the `id` the shape had in the SVG file (letters, digits and `_ . : -`, starting with a letter, up to 40 characters), unique within the art. It names the path so a placement can change it with `fills` and `strokes`. A path with a fill or a closing `Z` can be given a fill; a path with a line can be given a line. A named path with no fill and no line is kept (it draws nothing until a placement fills it).
 
 - `d` is path data in the art's units using only **absolute `M`, `L`, `C` and `Z`** (move, line, cubic curve, close),
   written as `M10 20L30 40C1 2 3 4 5 6Z`: a command letter, then exactly its numbers (2, 2, 6 and 0), separated by spaces.
@@ -181,7 +182,8 @@ Each path is `{ "id": "right-half", "d": "...", "fill": "light", "stroke": "blac
   is white, gray is the gray of gray text, and dark, medium and light are the shade tones (the printed PDFs use the book's
   print tones for these, as they do for `shade` and gray `text`). A path with no fill and no stroke draws nothing.
 - `stroke_mm` is the line width in mm, from 0 to 3, and greater than 0 when there is a stroke. It is a width on paper: **resizing the art
-  does not change it**. Lines are drawn with butt caps and mitered joins. Paths are filled with the non-zero rule.
+  does not change it**. Lines are drawn with mitered joins, and paths are filled with the non-zero rule.
+- `linecap` is optional: how a line ends, `"butt"` (default, flat at the end point), `"round"` or `"square"` (both extend half the line width past it).
 
 Fit scales the view box by the larger of what fits the width and the height (mm per unit = `min(w x 3 / view_box width, h x 3 / view_box height)`),
 centered; stretch scales the two directions separately. A reader draws `d` through that scale and offset and leaves `stroke_mm` alone.

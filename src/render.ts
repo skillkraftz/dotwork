@@ -190,8 +190,8 @@ function sequenceMarkup(e: Sequence): string {
 function artMarkup(e: Art): string {
   return artPaths(e).map((p) => {
     const fill = p.fill === 'none' ? 'none' : artColor(p.fill, SCREEN_ART_TONES);
-    const line = p.stroke === 'none' ? '' : ` stroke="${artColor(p.stroke, SCREEN_ART_TONES)}" stroke-width="${n(p.stroke_mm)}"`;
-    return `<path d="${p.d}" fill="${fill}"${line}/>`;
+    const line = p.stroke === 'none' ? '' : ` stroke="${artColor(p.stroke, SCREEN_ART_TONES)}" stroke-width="${n(p.stroke_mm)}"${p.linecap === 'butt' ? '' : ` stroke-linecap="${p.linecap}"`}`;
+    return `<path class="art" d="${p.d}" fill="${fill}"${line}/>`;
   }).join('');
 }
 

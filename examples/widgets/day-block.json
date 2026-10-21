@@ -1,0 +1,8 @@
+{
+  "name": "Day block",
+  "elements": [
+    { "type": "pattern", "pattern": "lines", "x": 0, "y": 1, "w": 27, "h": 5 },
+    { "type": "rule", "x1": 0, "y1": 1, "x2": 27, "y2": 1 },
+    { "type": "text", "x": 0, "y": 1, "text": "{weekday} {month} {day}", "style": "bold", "tone": "black" }
+  ]
+}

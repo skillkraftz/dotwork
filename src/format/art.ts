@@ -11,6 +11,14 @@ export type ArtScaling = (typeof ART_SCALINGS)[number];
 /** The fills the owner can give a named path on a page. */
 export const ART_FILLS = ['none', 'light', 'medium', 'dark'] as const;
 export type ArtFill = (typeof ART_FILLS)[number];
+/** The lines the owner can give a named path on a page. */
+export const ART_STROKES = ['none', 'gray', 'black'] as const;
+export type ArtStroke = (typeof ART_STROKES)[number];
+
+/** How a line ends: flat at the point, rounded past it, or squared past it. */
+export const ART_LINECAPS = ['butt', 'round', 'square'] as const;
+export type ArtLinecap = (typeof ART_LINECAPS)[number];
+
 /** Path ids are short plain names, as in the SVG file. */
 export const ART_ID = /^[A-Za-z][A-Za-z0-9_.:-]{0,39}$/;
 
@@ -24,7 +32,14 @@ export interface ArtPath {
   stroke: ArtTone;
   /** Line width in mm; it does not change when the art is resized. 0 when there is no stroke. */
   stroke_mm: number;
+  /** How the line ends; `butt` when absent. */
+  linecap?: ArtLinecap;
 }
+
+/** Whether a placement can choose this path's fill: it is closed (ends with Z) or it has a fill. */
+export const canFill = (p: Pick<ArtPath, 'd' | 'fill'>) => p.fill !== 'none' || /Z\s*$/.test(p.d);
+/** Whether a placement can choose this path's line: it has one. */
+export const canStroke = (p: Pick<ArtPath, 'stroke' | 'stroke_mm'>) => p.stroke !== 'none' && p.stroke_mm > 0;
 
 /** What the art is made of, apart from where it sits. */
 export interface ArtData {
@@ -70,6 +85,7 @@ export function artProblems(el: Record<string, unknown>): [string, string][] {
       else if (ids.has(p.id)) out.push([`${at}.id`, `Two paths are called "${p.id}"; ids must be unique.`]);
       else ids.add(p.id);
     }
+    if (p.linecap !== undefined && !ART_LINECAPS.includes(p.linecap as ArtLinecap)) out.push([`${at}.linecap`, `"linecap" must be one of ${ART_LINECAPS.map((t) => JSON.stringify(t)).join(', ')}, got ${JSON.stringify(p.linecap)}.`]);
     const w = p.stroke_mm;
     if (!isNum(w) || w < 0 || w > ART_LIMITS.stroke_mm) out.push([`${at}.stroke_mm`, `"stroke_mm" must be a number from 0 to ${ART_LIMITS.stroke_mm} (got ${JSON.stringify(w)}).`]);
     else if (p.stroke !== 'none' && ART_TONES.includes(p.stroke as ArtTone) && w === 0) out.push([`${at}.stroke_mm`, 'A stroked path needs a "stroke_mm" greater than 0.']);
@@ -88,6 +104,13 @@ export function artProblems(el: Record<string, unknown>): [string, string][] {
       else if (!ART_FILLS.includes(tone as ArtFill)) out.push([`fills.${id}`, `A fill must be one of ${ART_FILLS.map((t) => JSON.stringify(t)).join(', ')}, got ${JSON.stringify(tone)}.`]);
     }
   }
+  if (el.strokes !== undefined) {
+    if (!isObject(el.strokes)) out.push(['strokes', '"strokes" must be an object of path id to line.']);
+    else for (const [id, tone] of Object.entries(el.strokes)) {
+      if (!ids.has(id)) out.push([`strokes.${id}`, `"strokes" names "${id}", but no path has that id.`]);
+      else if (!ART_STROKES.includes(tone as ArtStroke)) out.push([`strokes.${id}`, `A line must be one of ${ART_STROKES.map((t) => JSON.stringify(t)).join(', ')}, got ${JSON.stringify(tone)}.`]);
+    }
+  }
   if (chars > ART_LIMITS.chars) out.push(['paths', `The path data is ${chars} characters; art may have at most ${ART_LIMITS.chars}.`]);
   return out;
 }
@@ -104,7 +127,7 @@ export function artMatrix(el: Pick<Art, 'x' | 'y' | 'w' | 'h' | 'view_box' | 'sc
 }
 
 /** One path as drawn: the path data in mm from the grid's corner, ready for the screen and the PDF alike. */
-export interface DrawnArtPath { d: string; fill: ArtTone; stroke: ArtTone; stroke_mm: number }
+export interface DrawnArtPath { d: string; fill: ArtTone; stroke: ArtTone; stroke_mm: number; linecap: ArtLinecap }
 
 /** The paths of an art element placed on the page: fitted or stretched into its box, line widths unchanged. */
 export function artPaths(el: Art): DrawnArtPath[] {
@@ -113,8 +136,10 @@ export function artPaths(el: Art): DrawnArtPath[] {
     const parsed = parseStored(p.d);
     if (!parsed.ok) return [];
     const fill = (p.id !== undefined && el.fills?.[p.id]) || p.fill;
-    if (fill === 'none' && p.stroke === 'none') return [];
-    return [{ d: pathString(transformSegs(parsed.segs, m)), fill, stroke: p.stroke, stroke_mm: p.stroke === 'none' ? 0 : p.stroke_mm }];
+    // A path with no line of its own can't be given one: there is no width to draw.
+    const stroke = p.stroke === 'none' ? 'none' : (p.id !== undefined && el.strokes?.[p.id]) || p.stroke;
+    if (fill === 'none' && stroke === 'none') return [];
+    return [{ d: pathString(transformSegs(parsed.segs, m)), fill, stroke, stroke_mm: stroke === 'none' ? 0 : p.stroke_mm, linecap: p.linecap ?? 'butt' }];
   });
 }
 

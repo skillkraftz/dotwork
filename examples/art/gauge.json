@@ -1,0 +1,6 @@
+{
+  "presets": [
+    { "name": "Engagement gauge", "fills": { "left-half": "none" }, "strokes": { "centre-line": "none" } },
+    { "name": "Energy gauge", "fills": { "left-half": "medium" }, "strokes": { "centre-line": "black" } }
+  ]
+}

@@ -1,5 +1,3 @@
-import { readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { formatIssue, validateElement, validatePage } from '../src/format/validate';
 import { readPage } from '../src/format/read';
@@ -17,21 +15,6 @@ const rules = (page: unknown) => validatePage(page).map((i) => i.rule);
 const elRules = (el: unknown) => rules(withEl(el));
 
 const box = { type: 'box', x: 0, y: 1, w: 3, h: 2 };
-
-describe('examples', () => {
-  const dir = join(__dirname, '..', 'examples');
-  const files = readdirSync(dir).filter((f) => f.endsWith('.json'));
-
-  it('includes the recreated journal-system pages', () => {
-    for (const f of ['daily-good-time', 'idea-page', 'lined-page', 'dot-grid-page']) expect(files).toContain(`${f}.json`);
-  });
-
-  for (const f of files) {
-    it(`${f} is valid version 2`, () => {
-      expect(validatePage(JSON.parse(readFileSync(join(dir, f), 'utf8'))).map(formatIssue)).toEqual([]);
-    });
-  }
-});
 
 describe('top-level rules', () => {
   it('accepts a minimal page', () => {

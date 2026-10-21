@@ -1,0 +1,7 @@
+{
+  "name": "Weather row",
+  "elements": [
+    { "type": "text", "x": 0, "y": 1, "text": "weather" },
+    { "type": "sequence", "x": 8, "y": 1, "count": 5, "direction": "across", "every": 3, "values": "icons", "icons": ["sun", "cloud", "rain", "snow", "wind"], "size": 2 }
+  ]
+}
