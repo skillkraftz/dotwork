@@ -1,4 +1,5 @@
 import { addDays, dateValues } from './dates';
+import type { Page } from './types';
 
 export const TOKENS = ['weekday', 'month', 'monthname', 'day', 'year', 'week', 'months'] as const;
 export type Token = (typeof TOKENS)[number];
@@ -40,3 +41,25 @@ export const blankTokens = (text: string) => text.replace(TOKEN_RE, (whole, inne
 
 /** How a page with this date (or none) turns tokens into text. */
 export const expandFor = (date: string | null): ((text: string) => string) => (date ? (text) => expandTokens(text, date) : blankTokens);
+
+/** The tokens in some text, each with its day offset. */
+const tokensIn = (text: string) => [...text.matchAll(TOKEN_RE)].flatMap((m) => parseToken(m[1]) ?? []);
+
+/** Every token a page prints: in its identity and in its text. */
+export function pageTokens(page: Page): { token: Token; offset: number }[] {
+  return [page.identity ?? '', ...page.elements.flatMap((el) => (el.type === 'text' ? [el.text] : []))].flatMap(tokensIn);
+}
+
+/** Whether a page prints anything from a date. A page that doesn't has no use for one. */
+export const usesDates = (page: Page | null): boolean => !!page && pageTokens(page).length > 0;
+
+/**
+ * What one dated page stands for: a 'day' (its tokens read the page's own day: {weekday}, {day}, with no offsets), or a
+ * 'week' (it reaches into other days with {day+3}, {months} and the like, or only reads the week).
+ */
+export function pageSpan(page: Page): 'day' | 'week' | null {
+  const tokens = pageTokens(page);
+  if (!tokens.length) return null;
+  const ownDay = tokens.some((t) => t.token === 'weekday' || t.token === 'day');
+  return ownDay && tokens.every((t) => t.offset === 0 && t.token !== 'months') ? 'day' : 'week';
+}

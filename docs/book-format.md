@@ -30,7 +30,8 @@ to the page format.
   },
   "pages": [ { "...": "a dotwork-page with side \"right\"" }, null, { "...": "..." } ],
   "dates": [ "2026-10-18", "2026-10-25", null ],
-  "cover": { "front": { "...": "a dotwork-page with side \"left\"" }, "back": null }
+  "cover": { "front": { "...": "a dotwork-page with side \"left\"" }, "back": null },
+  "recipe": { "month": "2026-11", "weekday": 0, "section": { "...": "see Recipe below" } }
 }
 ```
 
@@ -49,6 +50,7 @@ to the page format.
 | `print.shade_light_pct`, `print.shade_medium_pct`, `print.shade_dark_pct`, `print.gray_text_pct` | How dark the printed PDFs draw the light, medium and dark shade tones and the gray text (`"tone": "gray"` on text and sequences), as a percent of black: 0 is white, 100 is black. 0 to 100, fractions allowed. The defaults, 6.3, 13.7, 25.9 and 49.8, are the grays the editor and PNGs always use (#efefef, #dcdcdc, #bdbdbd, #808080), so a default book prints as it always did. They change `pages.pdf`, the print files, `cover.pdf` and the calibration sheets only, never the editor, the preview or PNGs. |
 | `pages` | Exactly `page_count` entries; entry *i* is page *i* + 1. A page, or `null` for a blank page. |
 | `dates` | Optional. Exactly `page_count` entries; entry *i* is the date of page *i* + 1, as `"YYYY-MM-DD"` (a real calendar day), or `null` for an undated page. A book without `dates` has none. The covers have no date. |
+| `recipe` | Optional. How **Build by week** made the pages, so it can be run again for another month. See **Recipe** below. |
 | `cover.front` | The inside front cover, a left page facing page 1 when the book is open. A page or `null`. |
 | `cover.back` | The inside back cover, a right page facing the last page. A page or `null`. |
 
@@ -68,12 +70,41 @@ is valid whatever its `page_number` says.
 date, in `pages.pdf`, the print files and the previews. A page with no date, and
 the covers, print them blank, so the date can be written in by hand. In
 Dotwork's Book view, **Dates…** gives a run of pages consecutive weeks (each
-dated its Sunday) or consecutive days. Dates stay with the page number, not the
-design, and survive resizing the book (new pages start undated).
+dated its Sunday) or consecutive days. Dates travel with their page: moving or
+swapping pages moves their dates, and a page given a design with no date tokens loses its date. Dates survive
+resizing the book (new pages start undated). **Dates…** starts from the nearest dated page before the current one,
+continuing its rhythm (a day or a week later), and from today (the local date, never UTC) only when the book has none.
+
+**Recipe.** **Build by week…** repeats a *section* of pages for each week touching a month, then places the pages
+after the weeks, filler, and an end. It replaces every interior page and its date, as one Undo step, and keeps
+what it needs to run again in `recipe`, so **Rebuild for another month** changes only the month:
+
+```json
+"recipe": {
+  "month": "2026-11",
+  "weekday": 0,
+  "section": { "pages": [ { "...": "page" }, null ], "days": [ 0, 0, 1, null ], "left": false },
+  "after": { "pages": [ { "...": "page" } ], "left": true },
+  "fill": { "pages": [ { "...": "page" } ], "left": true },
+  "fill_cut": true,
+  "end": { "pages": [ { "...": "page" } ], "left": true }
+}
+```
+
+| Field | Meaning |
+|-------|---------|
+| `month` | The month built, `"YYYY-MM"`. |
+| `weekday` | The weekday (0 is Sunday) of the section's first date. The week containing the 1st of the month starts on the latest such weekday on or before it, and each repeat starts 7 days later, until a week starts after the month's last day. |
+| `section.pages` | Page designs copied from the book, `null` for a blank page. Each week repeats them in order. |
+| `section.days` | One entry per section page: its date as whole days after the repeat's first date, or `null` for an undated page. A **day page** (its tokens read its own day, `{weekday}` or `{day}`, with no offset and no `{months}`) dated outside the month is left out; every other page stays. |
+| `after`, `fill`, `end` | Optional parts. `after` is placed once after the weeks; `fill` repeats to fill the space left (whole repeats, or with `fill_cut` the last cut short to fit); `end` is placed on the last pages of the book. Pages in them that print a date are dated the 1st of the month. |
+| `left` | Whether the part began on a left-hand (even) page. Each part starts on the same side again: if it would begin on the other side, one Notes page is inserted first (for `end`, which sits on the last pages, the last page becomes the gap). Repeats of `fill` are not realigned. |
+
+The build can't be applied when it needs more pages than the book has; fewer leaves the rest blank.
 
 **Validation.** A reader rejects the whole file, and says which rule failed and
 where, if the format or version is wrong, `page_count` is not a multiple of 4,
-`pages` or `dates` has the wrong length, a date is not a real `YYYY-MM-DD` day, a print setting (any `print.*` number, the four offsets included) is missing or out of range, or a page breaks
+`pages` or `dates` has the wrong length, a date is not a real `YYYY-MM-DD` day, a print setting (any `print.*` number, the four offsets included) is missing or out of range, a `recipe` is malformed (its month, weekday, `days` or a page design), or a page breaks
 the page rules or sits on the wrong side. The page-number corner rule is not applied to the covers.
 
 ## What the print files contain

@@ -121,4 +121,6 @@ Dotwork's print export follows the same physical rules as journal-system
     monthly journal, blank, lined, dot grid and idea books); built-ins can't be overwritten (done).
 14. Printer calibration: a Calibrate page and calibration PDF set, printer tone settings in the book's print settings, settings
     listed in summary.txt (done).
-15. Later: dials and other components, color, sharing, a page gallery.
+15. Local-date fixes, dates that travel with their pages, Build by week (a section repeated for each week of a month, with a
+    recipe to rebuild for another month), and Flip through (done).
+16. Later: dials and other components, color, sharing, a page gallery.

@@ -2,6 +2,7 @@ import { PAGE_H_MM, PAGE_W_MM } from '../format/types';
 import type { Page } from '../format/types';
 import { withSide, type Spread } from '../format/spread';
 import { addDays, formatDate, parts, sundayOf, weekNumber } from '../format/dates';
+import { MONTH_NAMES } from '../builtin/calendar';
 import { pageContent, thumbnailSvg } from '../render';
 import { h, tabBar } from '../panel';
 import { issuesProblem, problemView } from '../problems';
@@ -9,7 +10,9 @@ import type { Library, LibraryItem } from '../library/library';
 import { applyDesign, blankPage, bookExpand, bookPage, dateOf, fillSlots, getSlot, readBook, setDates, setSlot, slotCount, slotSide, type Book, type Design, type Facing } from './book';
 import { BUILTIN_SPREADS } from '../builtin/library';
 import { checkPrintSettings, signatureSizes } from './impose';
-import { contentsRows, datesSummary, designName, endOfRun, listPages, opening, planDates, scopeSlots, slotLabel, whatChanges, type DatePlan, type Scope } from './plan';
+import { applyWeeks, planWeeks, recipeFrom, sectionMonth, weeksSummary, type PageRange } from './weeks';
+import { flipThrough } from './flip';
+import { contentsRows, datesLabel, datesStart, datesSummary, designName, endOfRun, listPages, opening, planDates, scopeSlots, slotLabel, whatChanges, type DatePlan, type Scope } from './plan';
 
 export interface ArrangerHost {
   library: Library;
@@ -26,6 +29,8 @@ const PICKER_TAB_KEY = 'dotwork.book.picker-tab';
 type PickerTab = 'pages' | 'spreads';
 const PICKER_TABS: [PickerTab, string][] = [['pages', 'Pages'], ['spreads', 'Spreads']];
 const SWIPE_PX = 50;
+/** January … December, for people (the calendar's names are all capitals). */
+const monthTitle = (month: number) => MONTH_NAMES[month - 1][0] + MONTH_NAMES[month - 1].slice(1).toLowerCase();
 const stored = (key: string) => { try { return localStorage.getItem(key); } catch { return null; } };
 
 /** A slot's page as an SVG, as it prints (with its page number unless it is a cover or numbers are off). */
@@ -86,6 +91,13 @@ export class Arranger {
   private scopeFrom = 1;
   private datesDialog: HTMLDialogElement;
   private datesBody = h('div', { class: 'apply-body' });
+  private weeksDialog: HTMLDialogElement;
+  private weeksBody = h('div', { class: 'apply-body' });
+  /** What the Build by week window is set to. A part with a missing page number is left out. */
+  private building = {
+    section: [1, 10] as [number, number], year: 2026, month: 1, cut: false, rebuild: false,
+    after: [null, null] as [number | null, number | null], fill: [null, null] as [number | null, number | null], end: [null, null] as [number | null, number | null],
+  };
   /** What the Dates window is set to; its first and last page are kept apart from the plan. */
   private dating = { mode: 'week' as 'week' | 'day', year: 2026, week: 1, start: '2026-01-01', from: 1, to: 1 };
 
@@ -101,8 +113,11 @@ export class Arranger {
     this.datesDialog = h('dialog', { class: 'library apply dates', 'aria-label': 'Dates' },
       h('header', {}, h('h2', {}, 'Dates'), h('button', { type: 'button', 'data-help': 'dates-close', onclick: () => this.datesDialog.close() }, 'Close')),
       this.datesBody) as HTMLDialogElement;
-    for (const d of [this.picker, this.apply, this.datesDialog]) d.addEventListener('click', (e) => { if (e.target === d) d.close(); });
-    document.body.append(this.picker, this.apply, this.datesDialog);
+    this.weeksDialog = h('dialog', { class: 'library apply weeks', 'aria-label': 'Build by week' },
+      h('header', {}, h('h2', {}, 'Build by week'), h('button', { type: 'button', 'data-help': 'weeks-close', onclick: () => this.weeksDialog.close() }, 'Close')),
+      this.weeksBody) as HTMLDialogElement;
+    for (const d of [this.picker, this.apply, this.datesDialog, this.weeksDialog]) d.addEventListener('click', (e) => { if (e.target === d) d.close(); });
+    document.body.append(this.picker, this.apply, this.datesDialog, this.weeksDialog);
 
     this.stage.addEventListener('pointerdown', (e) => { this.swipe = e.pointerType === 'mouse' ? null : { x: e.clientX, y: e.clientY }; });
     this.stage.addEventListener('pointercancel', () => { this.swipe = null; });
@@ -217,6 +232,8 @@ export class Arranger {
     this.bar.replaceChildren(
       undo,
       h('button', { type: 'button', 'data-help': 'book-dates', onclick: () => this.openDates() }, 'Dates…'),
+      h('button', { type: 'button', 'data-help': 'book-weeks', onclick: () => this.openWeeks() }, 'Build by week…'),
+      h('button', { type: 'button', 'data-help': 'book-flip', onclick: () => this.flip() }, 'Flip through'),
       h('button', { type: 'button', class: 'primary', 'data-help': 'book-export', onclick: () => this.host.exportFiles(this.book) }, 'Print files…'),
     );
     this.updateWarning();
@@ -292,7 +309,8 @@ export class Arranger {
           this.go(from);
           this.contents.classList.remove('open');
         },
-      }, thumb, h('span', { class: 'crow-text' }, h('strong', {}, label), h('span', { class: 'crow-name' }, name)),
+      }, thumb, h('span', { class: 'crow-text' }, h('strong', {}, label), h('span', { class: 'crow-name' }, name),
+        datesLabel(b, from, to) ? h('span', { class: 'crow-date' }, datesLabel(b, from, to)) : null),
       expandable ? h('span', { class: 'crow-more', 'aria-hidden': 'true' }, open ? '▾' : '▸') : null);
       return row;
     };
@@ -472,7 +490,8 @@ export class Arranger {
   private openDates() {
     const b = this.book, d = this.dating;
     const from = Math.max(1, Math.min(b.page_count, this.slot));
-    const known = dateOf(b, from) ?? new Date().toISOString().slice(0, 10);
+    const { start: known, weekly } = datesStart(b, from);
+    if (!dateOf(b, from) && b.dates) d.mode = weekly ? 'week' : 'day'; // continue the rhythm of the dates before it
     d.from = from;
     d.to = endOfRun(b, from);
     d.start = known;
@@ -532,6 +551,93 @@ export class Arranger {
       h('div', { class: 'row' }, set, clear, h('button', { type: 'button', 'data-help': 'dates-cancel', onclick: () => this.datesDialog.close() }, 'Cancel')),
     );
     update();
+  }
+
+  // ---- build by week -------------------------------------------------------------
+
+  private openWeeks() {
+    const b = this.book, w = this.building;
+    const last = b.page_count;
+    // The section runs from page 1 to the page before the second week's first dated page.
+    const base = b.dates?.findIndex(Boolean) ?? -1;
+    const from = base >= 0 ? base + 1 : 1;
+    let to = Math.min(last, from + 9);
+    if (base >= 0) {
+      const next = b.dates!.findIndex((d, i) => i > base && !!d && d >= addDays(b.dates![base]!, 7));
+      if (next > base) to = next;
+    }
+    w.section = [from, to];
+    const m = sectionMonth(b, from, to);
+    if (m) { w.year = m.year; w.month = m.month; }
+    w.rebuild = !!b.recipe;
+    if (b.recipe) { const [y, mo] = b.recipe.month.split('-').map(Number); w.year = y; w.month = mo; }
+    this.renderWeeks();
+    this.weeksDialog.showModal();
+  }
+
+  private renderWeeks() {
+    const b = this.book, w = this.building, recipe = b.recipe;
+    const rebuilding = w.rebuild && !!recipe;
+    const summary = h('div', { class: 'apply-summary', role: 'status' });
+    const go = h('button', { type: 'button', class: 'primary', 'data-key': 'weeks-go', 'data-help': 'weeks-go' });
+    const pair = (a: [number | null, number | null]): PageRange | null => (a[0] !== null && a[1] !== null ? [a[0], a[1]] : null);
+    const update = () => {
+      const made = rebuilding ? { ...recipe!, month: `${String(w.year).padStart(4, '0')}-${String(w.month).padStart(2, '0')}` }
+        : recipeFrom(b, { section: w.section, year: w.year, month: w.month, after: pair(w.after), fill: pair(w.fill), fillCut: w.cut, end: pair(w.end) });
+      if ('problem' in made) { summary.textContent = made.problem; go.disabled = true; go.textContent = 'Build'; return; }
+      const plan = planWeeks(made, b.page_count);
+      summary.replaceChildren(...weeksSummary(plan, b.page_count).map((line) => h('p', {}, line)));
+      go.disabled = plan.over > 0;
+      go.textContent = `${rebuilding ? 'Rebuild for' : 'Build'} ${monthTitle(w.month)} ${w.year}`;
+      go.onclick = () => {
+        this.weeksDialog.close();
+        let off: number[] = [];
+        this.edit(() => { off = applyWeeks(b, plan); });
+        this.slot = Math.min(this.slot, b.page_count);
+        this.say([`Built ${plan.weeks} week${plan.weeks === 1 ? '' : 's'} of ${monthTitle(w.month)}. Undo takes it back.`, this.numberOffNote(off)].filter(Boolean).join(' '));
+      };
+    };
+    const num = (label: string, value: number | null, help: string, set: (n: number | null) => void, min = 1, max = b.page_count) => {
+      const input = h('input', { type: 'number', value: value ?? '', min, max, inputmode: 'numeric', 'aria-label': label, 'data-key': `weeks-${label.toLowerCase().replace(/\W+/g, '-')}`, 'data-help': help });
+      input.oninput = () => { const v = Math.round(Number(input.value)); set(input.value && Number.isFinite(v) ? Math.max(min, Math.min(max, v)) : null); update(); };
+      return h('label', { class: 'compact' }, label, input);
+    };
+    const part = (title: string, key: 'section' | 'after' | 'fill' | 'end', hint: string) => {
+      const v = w[key] as (number | null)[];
+      return h('div', { class: 'weeks-part' }, h('strong', {}, title), h('span', { class: 'hint' }, hint),
+        h('div', { class: 'row' }, num('From page', v[0], `weeks-${key}`, (n) => { v[0] = n; }), num('To page', v[1], `weeks-${key}`, (n) => { v[1] = n; })));
+    };
+    const year = num('Year', w.year, 'weeks-year', (n) => { if (n !== null) w.year = n; }, 1900, 2200);
+    const month = h('select', { 'aria-label': 'Month', 'data-key': 'weeks-month', 'data-help': 'weeks-month' }, ...MONTH_NAMES.map((_, i) => h('option', { value: i + 1, selected: i + 1 === w.month }, monthTitle(i + 1))));
+    month.onchange = () => { w.month = Number(month.value); update(); };
+    const cut = h('input', { type: 'checkbox', checked: w.cut, 'aria-label': 'Cut the last repeat short', 'data-key': 'weeks-cut', 'data-help': 'weeks-cut' });
+    cut.onchange = () => { w.cut = cut.checked; update(); };
+    const monthRow = h('div', { class: 'row' }, h('label', { class: 'compact' }, 'Month', month), year);
+    this.weeksBody.replaceChildren(...(rebuilding
+      ? [
+        h('p', { class: 'hint' }, `Built from the pages saved with this book. Change the month to build it again; nothing else changes.`),
+        monthRow,
+        h('div', { class: 'weeks-foot' }, summary, h('div', { class: 'row' }, go,
+          h('button', { type: 'button', 'data-key': 'weeks-from-pages', 'data-help': 'weeks-from-pages', onclick: () => { w.rebuild = false; this.renderWeeks(); } }, 'Build from pages instead…'),
+          h('button', { type: 'button', 'data-help': 'weeks-cancel', onclick: () => this.weeksDialog.close() }, 'Cancel'))),
+      ]
+      : [
+        h('p', { class: 'hint' }, 'Repeats a section of pages once for each week touching a month. Dated pages for days outside the month are left out. This replaces every page of the book, and Undo takes it back.'),
+        part('Section', 'section', 'The pages of one week, already dated for its first week (a weekly page, the days, a reflection, notes).'),
+        monthRow,
+        part('After the weeks', 'after', 'Pages placed once, such as the month’s review. Leave empty for none.'),
+        part('Fill', 'fill', 'Pages repeated to fill the space left, such as idea pages. Leave empty for none.'),
+        h('label', { class: 'choice' }, cut, 'Cut the last repeat short to fit'),
+        part('End', 'end', 'Pages placed last, such as the book notes. Leave empty for none.'),
+        h('div', { class: 'weeks-foot' }, summary, h('div', { class: 'row' }, go, h('button', { type: 'button', 'data-help': 'weeks-cancel', onclick: () => this.weeksDialog.close() }, 'Cancel'))),
+      ]));
+    update();
+  }
+
+  // ---- flip through --------------------------------------------------------------
+
+  private flip() {
+    flipThrough(this.book, (slot, align) => slotSvg(this.book, slot, outline, ` preserveAspectRatio="${align} meet"`), (left) => this.go(left));
   }
 
   /** This page and the one facing it, as a left and right pair. */

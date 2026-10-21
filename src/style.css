@@ -252,6 +252,7 @@ dialog.calibrate { width: min(640px, calc(100% - 28px)); }
 #book { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--gray-1); }
 #book[hidden] { display: none; }
 .book-bar { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-bottom: 1px solid var(--gray-2); background: #fff; }
+.book-bar { overflow-x: auto; }
 .book-bar .primary { margin-left: auto; }
 .book-body { flex: 1; display: flex; min-height: 0; }
 .book-main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
@@ -287,6 +288,7 @@ dialog.calibrate { width: min(640px, calc(100% - 28px)); }
 .crow-thumb svg { display: block; width: 100%; height: auto; box-shadow: 0 0 0 1px var(--gray-3); }
 .crow-text { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
 .crow-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--gray-4); }
+.crow-date { font-size: 11px; color: var(--gray-4); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .crow-more { flex: none; color: var(--gray-4); }
 .crow-kids .crow { min-height: 48px; }
 
@@ -501,3 +503,25 @@ dialog.ask footer { justify-content: flex-end; }
 .problem-title { font-weight: bold; }
 .problem-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .problem-actions button { min-height: 44px; }
+
+/* build by week */
+dialog.weeks { width: min(600px, calc(100% - 28px)); }
+.weeks-part { display: flex; flex-direction: column; gap: 4px; }
+.weeks-part .hint { margin: 0; }
+.weeks-foot { position: sticky; bottom: -14px; margin: 0 -14px -14px; padding: 8px 14px 14px; background: #fff; border-top: 1px solid var(--gray-2); display: flex; flex-direction: column; gap: 8px; }
+.weeks-foot .apply-summary { max-height: 30vh; overflow-y: auto; }
+.apply-summary p + p { margin-top: 4px; }
+
+/* flip through */
+dialog.flip { width: min(1000px, calc(100% - 28px)); height: min(900px, calc(100% - 28px)); }
+.flip-stage { cursor: pointer; background: var(--gray-1); }
+.flip-stage .stage-page { cursor: pointer; }
+.flip-bar { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-top: 1px solid var(--gray-2); }
+.flip-bar .where { flex: 1; text-align: center; }
+.flip-speed { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
+.flip-speed input { flex: 1; min-width: 80px; min-height: 44px; }
+.flip-speed .hint { margin: 0; white-space: nowrap; }
+@media (max-width: 700px) {
+  dialog.flip { width: 100%; max-width: 100%; height: 100%; max-height: 100%; margin: 0; border: 0; }
+  .flip-bar { padding-bottom: max(8px, env(safe-area-inset-bottom)); }
+}
