@@ -49,14 +49,16 @@ describe('the sheet layouts', () => {
   it('keeps a separate offset and scale for each layout, and the half-letter values are the owner’s', () => {
     expect(DEFAULT_PRINT.sheet_layout).toBe('half_letter');
     expect(DEFAULT_PRINT.layouts.half_letter).toEqual({ front_offset_x_mm: 1.7, front_offset_y_mm: -0.05, back_offset_x_mm: 1.5, back_offset_y_mm: 0.05, scale_x_pct: 100, scale_y_pct: 100, back_rotation_deg: 0 });
-    expect(DEFAULT_PRINT.layouts.letter_two_up).toEqual({ front_offset_x_mm: 0, front_offset_y_mm: 0, back_offset_x_mm: 0, back_offset_y_mm: 0, scale_x_pct: 100, scale_y_pct: 100, back_rotation_deg: 0 });
+    expect(DEFAULT_PRINT.layouts.letter_two_up).toEqual({ front_offset_x_mm: -0.75, front_offset_y_mm: -1.6, back_offset_x_mm: 0, back_offset_y_mm: 1.1, scale_x_pct: 100, scale_y_pct: 101.01, back_rotation_deg: -0.169 });
     const p = clonePrint(DEFAULT_PRINT);
     p.layouts.letter_two_up.front_offset_x_mm = 0.8;
+    p.layouts.letter_two_up.front_offset_y_mm = 0;
+    p.layouts.letter_two_up.back_offset_y_mm = 0;
     expect(offsetOf(p, 'front')).toEqual({ x: 1.7, y: -0.05 }); // half letter is selected
     p.sheet_layout = 'letter_two_up';
     expect(offsetOf(p, 'front')).toEqual({ x: 0.8, y: 0 });
     expect(offsetOf(p, 'back')).toEqual({ x: 0, y: 0 });
-    expect(DEFAULT_PRINT.layouts.letter_two_up.front_offset_x_mm).toBe(0); // the defaults are not shared with the copy
+    expect(DEFAULT_PRINT.layouts.letter_two_up.front_offset_x_mm).toBe(-0.75); // the defaults are not shared with the copy
   });
 
   it('shares creep, shifts, target margin and tones between the layouts, and keeps both layouts’ settings in the one printer profile', () => {

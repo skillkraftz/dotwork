@@ -94,7 +94,7 @@ export const DEFAULT_PRINT: PrintSettings = {
   sheet_layout: 'half_letter',
   layouts: {
     half_letter: { front_offset_x_mm: 1.7, front_offset_y_mm: -0.05, back_offset_x_mm: 1.5, back_offset_y_mm: 0.05, scale_x_pct: 100, scale_y_pct: 100, back_rotation_deg: 0 },
-    letter_two_up: { front_offset_x_mm: 0, front_offset_y_mm: 0, back_offset_x_mm: 0, back_offset_y_mm: 0, scale_x_pct: 100, scale_y_pct: 100, back_rotation_deg: 0 },
+    letter_two_up: { front_offset_x_mm: -0.75, front_offset_y_mm: -1.6, back_offset_x_mm: 0, back_offset_y_mm: 1.1, scale_x_pct: 100, scale_y_pct: 101.01, back_rotation_deg: -0.169 },
   },
   shade_light_pct: 6.3, shade_medium_pct: 13.7, shade_dark_pct: 25.9, gray_text_pct: 49.8,
 };

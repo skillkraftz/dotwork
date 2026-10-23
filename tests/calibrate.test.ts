@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { PDFDocument } from 'pdf-lib';
 import { emptyBook, setSlot, PRINT_LIMITS, type Book } from '../src/book/book';
 import { DEFAULT_PRINT, SHEET_H_MM, SHEET_W_MM, clonePrint, creepFor, duplexOrder, impose, pageOrigin, type PrintSettings } from '../src/book/impose';
-import { LINE_MM, MARK_CLEAR_MM, markZone, crosshairs, scaleCaptions, sheetHeight, type MarkName } from '../src/book/alignment';
+import { FOLD_FROM_CENTRE_MM, FOLD_HOW, LINE_MM, MARK_CLEAR_MM, markZone, crosshairs, foldScales, scaleCaptions, sheetHeight, type MarkName } from '../src/book/alignment';
 import { PRINTER_KEYS, readPrinter } from '../src/printer';
 import { sheetSize } from '../src/print/sheets';
 import { GRID_X_MM, PAGE_H_MM, PAGE_W_MM, emptyPage, type Page } from '../src/format/types';
@@ -13,7 +13,7 @@ import { SHADE_TONES, TEXT_COLORS } from '../src/render';
 import { drawPage, mmToPt } from '../src/print/draw';
 import { PRINT_TIPS, exportBookFiles, newDocument, summary, type ExportedFile } from '../src/print/export';
 import {
-  COVER_FILE, CREEP_FILE, FORE_EDGE_RULER_MM, HAIRLINE_WIDTHS, RAMP_STEPS, SCALE_MM, SHEET_FILE, calibrationPages, calibrationText, creepFiles, creepSheets, sheetFile,
+  COVER_FILE, CREEP_FILE, FORE_EDGE_RULER_MM, HAIRLINE_WIDTHS, RAMP_STEPS, SCALE_MM, SHEET_FILE, calibrationPages, calibrationText, creepFiles, creepPages, creepSheets, sheetFile,
 } from '../src/print/calibrate';
 import { PRINT_LABELS, settingsLines } from '../src/print/settingstext';
 import { grayHex, tonesOf } from '../src/print/tones';
@@ -232,7 +232,7 @@ for (const layout of ['half_letter', 'letter_two_up'] as const) {
     it('has a see-through scale at each edge mark on side 2 (-5 to +5, ticks every 0.5 mm, running parallel to the edge) and only a + at the centre', () => {
       const back = sheets[1], segs = segments(back.content, H), at = crosshairs(layout);
       expect(SCALE_MM).toBe(5);
-      for (const label of ['-5', '-4', '-3', '-2', '-1', '1', '3', '5']) expect(back.strings.filter((s) => s === label), label).toHaveLength(4);
+      for (const label of ['-5', '-4', '-3', '-2', '-1', '1', '3', '5']) expect(back.strings.filter((s) => s === label), label).toHaveLength(8); // four see-through and four fold scales
       for (const p of [at.top, at.bottom]) {
         expect(segs.some((s) => near(s.y1, p.y) && near(s.y2, p.y) && near(s.x1, p.x - 5.5) && near(s.x2, p.x + 5.5)), 'x scale').toBe(true);
         // 21 ticks across it, one every 0.5 mm.
@@ -248,19 +248,34 @@ for (const layout of ['half_letter', 'letter_two_up'] as const) {
       expect(segs.filter((s) => Math.hypot((s.x1 + s.x2) / 2 - c.x, (s.y1 + s.y2) / 2 - c.y) < 12)).toHaveLength(2);
     });
 
-    it('has an edge ruler from each edge mark to the paper’s edge: 0 to 8 mm in 0.5 mm ticks, labelled "edge should be at 8.0"', () => {
-      const segs = segments(sheets[1].content, H), at = crosshairs(layout), cap = scaleCaptions(layout);
-      const ends = { top: { x: at.top.x, y: 0 }, bottom: { x: at.bottom.x, y: H }, left: { x: 0, y: at.left.y }, right: { x: SHEET_W_MM, y: at.right.y } };
-      for (const name of ['top', 'bottom', 'left', 'right'] as const) {
-        const p = at[name], e = ends[name], vertical = name === 'top' || name === 'bottom';
-        expect(segs.some((s) => (near(s.x1, p.x) && near(s.y1, p.y) && near(s.x2, e.x) && near(s.y2, e.y)) || (near(s.x2, p.x) && near(s.y2, p.y) && near(s.x1, e.x) && near(s.y1, e.y)))).toBe(true);
-        // 17 ticks along it (0, 0.5 ... 8), across it.
-        const ticks = segs.filter((s) => (vertical ? near(s.y1, s.y2) && Math.abs(s.x1 - p.x) < 1.6 : near(s.x1, s.x2) && Math.abs(s.y1 - p.y) < 1.6)
-          && Math.abs(vertical ? s.y1 - p.y : s.x1 - p.x) <= 8.01 && Math.abs(vertical ? s.y1 - p.y : s.x1 - p.x) >= 0.49 + (vertical ? 0 : 0) - 0.5 && Math.abs(Math.hypot(s.x2 - s.x1, s.y2 - s.y1)) < 3.1);
-        expect(ticks.length, name).toBeGreaterThanOrEqual(16);
+    it('has no edge rulers: nothing on side 2 runs to the paper’s edge', () => {
+      const back = sheets[1];
+      expect(back.strings.filter((t) => /edge should|edge distance/.test(t))).toEqual([]);
+      for (const s of segments(back.content, H)) for (const [x, y] of [[s.x1, s.y1], [s.x2, s.y2]]) expect(Math.min(x, SHEET_W_MM - x, y, H - y)).toBeGreaterThanOrEqual(5);
+    });
+
+    it('has two fold scales across each centre line, 38 mm from the centre +: -5 to +5, ticks every 0.5 mm, labelled, 0 longer, and told how to use', () => {
+      const back = sheets[1], segs = segments(back.content, H), f = foldScales(layout), cap = scaleCaptions(layout);
+      expect(FOLD_FROM_CENTRE_MM).toBeGreaterThanOrEqual(25);
+      for (const [name, p] of Object.entries(f)) {
+        const up = name === 'left' || name === 'right'; // across the horizontal centre line: they run up the sheet
+        expect(Math.hypot(p.x - SHEET_W_MM / 2, p.y - H / 2), name).toBeGreaterThanOrEqual(25);
+        expect(up ? near(p.y, H / 2) : near(p.x, SHEET_W_MM / 2), name).toBe(true);
+        // The line, -5 to +5.
+        expect(segs.some((s) => (up ? near(s.x1, p.x) && near(s.x2, p.x) && near(Math.min(s.y1, s.y2), p.y - 5) && near(Math.max(s.y1, s.y2), p.y + 5)
+          : near(s.y1, p.y) && near(s.y2, p.y) && near(Math.min(s.x1, s.x2), p.x - 5) && near(Math.max(s.x1, s.x2), p.x + 5))), `${name} line`).toBe(true);
+        // 21 ticks across it, one every 0.5 mm, and the one at 0 is the longest.
+        const ticks = segs.filter((s) => (up ? near(s.y1, s.y2) && Math.abs(s.x1 - p.x) < 1.6 && Math.abs(s.y1 - p.y) <= 5.01 : near(s.x1, s.x2) && Math.abs(s.y1 - p.y) < 1.6 && Math.abs(s.x1 - p.x) <= 5.01)
+          && Math.hypot(s.x2 - s.x1, s.y2 - s.y1) < 3.1 && Math.hypot(s.x2 - s.x1, s.y2 - s.y1) > 0.8);
+        expect(ticks, name).toHaveLength(21);
+        expect(Math.max(...ticks.map((s) => Math.hypot(s.x2 - s.x1, s.y2 - s.y1)))).toBeCloseTo(3, 1);
       }
-      expect(sheets[1].strings.filter((t) => t === cap.edge)).toHaveLength(4);
-      expect(cap.edge).toBe('edge should be at 8.0');
+      for (const text of [cap.hFoldLeft, cap.hFoldRight, cap.vFoldTop, cap.vFoldBottom]) expect(back.strings, text).toContain(text);
+      // The instructions say how to fold and which way is +, in one run of words (as the wizard says it).
+      const words = back.strings.join(' ').replace(/\s+/g, ' ');
+      expect(words).toContain('SIDE 2: MEASURE');
+      for (const line of FOLD_HOW.match(/.{1,60}(\s|$)/g)!) expect(words.replace(/ /g, ''), line).toContain(line.trim().replace(/ /g, '').slice(0, 20));
+      expect(words).toContain('+ is up and right, as seen on this side');
     });
 
     it('names the paper’s edges of the layout everywhere, in the words of the readings, never across and down', () => {
@@ -269,10 +284,10 @@ for (const layout of ['half_letter', 'letter_two_up'] as const) {
       expect(cap.longX).toBe('parallel to the 8.5 in edge: should measure 100.0 mm');
       expect(cap.longY).toBe(`parallel to the ${edge} edge: should measure 100.0 mm`);
       for (const text of [cap.top, cap.bottom, cap.left, cap.right, cap.longX, cap.longY]) expect(sheets[1].strings, text).toContain(text);
-      for (const sheet of sheets) for (const s of sheet.strings) expect(s.toLowerCase(), s).not.toMatch(/across|\bdown\b|crease|fold scale|190|260/);
+      for (const sheet of sheets) for (const s of sheet.strings) expect(s.toLowerCase(), s).not.toMatch(/across|\bdown\b|190|260/);
     });
 
-    it('has two 100.0 mm lines with end ticks on side 2, one parallel to each paper edge, and no 190, 260 mm lines or fold scale', () => {
+    it('has two 100.0 mm lines with end ticks on side 2, one parallel to each paper edge, and no 190, 260 mm lines', () => {
       const segs = segments(sheets[1].content, H);
       expect(LINE_MM).toBe(100);
       const horizontal = segs.filter((s) => near(s.y1, s.y2) && near(Math.abs(s.x2 - s.x1), 100)), vertical = segs.filter((s) => near(s.x1, s.x2) && near(Math.abs(s.y2 - s.y1), 100));
@@ -291,7 +306,8 @@ for (const layout of ['half_letter', 'letter_two_up'] as const) {
         const items = [
           ...segments(sheets[i].content, H).flatMap((s) => [[s.x1, s.y1], [s.x2, s.y2]]),
           // Text starts here and runs right (an upper bound for its length).
-          ...textPositions(sheets[i]).flatMap((t) => [[t.x, t.y], [t.x + 1.1 * t.text.length, t.y]]),
+          // (The label of the line parallel to the short edge runs up the sheet from where it starts.)
+          ...textPositions(sheets[i]).flatMap((t) => (/^parallel to the (5\.5|11) in/.test(t.text) ? [[t.x, t.y]] : [[t.x, t.y], [t.x + 1.1 * t.text.length, t.y]])),
         ];
         for (const [x, y] of items) {
           const d = gap(x, y);
@@ -300,19 +316,15 @@ for (const layout of ['half_letter', 'letter_two_up'] as const) {
       }
     });
 
-    it('stays 3 mm from every paper edge, except the edge rulers, which run to it', () => {
+    it('stays 3 mm from every paper edge', () => {
       for (const sheet of sheets) {
-        const zones = (['top', 'bottom', 'left', 'right'] as const).map((n) => markZone(layout, n, 2));
-        const inRuler = (x: number, y: number) => zones.some((z) => x >= z.x0 && x <= z.x1 && y >= z.y0 && y <= z.y1) && (x < 3 || y < 3 || x > SHEET_W_MM - 3 || y > H - 3);
         for (const s of segments(sheet.content, H)) for (const [x, y] of [[s.x1, s.y1], [s.x2, s.y2]]) {
-          if (inRuler(x, y)) continue;
           expect(Math.min(x, SHEET_W_MM - x, y, H - y), `(${x.toFixed(1)}, ${y.toFixed(1)})`).toBeGreaterThanOrEqual(3 - 0.01);
         }
         for (const t of textPositions(sheet)) {
-          if (/^[\d-]+$/.test(t.text)) continue; // the numbers on the edge rulers
           expect(Math.min(t.x, SHEET_W_MM - t.x, t.y, H - t.y), t.text).toBeGreaterThanOrEqual(3);
-          // (The two labels that run up the sheet start where they are drawn.)
-          if (!t.text.startsWith('edge should') && !t.text.startsWith('parallel to the 5.5') && !t.text.startsWith('parallel to the 11')) expect(t.x + 1.1 * t.text.length, t.text).toBeLessThanOrEqual(SHEET_W_MM - 3);
+          // (The labels that run up the sheet start where they are drawn.)
+          if (!t.text.startsWith('parallel to the 5.5') && !t.text.startsWith('parallel to the 11')) expect(t.x + 1.1 * t.text.length, t.text).toBeLessThanOrEqual(SHEET_W_MM - 3);
         }
       }
     });
@@ -413,44 +425,75 @@ describe('the creep test and the cover sheet', () => {
     expect(made.map((f) => f.name)).toEqual([COVER_FILE, CREEP_FILE, 'calibration.txt']);
     expect([COVER_FILE, CREEP_FILE]).toEqual(['calibration-cover.pdf', 'creep-test.pdf']);
     const text = decode(file(made, 'calibration.txt'));
-    expect(text).toContain('print pages 1 to 13');
-    expect(text).toContain('print pages 14 to 26');
+    expect(text).toContain('the outermost and innermost sheet of a 52-page book (13 sheets), 4 pages');
+    expect(text).toContain('print pages 1 to 2');
+    expect(text).toContain('print pages 3 to 4');
     for (const line of settingsLines(FLAT, NOW)) expect(text).toContain(line);
   });
 
-  it('has both sides of every sheet of the biggest signature, in manual-duplex order: fronts in reverse, then backs forward', async () => {
+  it('prints only the outermost and the innermost sheet, both sides, in manual-duplex order: the innermost front first, then the outermost back first', async () => {
     const book = emptyBook(52);
     expect(creepSheets(book, FLAT)).toBe(13);
+    expect(creepPages(book, FLAT)).toBe(52);
     const pages = await readPdf(file(made, CREEP_FILE).bytes);
-    expect(pages).toHaveLength(26);
-    const [fronts, backs] = duplexOrder(13);
+    expect(pages).toHaveLength(4);
     const sheetAndSide = pages.map((p) => {
       const [, k, side] = p.strings.join('|').match(/SHEET (\d+) OF 13.*?\|(FRONT|BACK), left/)!;
       return [Number(k) - 1, side];
     });
-    expect(sheetAndSide).toEqual([...fronts.map((k) => [k, 'FRONT']), ...backs.map((k) => [k, 'BACK'])]);
-    // The ranges are on every page, as are the sheet's own pages (the imposition's, for 52 pages).
+    expect(sheetAndSide).toEqual([[12, 'FRONT'], [0, 'FRONT'], [0, 'BACK'], [12, 'BACK']]);
+    // The ranges are on every page, as are the sheet's own pages (the imposition's, for 52 pages): page 1 and 52 on the outermost, 26 and 27 in the middle.
     const sig = impose(52, FLAT, 1)[0];
     pages.forEach((p, i) => {
-      expect(p.strings).toContain(`PDF page ${i + 1} of 26 (${i < 13 ? 'pass 1: print pages 1-13' : 'pass 2: print pages 14-26'})`);
+      expect(p.strings).toContain(`PDF page ${i + 1} of 4 (${i < 2 ? 'pass 1: print pages 1-2' : 'pass 2: print pages 3-4'})`);
       const [k, side] = sheetAndSide[i] as [number, 'FRONT' | 'BACK'];
       const s = sig.sheets[k][side === 'FRONT' ? 'front' : 'back'];
       expect(p.strings).toContain(`${side}, left page ${s.left}`);
       expect(p.strings).toContain(`${side}, right page ${s.right}`);
     });
+    expect(pages[1].strings).toContain('FRONT, right page 1');
+    expect(pages[1].strings).toContain('FRONT, left page 52');
+    expect(pages[3].strings).toContain('BACK, left page 26'); // the middle spread is the back of the innermost sheet
+    expect(pages[3].strings).toContain('BACK, right page 27');
+    expect(pages[0].strings).toContain('SHEET 13 OF 13 (INNERMOST)');
+    expect(pages[1].strings).toContain('SHEET 1 OF 13 (OUTERMOST)');
   });
 
-  it('uses the book’s sheet count: the biggest signature', async () => {
+  it('is made for the page count it is given, which sets the creep of the innermost sheet', async () => {
+    const own = P({ creep_per_sheet_mm: 0.3 });
+    const boxLeft = async (pages: number) => {
+      const test = await readPdf(file(await creepFiles(emptyBook(52), own, fontBytes, NOW, pages), CREEP_FILE).bytes);
+      return { count: test.length, outer: contentBoxes(test[1].content)[0].x, inner: contentBoxes(test[0].content)[0].x, text: test[0].strings.join('|') };
+    };
+    const small = await boxLeft(12), big = await boxLeft(52);
+    expect(small.count).toBe(4);
+    expect(small.text).toContain('SHEET 3 OF 3 (INNERMOST)');
+    expect(small.text).toContain('creep test, 12 pages, 0.60 mm toward the fold'); // two sheets outside it
+    expect(big.text).toContain('creep test, 52 pages, 3.60 mm toward the fold'); // twelve sheets outside it
+    expect(small.inner - small.outer).toBeCloseTo(0.6, 2);
+    expect(big.inner - big.outer).toBeCloseTo(3.6, 2);
+    expect(decode(file(await creepFiles(emptyBook(52), own, fontBytes, NOW, 12), 'calibration.txt'))).toContain('a 12-page book (3 sheets)');
+  });
+
+  it('is the book’s biggest signature when no page count is given', async () => {
     const book = emptyBook(20);
     book.print.signatures = 2; // two signatures of 12 pages
     expect(creepSheets(book, FLAT)).toBe(3);
+    expect(creepPages(book, FLAT)).toBe(12);
     const pages = await readPdf(file(await creepFiles(book, FLAT, fontBytes, NOW), CREEP_FILE).bytes);
-    expect(pages).toHaveLength(6);
+    expect(pages).toHaveLength(4);
     expect(pages[0].strings).toContain('SHEET 3 OF 3 (INNERMOST)');
+    expect(pages[1].strings).toContain('SHEET 1 OF 3 (OUTERMOST)');
     expect(pages[2].strings).toContain('SHEET 1 OF 3 (OUTERMOST)');
-    expect(pages[3].strings).toContain('SHEET 1 OF 3 (OUTERMOST)');
-    expect(pages[0].strings).toContain('PDF page 1 of 6 (pass 1: print pages 1-3)');
-    expect(pages[5].strings).toContain('PDF page 6 of 6 (pass 2: print pages 4-6)');
+    expect(pages[3].strings).toContain('SHEET 3 OF 3 (INNERMOST)');
+    expect(pages[0].strings).toContain('PDF page 1 of 4 (pass 1: print pages 1-2)');
+    expect(pages[3].strings).toContain('PDF page 4 of 4 (pass 2: print pages 3-4)');
+  });
+
+  it('prints one sheet, front and back, for a 4-page book, and refuses a page count that is not a multiple of 4', async () => {
+    const one = await readPdf(file(await creepFiles(emptyBook(52), FLAT, fontBytes, NOW, 4), CREEP_FILE).bytes);
+    expect(one).toHaveLength(2);
+    for (const bad of [0, 6, 10, 2.5, -4, NaN]) await expect(creepFiles(emptyBook(52), FLAT, fontBytes, NOW, bad), String(bad)).rejects.toThrow(/multiple of 4/);
   });
 
   it('shifts each sheet’s box toward the fold by the thickness × the sheets outside it, on both sides', async () => {

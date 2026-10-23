@@ -5,6 +5,7 @@ import { emptyPage } from '../src/format/types';
 import { savePrinter, loadPrinter, type PrinterStorage } from '../src/printer';
 import { exportBookFiles } from '../src/print/export';
 import { readFileSync } from 'node:fs';
+import { FLAT } from './flat';
 
 /** A book file as an older version wrote it: a valid book whose "print" is whatever that version kept there. */
 const bookWith = (print: unknown) => ({ ...JSON.parse(JSON.stringify(emptyBook(8))), print });
@@ -82,6 +83,8 @@ describe('settings never touch the book', () => {
     setSlot(book, 1, { ...emptyPage(), identity: '', elements: [{ type: 'text', x: 1, y: 3, text: 'HELLO', tone: 'black' }] });
     const a = await exportBookFiles(book, DEFAULT_PRINT, fontBytes, { pages: false, cover: false });
     const twoUp = clonePrint(DEFAULT_PRINT); twoUp.sheet_layout = 'letter_two_up';
+    twoUp.layouts.letter_two_up = { ...FLAT.layouts.letter_two_up }; // the owner’s calibrated two-up offsets put the last row inside the 3 mm edge check
+
     const b = await exportBookFiles(book, twoUp, fontBytes, { pages: false, cover: false });
     expect(a.map((f) => f.name)).toContain('print-first.pdf');
     expect(b.map((f) => f.name)).toContain('print-duplex.pdf');
