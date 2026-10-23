@@ -139,4 +139,6 @@ Dotwork's print export follows the same physical rules as journal-system
     repeat sections: a number of times, each week of a month, or fill what's left; Build by week is now a preset of
     steps), Flip through at 1 s by default, the Good Time page matched to its reference, and a Book bar that fits a phone
     (done).
-17. Later: dials and other components, color, sharing, a page gallery.
+17. Printing two books per letter sheet (Letter, two-up, with print-duplex.pdf, cut marks and labels), a layout picker with offsets
+    and scale kept per layout, a Size step in Calibrate, and the outside covers (cover-outside.pdf, cover-inside.pdf) (done).
+18. Later: dials and other components, color, sharing, a page gallery.

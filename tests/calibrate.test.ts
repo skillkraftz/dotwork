@@ -16,7 +16,7 @@ import {
 import { PRINT_LABELS, settingsLines } from '../src/print/settingstext';
 import { grayHex, tonesOf } from '../src/print/tones';
 import { APP_VERSION } from '../src/version';
-import { FLAT } from './flat';
+import { FLAT, setPrint } from './flat';
 import { readPdf, textPositions } from './pdf-text';
 
 const fontBytes = {
@@ -111,7 +111,7 @@ describe('tones', () => {
 describe('the settings text', () => {
   it('names every print setting with its value', () => {
     const book = emptyBook(52, FLAT);
-    Object.assign(book.print, { creep_per_sheet_mm: 0.11, signatures: 2, front_offset_x_mm: -0.6, front_offset_y_mm: 0.1, back_offset_x_mm: 0.3, back_offset_y_mm: -0.2, shade_light_pct: 7, shade_medium_pct: 15, shade_dark_pct: 27, gray_text_pct: 55 });
+    setPrint(book.print, { creep_per_sheet_mm: 0.11, signatures: 2, front_offset_x_mm: -0.6, front_offset_y_mm: 0.1, back_offset_x_mm: 0.3, back_offset_y_mm: -0.2, shade_light_pct: 7, shade_medium_pct: 15, shade_dark_pct: 27, gray_text_pct: 55 });
     const text = settingsLines(book, NOW).join('\n');
     for (const key of Object.keys(PRINT_LIMITS) as (keyof typeof PRINT_LIMITS)[]) {
       expect(text, key).toContain(`${PRINT_LABELS[key]} ${book.print[key]}`);
@@ -124,7 +124,7 @@ describe('the settings text', () => {
 
 describe('summary.txt in a book export', () => {
   it('lists every print setting used, the page size, version and date, then tips at the end', async () => {
-    const book = tonedBook((b) => { Object.assign(b.print, { creep_per_sheet_mm: 0.12, signatures: 1, front_offset_x_mm: -0.4, front_offset_y_mm: 0.2, back_offset_x_mm: 0.5, back_offset_y_mm: -0.3, shade_light_pct: 8, shade_medium_pct: 16, shade_dark_pct: 30, gray_text_pct: 55 }); });
+    const book = tonedBook((b) => { setPrint(b.print, { creep_per_sheet_mm: 0.12, signatures: 1, front_offset_x_mm: -0.4, front_offset_y_mm: 0.2, back_offset_x_mm: 0.5, back_offset_y_mm: -0.3, shade_light_pct: 8, shade_medium_pct: 16, shade_dark_pct: 30, gray_text_pct: 55 }); });
     const text = decode(file(await exportBookFiles(book, fontBytes), 'summary.txt'));
     for (const key of Object.keys(PRINT_LIMITS) as (keyof typeof PRINT_LIMITS)[]) expect(text, key).toContain(`${PRINT_LABELS[key]} ${book.print[key]}`);
     expect(text).toContain(`Dotwork ${APP_VERSION}`);
@@ -147,7 +147,7 @@ describe('summary.txt in a book export', () => {
     const lines = settingsLines(book, NOW);
     const sig = impose(book.page_count, book.print, 1);
     for (const line of lines) {
-      expect(summary(book, sig, [], NOW)).toContain(line);
+      expect(summary({ top: book, bottom: book }, sig, [], NOW)).toContain(line);
       expect(calibrationText(book, NOW)).toContain(line);
     }
   });
@@ -184,7 +184,7 @@ describe('the alignment sheet', () => {
 
   it('puts the footer text of a changed book in the PDF, offsets of both sides included', async () => {
     const book = emptyBook(52, FLAT);
-    Object.assign(book.print, { creep_per_sheet_mm: 0.09, signatures: 2, front_offset_x_mm: -1.5, front_offset_y_mm: 0.3, back_offset_x_mm: 0.4, back_offset_y_mm: -0.6, shade_light_pct: 9, gray_text_pct: 62 });
+    setPrint(book.print, { creep_per_sheet_mm: 0.09, signatures: 2, front_offset_x_mm: -1.5, front_offset_y_mm: 0.3, back_offset_x_mm: 0.4, back_offset_y_mm: -0.6, shade_light_pct: 9, gray_text_pct: 62 });
     const [sheet] = await readPdf((await alignmentFile(book, fontBytes, NOW)).bytes);
     for (const line of settingsLines(book, NOW)) expect(sheet.strings).toContain(line);
     const text = sheet.strings.join('\n');
@@ -226,9 +226,9 @@ describe('the alignment sheet', () => {
   });
 
   it('moves the front by the front offset and the back by the back offset, each +x right and +y up', async () => {
-    const at = async (print: Partial<typeof DEFAULT_PRINT>) => {
+    const at = async (print: Parameters<typeof setPrint>[1]) => {
       const book = emptyBook(52, FLAT);
-      Object.assign(book.print, print);
+      setPrint(book.print, print);
       const [front, back] = (await readPdf((await alignmentFile(book, fontBytes, NOW)).bytes)).map((p) => textPositions(p).find((t) => t.text === 'fold +')!);
       return { front, back };
     };
@@ -334,7 +334,7 @@ describe('the creep test and the cover sheet', () => {
 
   it('applies the front offset to the front pages and the cover, and the back offset to the back pages', async () => {
     const book = emptyBook(8, FLAT);
-    Object.assign(book.print, { front_offset_x_mm: 0.4, front_offset_y_mm: 0.2, back_offset_x_mm: -0.6, back_offset_y_mm: -0.3 });
+    setPrint(book.print, { front_offset_x_mm: 0.4, front_offset_y_mm: 0.2, back_offset_x_mm: -0.6, back_offset_y_mm: -0.3 });
     const flat = emptyBook(8, FLAT);
     const [a, b] = [await creepFiles(flat, fontBytes, NOW), await creepFiles(book, fontBytes, NOW)];
     const [pa, pb] = [await readPdf(file(a, CREEP_FILE).bytes), await readPdf(file(b, CREEP_FILE).bytes)]; // two front pages, then two back pages
@@ -348,13 +348,15 @@ describe('the creep test and the cover sheet', () => {
       expect(box(pa[i]).y - box(pb[i]).y, `back ${i}`).toBeCloseTo(-0.3, 2);
     }
     const [ca, cb] = [await readPdf(file(a, COVER_FILE).bytes), await readPdf(file(b, COVER_FILE).bytes)];
-    expect(box(cb[0]).x - box(ca[0]).x).toBeCloseTo(0.4, 2); // the cover takes the front offset
+    expect(box(cb[0]).x - box(ca[0]).x).toBeCloseTo(0.4, 2); // the outside (page 1) takes the front offset
     expect(box(ca[0]).y - box(cb[0]).y).toBeCloseTo(0.2, 2);
+    expect(box(cb[1]).x - box(ca[1]).x).toBeCloseTo(-0.6, 2); // the inside (page 2) takes the back offset
+    expect(box(ca[1]).y - box(cb[1]).y).toBeCloseTo(-0.3, 2);
   });
 
   it('has margin rulers on every page, the cover included: top, bottom and fore-edge, with the expected margin marked', async () => {
     const creep = await readPdf(file(made, CREEP_FILE).bytes), cover = await readPdf(file(made, COVER_FILE).bytes);
-    expect(cover).toHaveLength(1);
+    expect(cover).toHaveLength(2); // the outside, then the inside
     for (const p of [...creep, ...cover]) {
       expect(margins(p.strings).top, 'top and bottom of both pages').toBe(4);
       expect(margins(p.strings).fore, 'fore-edge ruler of both pages').toBe(2); // each runs 0 to 7 mm from the box line
@@ -363,10 +365,12 @@ describe('the creep test and the cover sheet', () => {
   });
 
   it('puts the covers’ footer on the cover sheet', async () => {
-    const [sheet] = await readPdf(file(made, COVER_FILE).bytes);
-    expect(sheet.strings).toContain('COVER, inside front cover');
-    expect(sheet.strings).toContain('COVER, inside back cover');
-    for (const line of settingsLines(emptyBook(52, FLAT), NOW)) expect(sheet.strings.filter((s) => s === line)).toHaveLength(2);
+    const [outside, inside] = await readPdf(file(made, COVER_FILE).bytes);
+    expect(outside.strings).toContain('COVER, outside back cover');
+    expect(outside.strings).toContain('COVER, outside front cover');
+    expect(inside.strings).toContain('COVER, inside front cover');
+    expect(inside.strings).toContain('COVER, inside back cover');
+    for (const sheet of [outside, inside]) for (const line of settingsLines(emptyBook(52, FLAT), NOW)) expect(sheet.strings.filter((s) => s === line)).toHaveLength(2);
   });
 
   it('draws the same content-area box on every page', async () => {

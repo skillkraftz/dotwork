@@ -1,7 +1,7 @@
 import type { Page } from '../format/types';
 import { addDays, isDate, parts, shortDate, todayIso, weekNumber, weekStart } from '../format/dates';
 import { pageSpan } from '../format/tokens';
-import { dateOf, designAt, getSlot, slotCount, type Book, type Design } from './book';
+import { FIRST_SLOT, dateOf, designAt, getSlot, lastSlot, type Book, type Design } from './book';
 
 /** Which pages "apply to more pages" reaches. Page numbers are 1-based; the covers are never part of a range. */
 export type Scope =
@@ -56,29 +56,36 @@ export interface ContentsRow {
   cover: boolean;
 }
 
-/** The book as contents rows: front cover, runs of consecutive interior pages with the same design, back cover. */
+/** The book as contents rows: the outside front and inside front covers, runs of consecutive interior pages with the same design, the inside back and outside back covers. */
 export function contentsRows(book: Book): ContentsRow[] {
   const rows: ContentsRow[] = [];
-  const last = slotCount(book) - 1;
   const row = (from: number, to: number, cover: boolean): ContentsRow => ({ from, to, name: designName(getSlot(book, from)), page: getSlot(book, from), cover });
-  rows.push(row(0, 0, true));
+  rows.push(row(FIRST_SLOT, FIRST_SLOT, true), row(0, 0, true));
   let start = 1;
   for (let n = 2; n <= book.page_count + 1; n++) {
     if (n <= book.page_count && designKey(getSlot(book, n)) === designKey(getSlot(book, start))) continue;
     rows.push(row(start, n - 1, false));
     start = n;
   }
-  rows.push(row(last, last, true));
+  rows.push(row(book.page_count + 1, book.page_count + 1, true), row(lastSlot(book), lastSlot(book), true));
   return rows;
 }
 
-/** The two slots of the opening that holds `slot`: the left (even) one and the right (odd) one. */
-export const opening = (slot: number): [number, number] => [slot - (slot % 2), slot - (slot % 2) + 1];
+/**
+ * The two slots of the opening that holds `slot`: the left (even) one and the right (odd) one. The outside covers have no
+ * partner: for the outside front cover the left slot (-2) is not a page, and so is the right one (N+3) for the outside back.
+ */
+export const opening = (slot: number): [number, number] => {
+  const left = slot - (((slot % 2) + 2) % 2);
+  return [left, left + 1];
+};
 
 /** What a slot is called to a person: "Inside front cover", "Page 5". */
 export function slotLabel(book: Book, slot: number): string {
+  if (slot === FIRST_SLOT) return 'Outside front cover';
   if (slot === 0) return 'Inside front cover';
   if (slot === book.page_count + 1) return 'Inside back cover';
+  if (slot === lastSlot(book)) return 'Outside back cover';
   return `Page ${slot}`;
 }
 

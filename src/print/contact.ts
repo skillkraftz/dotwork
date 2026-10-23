@@ -1,6 +1,6 @@
 import { PAGE_H_MM, PAGE_W_MM } from '../format/types';
 import { pageContent } from '../render';
-import { bookExpand, bookPage, slotCount, type Book } from '../book/book';
+import { bookExpand, bookPage, isCover, slotCount, type Book } from '../book/book';
 
 const COLUMNS = 4;
 const GAP = 6, MARGIN = 10, TITLE = 14, CAPTION = 6;
@@ -22,9 +22,8 @@ export function contactSheet(book: Book, fontCss = ''): ContactSheet {
     const x = MARGIN + (s % cols) * (cellW + GAP), y = MARGIN + TITLE + Math.floor(s / cols) * (cellH + GAP);
     let cell = '';
     for (const slot of [s * 2, s * 2 + 1]) {
-      const inner = slot === 0 || slot === book.page_count + 1;
       const page = bookPage(book, slot);
-      const n = inner || !book.page_numbers ? null : String(slot);
+      const n = isCover(book, slot) || !book.page_numbers ? null : String(slot);
       cell += `<g transform="translate(${(slot % 2) * PAGE_W_MM} 0)">${pageContent(page, { mode: 'export', pageNumber: n, expand: bookExpand(book, slot) })}</g>`;
     }
     cell += `<rect x="0" y="0" width="${cellW}" height="${PAGE_H_MM}" fill="none" stroke="#a8a8a8" stroke-width="0.4"/><path d="M${PAGE_W_MM} 0V${PAGE_H_MM}" stroke="#a8a8a8" stroke-width="0.4"/>`;

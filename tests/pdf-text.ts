@@ -46,6 +46,6 @@ export async function readPdf(bytes: Uint8Array): Promise<PageInfo[]> {
 /** Every text draw on a page, in order, with its position in mm from the page's top left (the text's start and its baseline). */
 export function textPositions(page: PageInfo): { text: string; x: number; y: number }[] {
   const PT = 72 / 25.4;
-  const at = [...page.content.matchAll(/1 0 0 1 ([\d.-]+) ([\d.-]+) Tm/g)].map((m) => ({ x: +m[1] / PT, y: page.height / PT - +m[2] / PT }));
+  const at = [...page.content.matchAll(/\S+ \S+ \S+ \S+ (\S+) (\S+) Tm/g)].map((m) => ({ x: +m[1] / PT, y: page.height / PT - +m[2] / PT }));
   return page.strings.map((text, i) => ({ text, ...at[i] }));
 }

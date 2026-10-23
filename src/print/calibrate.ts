@@ -1,6 +1,7 @@
 // The calibration sheets: paper that shows, without printing a whole book, how a printer places and tones the pages.
 // Built with the same imposition, page size and drawing code as the book's own print files.
 //
+//   calibration-size.pdf       one single-sided sheet: two lines that should measure 100 mm and a labelled block of dots, to size the print
 //   calibration-alignment.pdf  page 1 = the front, page 2 = the back; print them the way print-first and print-second are
 //       printed. Each side takes its own offset, as the book's files do. Both have a scale across the fold (read where the
 //       sheet's crease crosses it) and a ruler at the top and bottom edge (read the margin where the paper ends); the front
@@ -8,14 +9,18 @@
 //       crosshairs at its corners and centre, which should coincide when held to a light.
 //   creep-test.pdf             every sheet of the book's biggest signature, both sides, in manual-duplex order: pages 1 to N are
 //       the fronts (last sheet first), pages N+1 to 2N the backs (first sheet first). Margin rulers on every page.
-//   calibration-cover.pdf      one single-sided sheet like cover.pdf, with margin rulers
+//   calibration-cover.pdf      the cover sheet as cover-outside.pdf and cover-inside.pdf print it (two passes), with margin rulers
 //   calibration.txt            the settings that made them
+//
+// On the letter two-up layout every page has the same thing in both halves, labelled Book 1 and Book 2 like the print files, with the
+// cut marks; the scale and offsets of the selected layout apply to the whole page. Covers stay out of the creep test.
 import { GRID_X_MM, GRID_Y_MM, PAGE_H_MM, PAGE_W_MM, COLS, ROWS, PITCH_MM as P, emptyPage, type Page, type PageElement, type Text } from '../format/types';
 import type { Book } from '../book/book';
-import { FOLD_X_MM, SHEET_H_MM, SHEET_W_MM, checkPrintSettings, duplexOrder, impose, offsetOf, pageOrigin, type Sheet } from '../book/impose';
+import { FOLD_X_MM, LAYOUT_NAMES, SHEET_H_MM, SHEET_W_MM, checkPrintSettings, duplexOrder, impose, pageOrigin, profileOf, type Sheet } from '../book/impose';
 import { LINE } from '../render';
 import { color, drawPage, mmToPt, type Fonts } from './draw';
 import { newDocument, type ExportedFile, type FontBytes, type PdfPage } from './export';
+import { drawCutMarks, drawHalfLabel, halfLabel, halfTops, isTwoUp, onSheet, sheetSize, transformOf } from './sheets';
 import { creepSheets } from '../book/creep';
 import { settingsLines } from './settingstext';
 import { grayHex, tonesOf } from './tones';
@@ -42,6 +47,7 @@ const GRID_W = COLS * P, GRID_H = ROWS * P;
 
 // ---- the files' names and text ------------------------------------------------------------------------------
 
+export const SIZE_FILE = 'calibration-size.pdf';
 export const ALIGNMENT_FILE = 'calibration-alignment.pdf';
 export const CREEP_FILE = 'creep-test.pdf';
 export const COVER_FILE = 'calibration-cover.pdf';
@@ -54,9 +60,10 @@ export function calibrationText(book: Book, now: Date): string {
     '',
     ...settingsLines(book, now),
     '',
+    `${SIZE_FILE}: one single-sided sheet; measure its two 100 mm lines`,
     `${ALIGNMENT_FILE}: page 1 is the front, page 2 the back; print like print-first and print-second`,
     `${CREEP_FILE}: ${2 * n} pages in manual-duplex order; print pages 1 to ${n}, put the stack back the same way, print pages ${n + 1} to ${2 * n}`,
-    `${COVER_FILE}: one single-sided sheet, like cover.pdf`,
+    `${COVER_FILE}: page 1 is the outside (print it first), page 2 the inside; print like cover-outside and cover-inside`,
     '',
   ].join('\n');
 }
@@ -65,12 +72,14 @@ export function calibrationText(book: Book, now: Date): string {
 
 type Align = 'start' | 'middle' | 'end';
 
-/** A sheet to draw on in sheet millimetres (x right, y down from the top left), everything moved by dx, dy. */
-function sheetCanvas(pdf: PdfPage, fonts: Fonts, dx = 0, dy = 0) {
-  const X = (x: number) => mmToPt(x + dx), Y = (y: number) => mmToPt(SHEET_H_MM - (y + dy));
+/** A sheet `height` mm tall to draw on in sheet millimetres (x right, y down from the top left), everything moved by dx, dy. */
+function sheetCanvas(pdf: PdfPage, fonts: Fonts, height: number, dx = 0, dy = 0) {
+  const X = (x: number) => mmToPt(x + dx), Y = (y: number) => mmToPt(height - (y + dy));
   return {
     line: (x1: number, y1: number, x2: number, y2: number, w: number, c = BLACK) =>
       pdf.drawLine({ start: { x: X(x1), y: Y(y1) }, end: { x: X(x2), y: Y(y2) }, thickness: mmToPt(w), color: color(c) }),
+    dot: (x: number, y: number, r: number, c = BLACK) => pdf.drawCircle({ x: X(x), y: Y(y), size: mmToPt(r), color: color(c) }),
+    ring: (x: number, y: number, r: number, w: number, c = BLACK) => pdf.drawCircle({ x: X(x), y: Y(y), size: mmToPt(r), borderWidth: mmToPt(w), borderColor: color(c) }),
     rect: (x: number, y: number, w: number, h: number, c: string) =>
       pdf.drawRectangle({ x: X(x), y: Y(y + h), width: mmToPt(w), height: mmToPt(h), color: color(c) }),
     outline: (x: number, y: number, w: number, h: number, lw: number, c = BLACK) =>
@@ -119,9 +128,9 @@ function footer(c: Canvas, book: Book, now: Date, isRight: boolean, creep: numbe
 }
 
 /** A designed page goes through drawPage, so tones, dots and lines print exactly as in a book. */
-function content(pdf: PdfPage, fonts: Fonts, book: Book, p: Page, isRight: boolean, dx = 0, dy = 0) {
+function content(g: Half, book: Book, p: Page, isRight: boolean) {
   const o = pageOrigin(isRight, 0);
-  drawPage(pdf, p, { x: o.x + dx, y: o.y + dy, sheetHeight: SHEET_H_MM, fonts, pageNumber: null, expand: (t) => t, tones: tonesOf(book.print) });
+  drawPage(g.pdf, p, { x: o.x + g.dx, y: o.y + g.dy, sheetHeight: g.height, fonts: g.fonts, pageNumber: null, expand: (t) => t, tones: tonesOf(book.print) });
 }
 
 // ---- scales and rulers ---------------------------------------------------------------------------------------
@@ -256,28 +265,95 @@ const backLeft = () => page('left', [
   text(0, 4, 'the crease crosses the fold scale,'), text(0, 5, 'and the margin where the paper ends.'),
 ]);
 
-/** calibration-alignment.pdf: page 1 the front, page 2 the back, each with its own offset. */
-async function alignmentPdf(book: Book, fontBytes: FontBytes, now: Date): Promise<Uint8Array> {
+// ---- the pages ---------------------------------------------------------------------------------------------------
+
+/** One half-letter sheet's place on a PDF page (the whole page for half letter): where to draw, and a canvas to draw it with. */
+interface Half { pdf: PdfPage; fonts: Fonts; height: number; dx: number; dy: number; c: Canvas }
+
+/** A page of a calibration PDF: which side it prints, what the trim zone label says after "Book 1 |", and how to draw one half. */
+interface CalPage { side: 'front' | 'back'; label: string[]; draw: (g: Half) => void }
+
+const bookTitle = (b: Book) => b.name.trim() || 'Untitled book';
+
+/**
+ * A calibration PDF: every page is drawn in each half of the sheet (one for half letter, two for letter two-up, with the cut marks and the
+ * labels Book 1 / Book 2), under the layout's scale and its side's offset.
+ */
+async function calibrationPdf(book: Book, fontBytes: FontBytes, pages: CalPage[]): Promise<Uint8Array> {
   const { doc, fonts } = await newDocument(fontBytes);
-  for (const side of ['front', 'back'] as const) {
-    const pdf = doc.addPage([mmToPt(SHEET_W_MM), mmToPt(SHEET_H_MM)]);
-    const off = offsetOf(book.print, side), dx = off.x, dy = -off.y; // +y moves up; sheet y runs down
-    const c = sheetCanvas(pdf, fonts, dx, dy);
-    if (side === 'front') {
-      content(pdf, fonts, book, frontLeft(book), false, dx, dy);
-      content(pdf, fonts, book, frontRight(), true, dx, dy);
-      ramp(c);
-      hairlines(c);
-    } else content(pdf, fonts, book, backLeft(), false, dx, dy);
-    for (const right of [false, true]) {
-      frame(c, right, 0, 0, true);
-      pageRulers(c, book, right, 0, 0, false);
-      footer(c, book, now, right, 0, 0, [`${side.toUpperCase()}, ${right ? 'right' : 'left'} page`]);
-    }
-    foldScale(c);
+  const layout = book.print.sheet_layout, { w, h } = sheetSize(layout), tops = halfTops(layout), twoUp = isTwoUp(layout);
+  for (const page of pages) {
+    const pdf = doc.addPage([mmToPt(w), mmToPt(h)]);
+    onSheet(pdf, w, h, transformOf(book.print, page.side), (dx, dy) => {
+      tops.forEach((top, i) => {
+        page.draw({ pdf, fonts, height: h, dx, dy: dy + top, c: sheetCanvas(pdf, fonts, h, dx, dy + top) });
+        if (twoUp) drawHalfLabel(pdf, fonts, halfLabel(fonts.regular, i as 0 | 1, bookTitle(book), ...page.label), top, dx, dy);
+      });
+      if (twoUp) drawCutMarks(pdf, dx, dy);
+    });
   }
   return doc.save({ useObjectStreams: false });
 }
+
+// ---- the size sheet ----------------------------------------------------------------------------------------------
+
+/** The two lines the size is read from, in mm, and the dots around them. The dot block is 28 across and 44 down, as on the Dot grid page. */
+export const SIZE_LINE_MM = 100;
+export const SIZE_DOTS = { across: 28, down: 44 } as const;
+const dotSpan = (n: number) => (n - 1) * P;
+const TICK_MM = 5;
+
+/**
+ * Two lines that should measure 100.0 mm (horizontal and vertical, each with a tick across its ends), and a block of dots whose
+ * count and span are written beside it, so counting is never ambiguous. The corner dots are ringed.
+ */
+function sizeSheet(g: Half, book: Book) {
+  const c = g.c, W = SHEET_W_MM, H = SHEET_H_MM;
+  const pr = profileOf(book.print);
+  c.text('SIZE: measure with a ruler', 22, 8, 3.2);
+  c.text(`${LAYOUT_NAMES[book.print.sheet_layout]}, printed at ${pr.scale_x_pct}% across, ${pr.scale_y_pct}% down`, 22, 12, 2.2);
+  // The vertical line at the left, 100.0 mm between the ticks' centres.
+  const vx = 20, vy = 17;
+  c.line(vx, vy, vx, vy + SIZE_LINE_MM, 0.2);
+  for (const y of [vy, vy + SIZE_LINE_MM]) c.line(vx - TICK_MM / 2, y, vx + TICK_MM / 2, y, 0.2);
+  c.text('should measure 100.0 mm', vx + 5, vy + SIZE_LINE_MM / 2 - 1, 2.4);
+  c.text('(down, top tick to bottom tick)', vx + 5, vy + SIZE_LINE_MM / 2 + 2.5, 2);
+  // The horizontal line below it.
+  const hx = 16, hy = vy + SIZE_LINE_MM + 12;
+  c.line(hx, hy, hx + SIZE_LINE_MM, hy, 0.2);
+  for (const x of [hx, hx + SIZE_LINE_MM]) c.line(x, hy - TICK_MM / 2, x, hy + TICK_MM / 2, 0.2);
+  c.text('should measure 100.0 mm', hx + SIZE_LINE_MM / 2, hy - 4, 2.4, BLACK, 'middle');
+  c.text('(across, left tick to right tick)', hx + SIZE_LINE_MM / 2, hy + 7, 2, BLACK, 'middle');
+  // The dot block at the right: the outermost dots span 81.0 mm across and 129.0 mm down.
+  const bx = W - 8 - dotSpan(SIZE_DOTS.across), by = (H - dotSpan(SIZE_DOTS.down)) / 2;
+  for (let i = 0; i < SIZE_DOTS.across; i++) for (let j = 0; j < SIZE_DOTS.down; j++) c.dot(bx + i * P, by + j * P, 0.3);
+  for (const x of [bx, bx + dotSpan(SIZE_DOTS.across)]) for (const y of [by, by + dotSpan(SIZE_DOTS.down)]) c.ring(x, y, 1.1, 0.15);
+  c.text(`${SIZE_DOTS.across} dots across = ${dotSpan(SIZE_DOTS.across).toFixed(1)} mm`, bx - 4, by + dotSpan(SIZE_DOTS.down) / 2 - 2, 2.4, BLACK, 'end');
+  c.text(`${SIZE_DOTS.down} dots down = ${dotSpan(SIZE_DOTS.down).toFixed(1)} mm`, bx - 4, by + dotSpan(SIZE_DOTS.down) / 2 + 2, 2.4, BLACK, 'end');
+  c.text('(outermost dots, centre to centre)', bx - 4, by + dotSpan(SIZE_DOTS.down) / 2 + 5.5, 2, BLACK, 'end');
+}
+
+// ---- the alignment sheet -------------------------------------------------------------------------------------
+
+/** calibration-alignment.pdf: page 1 the front, page 2 the back, each with its own offset. */
+const alignmentPdf = (book: Book, fontBytes: FontBytes, now: Date) => calibrationPdf(book, fontBytes, (['front', 'back'] as const).map((side): CalPage => ({
+  side,
+  label: ['alignment', side],
+  draw: (g) => {
+    if (side === 'front') {
+      content(g, book, frontLeft(book), false);
+      content(g, book, frontRight(), true);
+      ramp(g.c);
+      hairlines(g.c);
+    } else content(g, book, backLeft(), false);
+    for (const right of [false, true]) {
+      frame(g.c, right, 0, 0, true);
+      pageRulers(g.c, book, right, 0, 0, false);
+      footer(g.c, book, now, right, 0, 0, [`${side.toUpperCase()}, ${right ? 'right' : 'left'} page`]);
+    }
+    foldScale(g.c);
+  },
+})));
 
 // ---- creep test and cover ----------------------------------------------------------------------------------
 
@@ -285,43 +361,50 @@ async function alignmentPdf(book: Book, fontBytes: FontBytes, now: Date): Promis
  * creep-test.pdf: both sides of every sheet of the biggest signature, shifted by their creep, the fore-edge shift and their side's offset, in
  * manual-duplex order: the fronts (last sheet first), then the backs (first sheet first). Page ranges are on every page.
  */
-async function creepTestPdf(book: Book, fontBytes: FontBytes, now: Date): Promise<Uint8Array> {
-  const { doc, fonts } = await newDocument(fontBytes);
+function creepTestPdf(book: Book, fontBytes: FontBytes, now: Date) {
   const n = creepSheets(book);
   const sheets: Sheet[] = impose(4 * n, book.print, 1)[0].sheets, shift = book.print.fore_edge_shift_mm;
   const [fronts, backs] = duplexOrder(n);
   const order: { sheet: number; side: 'front' | 'back' }[] = [...fronts.map((sheet) => ({ sheet, side: 'front' as const })), ...backs.map((sheet) => ({ sheet, side: 'back' as const }))];
-  order.forEach(({ sheet: k, side }, i) => {
-    const s = sheets[k], pdf = doc.addPage([mmToPt(SHEET_W_MM), mmToPt(SHEET_H_MM)]);
-    const off = offsetOf(book.print, side);
-    const c = sheetCanvas(pdf, fonts, off.x, -off.y);
-    const pass = i < n ? `pass 1: print pages 1-${n}` : `pass 2: print pages ${n + 1}-${2 * n}`;
-    for (const right of [false, true]) {
-      frame(c, right, s.creep, shift, false);
-      const { x, y } = gridAt(right, s.creep, shift);
-      const ref = (right ? s[side].right : s[side].left);
-      c.text(`SHEET ${k + 1} OF ${n}${k === 0 ? ' (OUTERMOST)' : k === n - 1 ? ' (INNERMOST)' : ''}`, x + 0.8, y + 4, 3.2);
-      c.text(`${side.toUpperCase()}, ${right ? 'right' : 'left'} page${ref === null ? '' : ` ${ref}`}`, x + 0.8, y + 8, 3.2);
-      c.text(`PDF page ${i + 1} of ${2 * n} (${pass})`, x + 0.8, y + 11, 2);
-      pageRulers(c, book, right, s.creep, shift, true);
-      footer(c, book, now, right, s.creep, shift, [`creep test, ${s.creep.toFixed(2)} mm toward the fold, ${shift} away`]);
-    }
-  });
-  return doc.save({ useObjectStreams: false });
+  return calibrationPdf(book, fontBytes, order.map(({ sheet: k, side }, i): CalPage => ({
+    side,
+    label: [`sheet ${k + 1} of ${n}`, side],
+    draw: (g) => {
+      const s = sheets[k];
+      const pass = i < n ? `pass 1: print pages 1-${n}` : `pass 2: print pages ${n + 1}-${2 * n}`;
+      for (const right of [false, true]) {
+        frame(g.c, right, s.creep, shift, false);
+        const { x, y } = gridAt(right, s.creep, shift);
+        const ref = (right ? s[side].right : s[side].left);
+        g.c.text(`SHEET ${k + 1} OF ${n}${k === 0 ? ' (OUTERMOST)' : k === n - 1 ? ' (INNERMOST)' : ''}`, x + 0.8, y + 4, 3.2);
+        g.c.text(`${side.toUpperCase()}, ${right ? 'right' : 'left'} page${ref === null ? '' : ` ${ref}`}`, x + 0.8, y + 8, 3.2);
+        g.c.text(`PDF page ${i + 1} of ${2 * n} (${pass})`, x + 0.8, y + 11, 2);
+        pageRulers(g.c, book, right, s.creep, shift, true);
+        footer(g.c, book, now, right, s.creep, shift, [`creep test, ${s.creep.toFixed(2)} mm toward the fold, ${shift} away`]);
+      }
+    },
+  })));
 }
 
-/** calibration-cover.pdf: the inside covers' spread as cover.pdf prints it (cover shift, front offset), with the box, crosshairs and rulers. */
-async function coverPdf(book: Book, fontBytes: FontBytes, now: Date): Promise<Uint8Array> {
-  const { doc, fonts } = await newDocument(fontBytes);
-  const pdf = doc.addPage([mmToPt(SHEET_W_MM), mmToPt(SHEET_H_MM)]);
-  const off = offsetOf(book.print, 'front');
-  const c = sheetCanvas(pdf, fonts, off.x, -off.y), shift = book.print.cover_fore_edge_shift_mm;
-  for (const right of [false, true]) {
-    frame(c, right, 0, shift, true);
-    pageRulers(c, book, right, 0, shift, true);
-    footer(c, book, now, right, 0, shift, [right ? 'COVER, inside back cover' : 'COVER, inside front cover']);
-  }
-  return doc.save({ useObjectStreams: false });
+/**
+ * calibration-cover.pdf: the cover sheet as cover-outside.pdf and cover-inside.pdf print it: page 1 the outside (outside back | outside
+ * front, the front offset), page 2 the inside (inside front | inside back, the back offset), each with the cover shift, the box,
+ * crosshairs and rulers.
+ */
+function coverTestPdf(book: Book, fontBytes: FontBytes, now: Date) {
+  const shift = book.print.cover_fore_edge_shift_mm;
+  const pass = (side: 'front' | 'back', names: [string, string]): CalPage => ({
+    side,
+    label: ['cover', side === 'front' ? 'outside' : 'inside'],
+    draw: (g) => {
+      for (const right of [false, true]) {
+        frame(g.c, right, 0, shift, true);
+        pageRulers(g.c, book, right, 0, shift, true);
+        footer(g.c, book, now, right, 0, shift, [`COVER, ${names[right ? 1 : 0]}`]);
+      }
+    },
+  });
+  return calibrationPdf(book, fontBytes, [pass('front', ['outside back cover', 'outside front cover']), pass('back', ['inside front cover', 'inside back cover'])]);
 }
 
 // ---- the sets of files ---------------------------------------------------------------------------------------
@@ -335,17 +418,23 @@ function check(book: Book) {
   if (problem) throw new Error(problem);
 }
 
-/** Step 1: calibration-alignment.pdf. */
+/** The size step: calibration-size.pdf. */
+export async function sizeFile(book: Book, fontBytes: FontBytes): Promise<ExportedFile> {
+  check(book);
+  return pdf(SIZE_FILE, await calibrationPdf(book, fontBytes, [{ side: 'front', label: ['size', 'front'], draw: (g) => sizeSheet(g, book) }]));
+}
+
+/** The alignment step: calibration-alignment.pdf. */
 export async function alignmentFile(book: Book, fontBytes: FontBytes, now = new Date()): Promise<ExportedFile> {
   check(book);
   return pdf(ALIGNMENT_FILE, await alignmentPdf(book, fontBytes, now));
 }
 
-/** Step 2: the cover sheet and the creep test, with calibration.txt. */
+/** The creep step: the cover sheet and the creep test, with calibration.txt. */
 export async function creepFiles(book: Book, fontBytes: FontBytes, now = new Date()): Promise<ExportedFile[]> {
   check(book);
   return [
-    pdf(COVER_FILE, await coverPdf(book, fontBytes, now)),
+    pdf(COVER_FILE, await coverTestPdf(book, fontBytes, now)),
     pdf(CREEP_FILE, await creepTestPdf(book, fontBytes, now)),
     txt('calibration.txt', calibrationText(book, now)),
   ];

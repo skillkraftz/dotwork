@@ -139,12 +139,13 @@ describe('the book templates', () => {
         expect(getSlot(book, 0)).not.toBeNull();
         expect(getSlot(book, 53)).not.toBeNull();
         const files = await exportBookFiles(book, fonts);
-        expect(files.map((f) => f.name).sort()).toEqual(['cover.pdf', 'pages.pdf', 'print-first.pdf', 'print-second.pdf', 'summary.txt']);
+        expect(files.map((f) => f.name).sort()).toEqual(['cover-inside.pdf', 'cover-outside.pdf', 'pages.pdf', 'print-first.pdf', 'print-second.pdf', 'summary.txt']);
         const count = async (name: string) => (await PDFDocument.load(files.find((f) => f.name === name)!.bytes)).getPageCount();
         expect(await count('pages.pdf')).toBe(52);
         expect(await count('print-first.pdf')).toBe(13);
         expect(await count('print-second.pdf')).toBe(13);
-        expect(await count('cover.pdf')).toBe(1);
+        expect(await count('cover-inside.pdf')).toBe(1);
+        expect(await count('cover-outside.pdf')).toBe(1);
       });
     }
   }

@@ -7,7 +7,7 @@ import { pageContent, thumbnailSvg } from '../render';
 import { h, tabBar } from '../panel';
 import { issuesProblem, problemView } from '../problems';
 import type { Library, LibraryItem } from '../library/library';
-import { applyDesign, blankPage, bookExpand, bookPage, dateOf, fillSlots, getSlot, readBook, setDates, setSlot, slotCount, slotSide, type Book, type Design, type Facing } from './book';
+import { applyDesign, blankPage, bookExpand, bookPage, dateOf, fillSlots, FIRST_SLOT, getSlot, isCover, lastSlot, readBook, setDates, setSlot, slotSide, type Book, type Design, type Facing } from './book';
 import { BUILTIN_SPREADS } from '../builtin/library';
 import { checkPrintSettings, signatureSizes } from './impose';
 import { applyBuild, buildSummary, guessMove, planSteps, sectionFrom, stepLine, type BuildPlan } from './build';
@@ -38,8 +38,7 @@ const stored = (key: string) => { try { return localStorage.getItem(key); } catc
 
 /** A slot's page as an SVG, as it prints (with its page number unless it is a cover or numbers are off). */
 const slotSvg = (book: Book, slot: number, extra = '', attrs = '') => {
-  const inner = slot === 0 || slot === book.page_count + 1;
-  const number = inner || !book.page_numbers ? null : String(slot);
+  const number = isCover(book, slot) || !book.page_numbers ? null : String(slot);
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${PAGE_W_MM} ${PAGE_H_MM}" aria-hidden="true"${attrs}>` +
     pageContent(bookPage(book, slot), { mode: 'export', pageNumber: number, expand: bookExpand(book, slot) }) + extra + '</svg>';
 };
@@ -59,7 +58,7 @@ const SCOPE_MODES: { mode: ScopeMode; label: string }[] = [
 /** The book, one page at a time: step through it, choose a design for the page, copy it to more pages, and read the contents. */
 export class Arranger {
   private book: Book;
-  /** The slot being looked at: 0 is the inside front cover, 1..N the pages, N+1 the inside back cover. */
+  /** The slot being looked at: -1 is the outside front cover, 0 the inside front cover, 1..N the pages, N+1 the inside back cover, N+2 the outside back cover. */
   private slot = 1;
   private spreads = stored(SPREADS_KEY) === '1';
   private undoStack: string[] = [];
@@ -198,7 +197,7 @@ export class Arranger {
     const last = this.undoStack.pop();
     if (!last) return;
     this.book = JSON.parse(last) as Book;
-    this.slot = Math.min(this.slot, slotCount(this.book) - 1);
+    this.slot = Math.min(this.slot, lastSlot(this.book));
     this.say(null);
     this.host.changed(this.book);
     this.checkBook();
@@ -213,7 +212,7 @@ export class Arranger {
   // ---- moving around -----------------------------------------------------------
 
   private go(slot: number) {
-    this.slot = Math.max(0, Math.min(slotCount(this.book) - 1, slot));
+    this.slot = Math.max(FIRST_SLOT, Math.min(lastSlot(this.book), slot));
     this.say(null);
     this.renderView();
   }
@@ -273,15 +272,17 @@ export class Arranger {
   }
 
   private renderNav() {
-    const last = slotCount(this.book) - 1;
+    const last = lastSlot(this.book);
     const [left, right] = opening(this.slot);
+    // The outside covers have no page beside them.
+    const shown = this.shownSlots();
     const where = this.spreads
-      ? `${slotLabel(this.book, left)} and ${slotLabel(this.book, right).toLowerCase()}`
+      ? shown.map((n, i) => (i ? slotLabel(this.book, n).toLowerCase() : slotLabel(this.book, n))).join(' and ')
       : slotLabel(this.book, this.slot);
     const sub = this.spreads ? 'Tap a page to pick it' : `${slotSide(this.slot) === 'left' ? 'Left' : 'Right'}-hand page`;
     const prevAt = this.spreads ? left : this.slot, nextAt = this.spreads ? right : this.slot;
     this.nav.replaceChildren(
-      h('button', { type: 'button', class: 'nav-step', 'data-help': 'nav-prev', 'aria-label': this.spreads ? 'Previous spread' : 'Previous page', disabled: prevAt <= 0, onclick: () => this.step(-1) }, '‹'),
+      h('button', { type: 'button', class: 'nav-step', 'data-help': 'nav-prev', 'aria-label': this.spreads ? 'Previous spread' : 'Previous page', disabled: prevAt <= FIRST_SLOT, onclick: () => this.step(-1) }, '‹'),
       h('div', { class: 'where', 'aria-live': 'polite' }, h('strong', {}, where), h('span', { class: 'hint' }, sub)),
       h('button', { type: 'button', class: 'nav-step', 'data-help': 'nav-next', 'aria-label': this.spreads ? 'Next spread' : 'Next page', disabled: nextAt >= last, onclick: () => this.step(1) }, '›'),
       h('button', { type: 'button', class: 'view-toggle', 'data-help': 'book-spreads', 'aria-pressed': String(this.spreads), title: 'Show two facing pages side by side', onclick: () => this.setSpreads(!this.spreads) }, 'Spreads'),
@@ -289,11 +290,16 @@ export class Arranger {
     );
   }
 
+  /** The slots on the stage: the page, or the pages of its opening (the outside covers stand alone). */
+  private shownSlots(): number[] {
+    return this.spreads ? opening(this.slot).filter((n) => n >= FIRST_SLOT && n <= lastSlot(this.book)) : [this.slot];
+  }
+
   private renderStage() {
-    const slots = this.spreads ? opening(this.slot) : [this.slot];
+    const slots = this.shownSlots();
     this.stage.classList.toggle('spreads', this.spreads);
-    this.stage.replaceChildren(...slots.map((n, i) => {
-      const align = !this.spreads ? 'xMidYMid' : i === 0 ? 'xMaxYMid' : 'xMinYMid';
+    this.stage.replaceChildren(...slots.map((n) => {
+      const align = !this.spreads ? 'xMidYMid' : slotSide(n) === 'left' ? 'xMaxYMid' : 'xMinYMid';
       const el = h('button', {
         type: 'button', class: `stage-page${this.spreads && n === this.slot ? ' current' : ''}`,
         'aria-label': `${slotLabel(this.book, n)}, ${designName(getSlot(this.book, n))}`, 'aria-pressed': this.spreads ? String(n === this.slot) : null,
@@ -324,7 +330,7 @@ export class Arranger {
   private renderContents() {
     const b = this.book;
     const item = (from: number, to: number, name: string, expandable: boolean) => {
-      const label = expandable ? `Pages ${from}–${to}` : from === 0 || from === b.page_count + 1 ? slotLabel(b, from) : `Page ${from}`;
+      const label = expandable ? `Pages ${from}–${to}` : isCover(b, from) ? slotLabel(b, from) : `Page ${from}`;
       const thumb = h('span', { class: 'crow-thumb' });
       thumb.innerHTML = slotSvg(b, from, outline);
       const open = this.expanded.has(from);
@@ -384,8 +390,10 @@ export class Arranger {
   private renderPicker() {
     this.pickerTitle.textContent = `Design for ${slotLabel(this.book, this.slot).toLowerCase()}`;
     const side = slotSide(this.slot);
-    const tab = side === 'left' ? this.pickerTab : 'pages';
-    this.pickerTabs.el.parentElement!.hidden = side !== 'left';
+    // A spread fills this page and the next, so it is offered on left pages that have a page after them (not the outside back cover).
+    const spreadOk = side === 'left' && this.slot <= this.book.page_count;
+    const tab = spreadOk ? this.pickerTab : 'pages';
+    this.pickerTabs.el.parentElement!.hidden = !spreadOk;
     this.pickerTabs.select(tab);
     const card = (c: Choice) => {
       const thumb = h('div', { class: 'thumb' });

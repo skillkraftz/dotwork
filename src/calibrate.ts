@@ -5,11 +5,11 @@ import { withBookJson } from './print/bundle';
 import type { ExportedFile } from './print/export';
 import { loadFontBytes } from './print/fonts';
 import { SPINE_WARN_MM, creepResult, creepSheets, innermostSpineMargin, predictedMargins, type Printed } from './book/creep';
-import { offsetsFromReadings, type SideReadings } from './book/alignment';
+import { offsetsFromReadings, scaleFromReading, type Offsets, type SideReadings } from './book/alignment';
 import { GRID_Y_MM } from './format/types';
 import { PRINT_LIMITS, type Book } from './book/book';
-import type { PrintSettings } from './book/impose';
-import { printField } from './settings';
+import { LAYOUT_NAMES, PAPER_SETTINGS, profileOf, type PrintSettings } from './book/impose';
+import { layoutPicker, printField, type PrintFieldKey } from './settings';
 import { slug } from './slug';
 import type { PrinterSettings } from './printer';
 
@@ -25,7 +25,7 @@ export interface CalibrateHost {
 /** The tip for step 1, and for summary.txt: a printer's own quality setting decides how well the lines line up. */
 export const QUALITY_TIP = 'Print at your printer’s best quality. Firefox may not use the quality set in the printer’s own defaults, and normal quality feeds the paper too fast and misaligns lines. Check the quality in the print dialog’s printer options, or set the default in CUPS (localhost:631) on Linux.';
 
-const STEPS = ['Alignment', 'Creep and cover', 'Check'] as const;
+const STEPS = ['Size', 'Alignment', 'Creep and cover', 'Check'] as const;
 const OFFSETS = ['front_offset_x_mm', 'front_offset_y_mm', 'back_offset_x_mm', 'back_offset_y_mm'] as const;
 const OFFSET_NAMES: Record<(typeof OFFSETS)[number], string> = { front_offset_x_mm: 'Front x', front_offset_y_mm: 'Front y', back_offset_x_mm: 'Back x', back_offset_y_mm: 'Back y' };
 
@@ -48,10 +48,14 @@ export class CalibrateDialog {
   private back = h('button', { type: 'button', 'data-key': 'calibrate-back', 'data-help': 'calibrate-back' }, 'Back');
   private next = h('button', { type: 'button', class: 'primary', 'data-key': 'calibrate-next', 'data-help': 'calibrate-next' }, 'Next');
   private step = 0;
+  /** The layout picker, shown on every step: what is measured belongs to the layout it is printed on. */
+  private layoutRow = h('div', { class: 'cal-layout' });
   // What was typed. Kept as text so a half-typed number isn't lost when a result is redrawn.
-  private read = { front: { fold: '', top: '', bottom: '' }, back: { fold: '', top: '', bottom: '' }, cover: '', outermost: '', innermost: '', fore: '', top: '', bottom: '' };
+  private read = { sizeH: '', sizeV: '', front: { fold: '', top: '', bottom: '' }, back: { fold: '', top: '', bottom: '' }, cover: '', outermost: '', innermost: '', fore: '', top: '', bottom: '' };
   /** The offsets the alignment sheet was printed with (they are in its footer): a reading is relative to them. */
-  private printed: Pick<PrintSettings, (typeof OFFSETS)[number]> | null = null;
+  private printed: Offsets | null = null;
+  /** The scale (% across, % down) the size sheet was printed with (it is in its footer): a measured line is relative to it. */
+  private printedScale: { x: number; y: number } | null = null;
   /** The creep, shifts and target the creep test was printed with, as text (null until it is downloaded; then the book's settings are shown). */
   private testPrinted: TestPrinted | null = null;
   /** True once the test is downloaded: then the typed values are the printed ones, and edits to the book's settings no longer change them. */
@@ -66,6 +70,7 @@ export class CalibrateDialog {
       h('header', {}, h('h2', {}, 'Calibrate your printer'), h('button', { type: 'button', 'data-help': 'calibrate-close', onclick: () => this.dialog.close() }, 'Done')),
       this.status,
       this.progress,
+      this.layoutRow,
       this.body,
       h('div', { class: 'cal-nav' }, this.back, this.next)) as HTMLDialogElement;
     this.dialog.addEventListener('click', (e) => { if (e.target === this.dialog) this.dialog.close(); });
@@ -86,7 +91,8 @@ export class CalibrateDialog {
     this.progress.textContent = `Step ${this.step + 1} of ${STEPS.length}: ${STEPS[this.step]}`;
     this.back.disabled = this.step === 0;
     this.next.disabled = this.step === STEPS.length - 1;
-    this.body.replaceChildren(...[() => this.alignment(), () => this.creep(), () => this.check()][this.step]());
+    this.layoutRow.replaceChildren(layoutPicker(() => this.host.book(), (c) => this.change(c), () => this.layoutChanged()));
+    this.body.replaceChildren(...[() => this.size(), () => this.alignment(), () => this.creep(), () => this.check()][this.step]());
     this.body.scrollTop = 0;
   }
 
@@ -105,7 +111,16 @@ export class CalibrateDialog {
     return problem;
   }
 
-  private field(key: Parameters<typeof printField>[2]) {
+  /** A different layout has its own offsets and scale, so what was printed or typed for the last one no longer applies. */
+  private layoutChanged() {
+    this.printed = null;
+    this.printedScale = null;
+    this.read.sizeH = this.read.sizeV = '';
+    for (const w of ['front', 'back'] as const) this.read[w] = { fold: '', top: '', bottom: '' };
+    this.go(this.step);
+  }
+
+  private field(key: PrintFieldKey) {
     return printField(() => this.host.book(), (c) => this.change(c), key);
   }
 
@@ -145,9 +160,15 @@ export class CalibrateDialog {
   }
 
   private downloadAlignment = () => this.button('Download calibration-alignment.pdf', 'calibrate-download-alignment', async () => {
-    const o = this.host.book().print;
+    const o = profileOf(this.host.book().print);
     this.printed = { front_offset_x_mm: o.front_offset_x_mm, front_offset_y_mm: o.front_offset_y_mm, back_offset_x_mm: o.back_offset_x_mm, back_offset_y_mm: o.back_offset_y_mm };
     await this.download('calibration-alignment', async (book, fontBytes) => [await (await import('./print/calibrate')).alignmentFile(book, fontBytes)]);
+  });
+
+  private downloadSize = () => this.button('Download calibration-size.pdf', 'calibrate-download-size', async () => {
+    const o = profileOf(this.host.book().print);
+    this.printedScale = { x: o.scale_x_pct, y: o.scale_y_pct };
+    await this.download('calibration-size', async (book, fontBytes) => [await (await import('./print/calibrate')).sizeFile(book, fontBytes)]);
   });
 
   private downloadCreep = () => this.button('Download the creep test', 'calibrate-download-creep', () => {
@@ -158,23 +179,61 @@ export class CalibrateDialog {
     return this.download('creep-test', async (book, fontBytes) => (await import('./print/calibrate')).creepFiles(book, fontBytes));
   });
 
-  // ---- step 1: alignment ----------------------------------------------------
+  // ---- step 1: size ---------------------------------------------------------
+
+  private size(): HTMLElement[] {
+    const twoUp = this.host.book().print.sheet_layout === 'letter_two_up';
+    const result = h('div', { class: 'cal-result', role: 'status', 'data-key': 'calibrate-size-result' });
+    const redraw = () => {
+      const now = profileOf(this.host.book().print), printed = this.printedScale ?? { x: now.scale_x_pct, y: now.scale_y_pct };
+      const [h_, v] = [num(this.read.sizeH), num(this.read.sizeV)];
+      if (h_ === null && v === null) { result.replaceChildren(h('p', { class: 'hint' }, 'Enter what you measure to see the new scale.')); return; }
+      const next = { x: scaleFromReading(now.scale_x_pct, printed.x, h_), y: scaleFromReading(now.scale_y_pct, printed.y, v) };
+      const use = this.button('Use these values', 'calibrate-use-scale', () => {
+        const problem = this.change((bk) => { const p = profileOf(bk.print); p.scale_x_pct = next.x; p.scale_y_pct = next.y; });
+        this.printedScale = null;
+        this.read.sizeH = this.read.sizeV = '';
+        this.go(0);
+        this.say(problem ?? 'Saved as your printer’s settings. Print the sheet again to check: both lines should now measure 100.0 mm.');
+      });
+      result.replaceChildren(h('ul', { class: 'cal-values' },
+        h('li', {}, `Width scale: ${mm(now.scale_x_pct)} → `, h('strong', {}, `${mm(next.x)} %`)),
+        h('li', {}, `Height scale: ${mm(now.scale_y_pct)} → `, h('strong', {}, `${mm(next.y)} %`))), use);
+    };
+    const r = (key: 'sizeH' | 'sizeV', label: string, help: string) => this.reading(label, help, this.read[key], (t) => { this.read[key] = t; }, redraw);
+    redraw();
+    return [
+      h('p', { class: 'hint' }, `Print settings for ${LAYOUT_NAMES[this.host.book().print.sheet_layout]}: ${PAPER_SETTINGS[this.host.book().print.sheet_layout]}. A printer that enlarges or shrinks the page (borderless modes enlarge it a little) gives lines that are not 100 mm.`),
+      h('ol', { class: 'cal-how' },
+        h('li', {}, `Print the sheet${twoUp ? ' (the same in both halves, labelled Book 1 and Book 2)' : ''}.`),
+        h('li', {}, 'With a ruler, measure the horizontal line between its end ticks, and the vertical line the same way, in mm (it should read 100.0).'),
+        h('li', {}, 'The dots are counted for you: 28 across span 81.0 mm and 44 down span 129.0 mm, centre of the outermost dots to centre of the outermost dots.')),
+      this.downloadSize(),
+      h('h3', {}, 'Lines you measure (mm)'),
+      r('sizeH', 'Horizontal line', 'calibrate-read-size-h'),
+      r('sizeV', 'Vertical line', 'calibrate-read-size-v'),
+      h('h3', {}, 'New scale'),
+      result,
+    ];
+  }
+
+  // ---- step 2: alignment ----------------------------------------------------
 
   private alignment(): HTMLElement[] {
     const result = h('div', { class: 'cal-result', role: 'status', 'data-key': 'calibrate-alignment-result' });
     const side = (which: 'front' | 'back'): SideReadings => ({ fold: num(this.read[which].fold), top: num(this.read[which].top), bottom: num(this.read[which].bottom) });
     const redraw = () => {
-      const book = this.host.book(), printed = this.printed ?? book.print;
+      const book = this.host.book(), printed = this.printed ?? profileOf(book.print);
       const f = side('front'), b = side('back');
       const any = [f, b].some((s) => s.fold !== null || s.top !== null || s.bottom !== null);
       if (!any) { result.replaceChildren(h('p', { class: 'hint' }, 'Enter what you read to see the new offsets.')); return; }
       const next = offsetsFromReadings(printed, f, b);
       const rows = OFFSETS.map((k) => h('li', {}, `${OFFSET_NAMES[k]}: ${mm(printed[k])} → `, h('strong', {}, `${mm(next[k])} mm`)));
       const use = this.button('Use these values', 'calibrate-use-offsets', () => {
-        const problem = this.change((bk) => Object.assign(bk.print, next));
+        const problem = this.change((bk) => Object.assign(profileOf(bk.print), next));
         this.printed = null;
         for (const w of ['front', 'back'] as const) this.read[w] = { fold: '', top: '', bottom: '' };
-        this.go(0);
+        this.go(1);
         this.say(problem ?? 'Saved as your printer’s settings. Print the sheet again to check: the front and back crosshairs should coincide when held to a light, and the readings should now be 0 at the fold and 3.85 at the top and bottom.');
       });
       result.replaceChildren(h('ul', { class: 'cal-values' }, ...rows), use);
@@ -202,7 +261,7 @@ export class CalibrateDialog {
     ];
   }
 
-  // ---- step 2: creep and cover ----------------------------------------------
+  // ---- step 3: creep and cover ----------------------------------------------
 
   /** A number box for one of the values the test was printed with. */
   private printedField(label: string, help: string, key: keyof TestPrinted, result: () => void): HTMLElement {
@@ -218,7 +277,7 @@ export class CalibrateDialog {
   }
 
   /** One of the settings the test will print with. Until the test is downloaded, the printed values follow it. */
-  private testField(key: Parameters<typeof printField>[2]) {
+  private testField(key: PrintFieldKey) {
     return printField(() => this.host.book(), (c) => {
       this.change(c);
       if (!this.testDownloaded) { this.testPrinted = null; this.showPrinted(); }
@@ -263,7 +322,7 @@ export class CalibrateDialog {
         this.read.cover = this.read.outermost = this.read.innermost = '';
         this.testPrinted = null;
         this.testDownloaded = false;
-        this.go(1);
+        this.go(2);
         this.say(problem ?? 'Saved as your printer’s settings. Print the creep test again to check.');
       });
       result.replaceChildren(
@@ -282,7 +341,7 @@ export class CalibrateDialog {
       h('p', { class: 'hint' }, `The test prints with these values (your biggest signature has ${n} sheet${n > 1 ? 's' : ''}). Set creep per sheet before you print, for example the paper’s thickness.`),
       this.testField('creep_per_sheet_mm'), this.testField('fore_edge_shift_mm'), this.testField('cover_fore_edge_shift_mm'), this.testField('target_fore_edge_margin_mm'),
       h('ol', { class: 'cal-how' },
-        h('li', {}, 'Print calibration-cover.pdf on your cover stock, single-sided.'),
+        h('li', {}, 'Print calibration-cover.pdf on your cover stock: page 1 (the outside), put the sheet back the same way, then page 2 (the inside).'),
         h('li', {}, `Print creep-test.pdf on your real paper: pages 1 to ${n}, put the stack back in the tray the same way, then pages ${n + 1} to ${2 * n}.`),
         h('li', {}, 'Hold a sheet to a light: the boxes should line up through the paper. Fold, bind and trim as you do a book.'),
         h('li', {}, `Read the fore-edge margin on the cover’s right-hand page, and on the right-hand page of the front of sheet 1 and of sheet ${n}: the number where the paper ends.`)),
@@ -302,7 +361,7 @@ export class CalibrateDialog {
     ];
   }
 
-  // ---- step 3: check, and tones ---------------------------------------------
+  // ---- step 4: check, and tones ---------------------------------------------
 
   private check(): HTMLElement[] {
     const result = h('ul', { class: 'cal-values', 'data-key': 'calibrate-check-result', role: 'status' });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { emptyBook, readBook } from '../src/book/book';
-import { DEFAULT_PRINT } from '../src/book/impose';
+import { DEFAULT_PRINT, clonePrint, type LayoutProfile, type PrintSettings } from '../src/book/impose';
 import { PRINTER_KEY, PRINTER_KEYS, differing, loadPrinter, printerOf, savePrinter, startingPrint, type PrinterStorage } from '../src/printer';
 
 /** A storage that is a plain object, or one that refuses. */
@@ -10,12 +10,14 @@ const memory = (initial: Record<string, string> = {}): PrinterStorage & { data: 
 };
 const refusing = (message: string): PrinterStorage => ({ getItem: () => { throw new Error(message); }, setItem: () => { throw new Error(message); } });
 
-const calibrated = { ...DEFAULT_PRINT, front_offset_x_mm: -1.5, front_offset_y_mm: 0.3, back_offset_x_mm: 1.4, back_offset_y_mm: -0.2, creep_per_sheet_mm: 0.11, shade_light_pct: 9 };
+const calibrated = setPrintCopy({ ...clonePrint(DEFAULT_PRINT), creep_per_sheet_mm: 0.11, shade_light_pct: 9 }, { front_offset_x_mm: -1.5, front_offset_y_mm: 0.3, back_offset_x_mm: 1.4, back_offset_y_mm: -0.2 });
+function setPrintCopy(p: PrintSettings, change: Partial<LayoutProfile>): PrintSettings { Object.assign(p.layouts.half_letter, change); return p; }
 
 describe('the printer profile', () => {
-  it('holds the offsets of both sides, the creep, the shifts, the target and the tones, but not the signatures', () => {
-    expect([...PRINTER_KEYS].sort()).toEqual(['back_offset_x_mm', 'back_offset_y_mm', 'cover_fore_edge_shift_mm', 'creep_per_sheet_mm', 'fore_edge_shift_mm', 'front_offset_x_mm', 'front_offset_y_mm', 'gray_text_pct', 'shade_dark_pct', 'shade_light_pct', 'shade_medium_pct', 'target_fore_edge_margin_mm']);
+  it('holds the creep, the shifts, the target and the tones, and each layout’s offsets and scale, but not the signatures', () => {
+    expect([...PRINTER_KEYS].sort()).toEqual(['cover_fore_edge_shift_mm', 'creep_per_sheet_mm', 'fore_edge_shift_mm', 'gray_text_pct', 'shade_dark_pct', 'shade_light_pct', 'shade_medium_pct', 'target_fore_edge_margin_mm']);
     expect(printerOf({ ...calibrated, signatures: 3 })).not.toHaveProperty('signatures');
+    expect(Object.keys(printerOf(calibrated).layouts)).toEqual(['half_letter', 'letter_two_up']);
   });
 
   it('is saved and loaded back', () => {
@@ -42,15 +44,16 @@ describe('the printer profile', () => {
   it('is not shared with the book: changing the book afterwards leaves the saved settings alone', () => {
     const saved = printerOf(calibrated);
     const book = emptyBook(8, startingPrint(saved));
-    book.print.front_offset_x_mm = 9;
-    expect(saved.front_offset_x_mm).toBe(-1.5);
+    book.print.layouts.half_letter.front_offset_x_mm = 9;
+    expect(saved.layouts.half_letter.front_offset_x_mm).toBe(-1.5);
   });
 
   it('says which of the book’s settings differ from the saved ones, and none when they agree', () => {
     const saved = printerOf(calibrated);
     expect(differing(calibrated, saved)).toEqual([]);
     expect(differing({ ...calibrated, signatures: 5 }, saved)).toEqual([]); // not a printer setting
-    expect(differing({ ...calibrated, front_offset_x_mm: 0, shade_light_pct: 6.3 }, saved)).toEqual(['front_offset_x_mm', 'shade_light_pct']);
+    const other = { ...calibrated, shade_light_pct: 6.3, layouts: { ...calibrated.layouts, half_letter: { ...calibrated.layouts.half_letter, front_offset_x_mm: 0 } } };
+    expect(differing(other, saved).map((d) => d.name)).toEqual(['light', 'half letter front offset x']);
     expect(differing(DEFAULT_PRINT, saved).length).toBeGreaterThan(0);
   });
 
@@ -71,40 +74,41 @@ describe('the printer profile', () => {
   });
 
   it('refuses stored settings that break the format’s limits, naming each, and does not use them', () => {
-    const bad = memory({ [PRINTER_KEY]: JSON.stringify({ ...printerOf(calibrated), front_offset_x_mm: 11, gray_text_pct: 'dark' }) });
+    const bad = memory({ [PRINTER_KEY]: JSON.stringify({ ...printerOf(calibrated), layouts: { ...calibrated.layouts, letter_two_up: { ...calibrated.layouts.letter_two_up, scale_x_pct: 110 } }, gray_text_pct: 'dark' }) });
     const load = loadPrinter(bad);
     expect(load.status).toBe('bad');
     if (load.status === 'bad') {
       const text = load.problem.details;
-      expect(text).toContain('front_offset_x_mm');
+      expect(text).toContain('layouts.letter_two_up.scale_x_pct');
       expect(text).toContain('gray_text_pct');
     }
-    const old = memory({ [PRINTER_KEY]: JSON.stringify({ creep_per_sheet_mm: 0.14 }) }); // saved before front offsets existed
+    const old = memory({ [PRINTER_KEY]: JSON.stringify({ creep_per_sheet_mm: 0.14 }) }); // saved before layouts existed
     expect(loadPrinter(old).status).toBe('bad');
     expect(loadPrinter(memory({ [PRINTER_KEY]: '{not json' })).status).toBe('bad');
     expect(loadPrinter(memory({ [PRINTER_KEY]: '[]' })).status).toBe('bad');
   });
 });
 
-describe('the front offsets in the book file', () => {
-  it('are required and limited to -10..10, like the back offsets, with the path', () => {
-    for (const key of ['front_offset_x_mm', 'front_offset_y_mm'] as const) {
-      for (const bad of [-10.1, 10.1, 'x', null]) {
+describe('the layouts in the book file', () => {
+  it('require every offset and scale of each layout, within their limits, with the path', () => {
+    const limits = { front_offset_x_mm: [-10.1, 10.1], front_offset_y_mm: [-10.1, 10.1], back_offset_x_mm: [-10.1, 10.1], back_offset_y_mm: [-10.1, 10.1], scale_x_pct: [94.9, 105.1], scale_y_pct: [94.9, 105.1] } as const;
+    for (const layout of ['half_letter', 'letter_two_up'] as const) for (const key of Object.keys(limits) as (keyof typeof limits)[]) {
+      for (const bad of [...limits[key], 'x', null]) {
         const b = JSON.parse(JSON.stringify(emptyBook(8)));
-        b.print[key] = bad;
+        b.print.layouts[layout][key] = bad;
         const r = readBook(b);
-        expect(r.ok, `${key} ${bad}`).toBe(false);
-        if (!r.ok) expect(r.issues.map((i) => i.path)).toEqual([`print.${key}`]);
+        expect(r.ok, `${layout} ${key} ${bad}`).toBe(false);
+        if (!r.ok) expect(r.issues.map((i) => i.path)).toEqual([`print.layouts.${layout}.${key}`]);
       }
       const missing = JSON.parse(JSON.stringify(emptyBook(8)));
-      delete missing.print[key];
+      delete missing.print.layouts[layout][key];
       expect(readBook(missing).ok).toBe(false);
     }
   });
 
   it('round-trip', () => {
     const b = emptyBook(8);
-    Object.assign(b.print, { front_offset_x_mm: -1.5, front_offset_y_mm: 0.25 });
+    Object.assign(b.print.layouts.half_letter, { front_offset_x_mm: -1.5, front_offset_y_mm: 0.25 });
     const r = readBook(JSON.parse(JSON.stringify(b)));
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.book.print).toEqual(b.print);
