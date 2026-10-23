@@ -204,7 +204,7 @@ function pageRulers(c: Canvas, target: number, isRight: boolean, creep: number, 
   if (foreEdge) marginRuler(c, o, isRight ? 'right' : 'left', target);
 }
 
-// ---- the alignment sheet -------------------------------------------------------------------------------------
+// ---- the calibration sheet's samples ----------------------------------------------------------------
 
 function frontLeft(p: PrintSettings): Page {
   return page('left', [

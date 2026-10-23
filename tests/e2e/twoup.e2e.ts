@@ -183,6 +183,7 @@ for (const device of ['phone', 'tablet', 'desktop'] as const) {
       expect(await page.locator('dialog.flip .flip-bar .where').innerText()).toBe('Inside front cover and page 1');
       await hit(app, 'dialog.flip [data-help="flip-prev"]');
       await hit(app, 'dialog.flip [data-help="flip-stop"]');
+      await page.waitForSelector('dialog.flip', { state: 'detached' });
       expect(await where()).toBe('Outside front cover'); // it stops at the opening it was on
       expect(await missingHelp(app)).toEqual([]);
       expect(app.errors).toEqual([]);
