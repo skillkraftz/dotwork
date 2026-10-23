@@ -112,14 +112,14 @@ for (const device of ['phone', 'tablet', 'desktop'] as const) {
       const pdf = await PDFDocument.load(sheet.bytes);
       expect(pdf.getPageCount()).toBe(2); // the front and the back
       expect(pdf.getPage(0).getHeight()).toBeCloseTo(11 * 72, 1); // a letter sheet, two halves
-      await type(app, 'dialog.calibrate [data-key="calibrate-read-line-x"]', '188');
-      await type(app, 'dialog.calibrate [data-key="calibrate-read-line-y"]', '262');
+      await type(app, 'dialog.calibrate [data-key="calibrate-read-line-x"]', '98');
+      await type(app, 'dialog.calibrate [data-key="calibrate-read-line-y"]', '101');
       const result = await page.locator('[data-key="calibrate-sheet-result"]').innerText();
-      expect(result).toContain('Scale along the 8.5 in edge: 100 → 101.06 %');
-      expect(result).toContain('Scale along the 11 in edge: 100 → 99.24 %');
+      expect(result).toContain('Scale along the 8.5 in edge: 100 → 102.04 %');
+      expect(result).toContain('Scale along the 11 in edge: 100 → 99.01 %');
       await hit(app, 'dialog.calibrate [data-key="calibrate-use-sheet"]');
       const saved = await profile(app);
-      expect(saved.layouts.letter_two_up).toMatchObject({ scale_x_pct: 101.06, scale_y_pct: 99.24 });
+      expect(saved.layouts.letter_two_up).toMatchObject({ scale_x_pct: 102.04, scale_y_pct: 99.01 });
       expect(saved.layouts.half_letter).toMatchObject({ scale_x_pct: 100, scale_y_pct: 100 });
       expect(saved.sheet_layout).toBe('letter_two_up');
       expect((await bookPrint(app)) ?? { signatures: 1 }).toEqual({ signatures: 1 }); // never the printer's settings

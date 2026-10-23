@@ -152,14 +152,14 @@ cover. The outside front and outside back covers are two more pages to design.
   measure true), and four **tones**: how dark the printed PDFs draw the light, medium and dark shade and the gray text, as a percent of black (the editor and PNGs
   keep their fixed grays). Settings that would push content past the fold or off the paper are refused with the reason.
 - **Calibrate your printer…** (PDF tab) opens a three-step wizard for the sheet layout chosen in the PDF tab (it names it, with a link to change it), one step on screen at a time, with Back and Next:
-  1. **Sheet** downloads `calibration-sheet.pdf`, one double-sided sheet per layout (two-up: both halves). Side 1 has the gray ramp, sample
-     text, dot, line and hairline samples, four crosshairs (one near each edge of the content area) and the fold mark. Side 2 is all
-     measuring: print the sheet, hold it to a light, and read a mm scale where each crosshair shows through (x at the top and bottom 8.5 in edge, y
-     at the left and right edge), fold it and read where the crease crosses the fold scale and the margins on the rulers at the
-     top and bottom edge, and measure two long lines with a ruler (along the 8.5 in edge, and the 5.5 in edge or the full 11 in edge of two-up).
+  1. **Sheet** downloads `calibration-sheet.pdf`, one double-sided sheet per layout on the whole paper (two-up: the whole letter sheet). Five marks: top,
+     bottom, left and right 8 mm in from the edges, and the centre. Side 1 has a fine + at each, and the gray ramp, sample text, dot, line and hairline
+     samples away from them. Side 2 is all measuring: print the sheet, hold it to a light, and read the see-through scale at each edge mark where side 1's
+     + shows through (x at the top and bottom, y at the left and right), read the number where the paper ends on each edge ruler (8.0 is right), and
+     measure two 100 mm lines with a ruler (parallel to the 8.5 in edge, and to the 5.5 in edge or the 11 in edge of two-up).
      Print it twice: if the readings differ much between the two prints, the twist comes from the paper feed, not something a setting
-     can fix. The wizard turns the readings into the back's offsets and **rotation** (about the sheet's centre) and the front's offsets, and
-     the long lines into the scale of each paper edge. It says how to print: page scaling None / Actual size, paper size *Statement
+     can fix. The wizard turns the readings into the back's offsets and **rotation** (about the sheet's centre) and the front's offsets (against the paper, from the edge
+     distances with the see-through readings), and the 100 mm lines into the scale of each paper edge. It says how to print: page scaling None / Actual size, paper size *Statement
      (Borderless)* for half letter or *Letter* (not borderless) for two-up.
   2. **Creep and cover** downloads a zip with `creep-test.pdf` (every sheet of your biggest signature, both sides, in
      manual-duplex order) and `calibration-cover.pdf` (the outside, then the inside), both with margin rulers on every page. After binding and

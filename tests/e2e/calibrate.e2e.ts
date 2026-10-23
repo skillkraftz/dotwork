@@ -90,7 +90,7 @@ for (const device of ['phone', 'tablet', 'desktop'] as const) {
       expect(await page.locator('dialog.calibrate').innerText()).toMatch(/best quality/);
       expect(await page.locator('dialog.calibrate').innerText()).toMatch(/paper feed/);
       // The inputs are named by the paper's edges, the same words as the sheet.
-      for (const label of ['x, top 8.5 in edge', 'x, bottom 8.5 in edge', 'y, left 5.5 in edge', 'y, right 5.5 in edge', 'crease', 'margin, top 8.5 in edge', 'margin, bottom 8.5 in edge', '8.5 in edge: should measure 190.0 mm', '5.5 in edge: should measure 120.0 mm']) {
+      for (const label of ['see-through top x', 'see-through bottom x', 'see-through left y', 'see-through right y', 'edge distance top', 'edge distance bottom', 'edge distance left', 'edge distance right', 'parallel to the 8.5 in edge: should measure 100.0 mm', 'parallel to the 5.5 in edge: should measure 100.0 mm']) {
         expect(await page.locator(`dialog.calibrate input[aria-label="${label}"]`).count(), label).toBe(1);
       }
       expect(await page.locator('dialog.calibrate').innerText()).not.toMatch(/across|\bdown\b/i);
@@ -103,33 +103,34 @@ for (const device of ['phone', 'tablet', 'desktop'] as const) {
       expect(sheet.name).toBe('calibration-sheet.pdf');
       expect((await PDFDocument.load(sheet.bytes)).getPageCount()).toBe(2);
 
-      // The see-through readings, the crease, the margins and the long lines of a printer that is off.
+      // The see-through readings, the edge distances and the 100 mm lines of a printer that is off.
       await set(app, 'calibrate', 'calibrate-read-top-x', '-0.4');
       await set(app, 'calibrate', 'calibrate-read-bottom-x', '-0.4');
       await set(app, 'calibrate', 'calibrate-read-left-y', '0.3');
       await set(app, 'calibrate', 'calibrate-read-right-y', '0.3');
-      await set(app, 'calibrate', 'calibrate-read-crease', '-1.5');
-      await set(app, 'calibrate', 'calibrate-read-margin-top', '4.35');
-      await set(app, 'calibrate', 'calibrate-read-margin-bottom', '3.35');
-      await set(app, 'calibrate', 'calibrate-read-line-x', '189');
-      await set(app, 'calibrate', 'calibrate-read-line-y', '119.5');
+      await set(app, 'calibrate', 'calibrate-read-edge-left', '9.5');
+      await set(app, 'calibrate', 'calibrate-read-edge-right', '6.5');
+      await set(app, 'calibrate', 'calibrate-read-edge-top', '8.5');
+      await set(app, 'calibrate', 'calibrate-read-edge-bottom', '7.5');
+      await set(app, 'calibrate', 'calibrate-read-line-x', '99.5');
+      await set(app, 'calibrate', 'calibrate-read-line-y', '99.6');
       const result = await page.locator('[data-key="calibrate-sheet-result"]').innerText();
       expect(result).toContain('Front offset x: 0 → 1.1 mm'); // -0.4 against the back + 1.5: the front is what is left
       expect(result).toContain('Front offset y: 0 → 0.2 mm');
-      expect(result).toContain('Back offset x: 0 → -1.5 mm'); // against the paper: the crease
-      expect(result).toContain('Back offset y: 0 → 0.5 mm'); // (4.35 - 3.35) / 2 the other way up
+      expect(result).toContain('Back offset x: 0 → -1.5 mm'); // against the paper: (9.5 - 6.5) / 2 the other way
+      expect(result).toContain('Back offset y: 0 → 0.5 mm'); // (7.5 - 8.5) / 2 the other way up
       expect(result).toContain('Back rotation: 0 → 0 °');
-      expect(result).toContain('Scale along the 8.5 in edge: 100 → 100.53 %');
-      expect(result).toContain('Scale along the 5.5 in edge: 100 → 100.42 %');
+      expect(result).toContain('Scale along the 8.5 in edge: 100 → 100.5 %');
+      expect(result).toContain('Scale along the 5.5 in edge: 100 → 100.4 %');
       await page.locator('[data-key="calibrate-use-sheet"]').scrollIntoViewIfNeeded();
       await shot(app, `${device}-calibrate-sheet-result`);
       await hit(app, 'dialog.calibrate [data-key="calibrate-use-sheet"]');
-      expect((await profile(app)).layouts.half_letter).toMatchObject({ front_offset_x_mm: 1.1, front_offset_y_mm: 0.2, back_offset_x_mm: -1.5, back_offset_y_mm: 0.5, back_rotation_deg: 0, scale_x_pct: 100.53, scale_y_pct: 100.42 });
+      expect((await profile(app)).layouts.half_letter).toMatchObject({ front_offset_x_mm: 1.1, front_offset_y_mm: 0.2, back_offset_x_mm: -1.5, back_offset_y_mm: 0.5, back_rotation_deg: 0, scale_x_pct: 100.5, scale_y_pct: 100.4 });
       expect((await profile(app)).layouts.letter_two_up).toMatchObject(NONE); // the other layout is left alone
       // The book holds the design only: nothing of this reached it.
       expect(await bookDraft(app)).toBe(BOOK);
       expect(await page.locator('dialog.calibrate .lib-msg').innerText()).toMatch(/Saved as your printer’s settings/);
-      expect(await page.locator('[data-key="calibrate-read-crease"]').inputValue()).toBe(''); // the readings are used up
+      expect(await page.locator('[data-key="calibrate-read-edge-left"]').inputValue()).toBe(''); // the readings are used up
       await hit(app, 'dialog.calibrate [data-key="calibrate-next"]');
 
       // ---- step 2: creep and cover
@@ -208,7 +209,7 @@ for (const device of ['phone', 'tablet', 'desktop'] as const) {
       await hit(app, 'dialog.calibrate header button');
       await page.waitForSelector('dialog.export[open]');
       expect(await page.locator('dialog.export [data-tab="pdf"]').getAttribute('aria-selected')).toBe('true');
-      for (const [key, value] of [['book-front-offset-x', '1.1'], ['book-front-offset-y', '0.2'], ['book-offset-x', '-1.5'], ['book-offset-y', '0.5'], ['book-back-rotation', '0'], ['book-scale-x', '100.53'], ['book-scale-y', '100.42'], ['book-creep', '0.318'], ['book-fore-edge-shift', '2'], ['book-cover-shift', '2.2'], ['book-tone-light', '8']]) {
+      for (const [key, value] of [['book-front-offset-x', '1.1'], ['book-front-offset-y', '0.2'], ['book-offset-x', '-1.5'], ['book-offset-y', '0.5'], ['book-back-rotation', '0'], ['book-scale-x', '100.5'], ['book-scale-y', '100.4'], ['book-creep', '0.318'], ['book-fore-edge-shift', '2'], ['book-cover-shift', '2.2'], ['book-tone-light', '8']]) {
         expect(await page.locator(`dialog.export [data-key="${key}"]`).inputValue(), key).toBe(value);
       }
       expect(await bookDraft(app)).toBe(BOOK);
@@ -223,10 +224,10 @@ for (const device of ['phone', 'tablet', 'desktop'] as const) {
       await set(app, 'calibrate', 'calibrate-read-top-x', '0.3');
       await set(app, 'calibrate', 'calibrate-read-bottom-x', '-0.3');
       const result = await page.locator('[data-key="calibrate-sheet-result"]').innerText();
-      expect(result).toContain('Back rotation: 0 → -0.302 °'); // 0.6 mm over 114 mm: counter-clockwise, so turn it back
+      expect(result).toContain('Back rotation: 0 → -0.278 °'); // 0.6 mm over 123.7 mm (H - 2m): counter-clockwise, so turn it back
       expect(result).toContain('Back offset x: 0 → 0 mm');
       await hit(app, 'dialog.calibrate [data-key="calibrate-use-sheet"]');
-      expect((await profile(app)).layouts.half_letter.back_rotation_deg).toBe(-0.302);
+      expect((await profile(app)).layouts.half_letter.back_rotation_deg).toBe(-0.278);
       expect((await profile(app)).layouts.letter_two_up.back_rotation_deg).toBe(0);
       await page.locator('[data-key="calibrate-read-top-x"]').scrollIntoViewIfNeeded();
       await shot(app, `${device}-calibrate-rotation`);
@@ -243,10 +244,9 @@ for (const device of ['phone', 'tablet', 'desktop'] as const) {
       expect(line).toContain('Letter (not borderless)');
       expect(await page.locator('dialog.calibrate [data-key="book-sheet-layout"]').count()).toBe(0);
       // The inputs name the edges of this layout: the 11 in edge, not the 5.5 in edge.
-      expect(await page.locator('dialog.calibrate input[aria-label="y, left 11 in edge"]').count()).toBe(1);
-      expect(await page.locator('dialog.calibrate input[aria-label="260.0"]').count()).toBe(0);
-      expect(await page.locator('dialog.calibrate input[aria-label="11 in edge: should measure 260.0 mm"]').count()).toBe(1);
-      expect(await page.locator('dialog.calibrate').innerText()).toMatch(/read the top half \(Book 1\)/);
+      expect(await page.locator('dialog.calibrate input[aria-label="see-through left y"]').count()).toBe(1);
+      expect(await page.locator('dialog.calibrate input[aria-label="parallel to the 11 in edge: should measure 100.0 mm"]').count()).toBe(1);
+      expect(await page.locator('dialog.calibrate').innerText()).toMatch(/whole letter sheet/);
       expect(await missingHelp(app)).toEqual([]);
       await shot(app, `${device}-calibrate-sheet-two-up`);
       const two = await download(app, 'dialog.calibrate [data-key="calibrate-download-sheet"]');

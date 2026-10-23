@@ -227,12 +227,10 @@ describe('two-up files', () => {
     }
   });
 
-  it('prints the same labels on the calibration sheet, the creep test and the cover sheet', async () => {
+  it('labels the creep test and the cover sheet by book; the calibration sheet uses the whole paper, without labels', async () => {
     const b = book(8, 'A', 'letter_two_up', 'Cal');
     const sheet = await readPdf((await sheetFile(b, TWO, fonts)).bytes);
-    expect(sheet[0].strings).toContain('Book 1 | Cal | calibration | front');
-    expect(sheet[0].strings).toContain('Book 2 | Cal | calibration | front');
-    expect(sheet[1].strings).toContain('Book 2 | Cal | calibration | back');
+    for (const page of sheet) expect(page.strings.filter((s) => s.startsWith('Book '))).toEqual([]);
     const made = await creepFiles(b, TWO, fonts);
     const test = await readPdf(made.find((f) => f.name === CREEP_FILE)!.bytes);
     expect(test.map((p) => p.strings.filter((s) => s.startsWith('Book ')))).toEqual([

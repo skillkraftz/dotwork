@@ -32,7 +32,7 @@ const RESULTS: [keyof LayoutProfile, string, string][] = [
 
 /** The sheet step's readings, as typed. */
 type SheetFields = { [K in keyof SheetReadings]: string };
-const EMPTY_SHEET: SheetFields = { topX: '', bottomX: '', leftY: '', rightY: '', crease: '', topMargin: '', bottomMargin: '', longX: '', longY: '' };
+const EMPTY_SHEET: SheetFields = { topX: '', bottomX: '', leftY: '', rightY: '', edgeTop: '', edgeBottom: '', edgeLeft: '', edgeRight: '', longX: '', longY: '' };
 
 /** The creep, shifts and target a creep test was printed with, as typed. */
 type TestPrinted = { creep: string; shift: string; coverShift: string; target: string };
@@ -208,7 +208,7 @@ export class CalibrateDialog {
         const problem = this.change((p) => { const l = profileOf(p); for (const [k] of RESULTS) if (next[k] !== printed[k]) l[k] = next[k]; });
         this.resetSheet();
         this.go(0);
-        this.say(problem ?? 'Saved as your printer’s settings. Print the sheet again to check: every reading should now be 0, the margins 3.85, and the long lines exactly as long as they should be.');
+        this.say(problem ?? 'Saved as your printer’s settings. Print the sheet again to check: every see-through reading should now be 0, every edge distance 8.0, and the 100 mm lines exactly 100.0 mm.');
       });
       result.replaceChildren(h('ul', { class: 'cal-values' }, ...rows), use);
     };
@@ -217,18 +217,19 @@ export class CalibrateDialog {
     return [
       h('p', { class: 'hint' }, QUALITY_TIP),
       h('ol', { class: 'cal-how' },
-        h('li', {}, `Print calibration-sheet.pdf double-sided: page 1, put the sheet back in the tray as for print-second, then page 2. (A duplex printer can print both.)${twoUp ? ' It is the same in both halves; read the top half (Book 1).' : ''}`),
-        h('li', {}, `Hold the sheet to a light. On side 2, read each scale where side 1’s crosshair shows through: x at the top and bottom ${EDGE_NAMES[layout].x} edge, y at the left and right ${EDGE_NAMES[layout].y} edge. + is right and up, as seen on side 2.`),
-        h('li', {}, 'Fold the sheet in half edge to edge, crease it hard, open it. Read where the crease crosses its scale, and the margin where the paper ends on the rulers at the top and bottom edge (3.85 is right).'),
-        h('li', {}, 'Measure the two long lines with a ruler, from tick to tick.'),
+        h('li', {}, `Print calibration-sheet.pdf double-sided: page 1, put the sheet back in the tray as for print-second, then page 2. (A duplex printer can print both.)${twoUp ? ' It uses the whole letter sheet.' : ''}`),
+        h('li', {}, `Hold the sheet to a light. On side 2, read each see-through scale where side 1’s + shows through: x at the top and bottom, y at the left and right. + is right and up, as seen on side 2. The + in the middle is a quick look-through check: it should sit on side 1’s.`),
+        h('li', {}, 'On each edge ruler, read the number where the paper ends. It should be 8.0.'),
+        h('li', {}, `Measure the two 100 mm lines with a ruler, from tick to tick: one parallel to the ${EDGE_NAMES[layout].x} edge, one to the ${EDGE_NAMES[layout].y} edge.`),
         h('li', {}, 'Print the sheet twice. If the readings differ much between the two prints, the twist comes from the paper feed, not something a setting can fix.')),
       this.downloadSheet(),
-      h('h3', {}, 'Crosshairs seen through (mm)'),
+      h('h3', {}, 'See-through (mm)'),
       r('topX', cap.top, 'calibrate-read-top-x'), r('bottomX', cap.bottom, 'calibrate-read-bottom-x'),
       r('leftY', cap.left, 'calibrate-read-left-y'), r('rightY', cap.right, 'calibrate-read-right-y'),
-      h('h3', {}, 'Against the paper (mm)'),
-      r('crease', cap.crease, 'calibrate-read-crease'), r('topMargin', cap.topMargin, 'calibrate-read-margin-top'), r('bottomMargin', cap.bottomMargin, 'calibrate-read-margin-bottom'),
-      h('h3', {}, 'Long lines, measured (mm)'),
+      h('h3', {}, `Edge distance, where the paper ends (${cap.edge.replace('edge should be at ', '')} is right) (mm)`),
+      r('edgeTop', cap.edgeTop, 'calibrate-read-edge-top'), r('edgeBottom', cap.edgeBottom, 'calibrate-read-edge-bottom'),
+      r('edgeLeft', cap.edgeLeft, 'calibrate-read-edge-left'), r('edgeRight', cap.edgeRight, 'calibrate-read-edge-right'),
+      h('h3', {}, '100 mm lines, measured (mm)'),
       r('longX', cap.longX, 'calibrate-read-line-x'), r('longY', cap.longY, 'calibrate-read-line-y'),
       h('h3', {}, 'New settings'),
       result,
