@@ -5,7 +5,7 @@ import { expandFor, usesDates } from '../format/tokens';
 import { withSide, type SpreadSide } from '../format/spread';
 import { headerOf, hitsCorner } from '../format/bounds';
 import type { ValidationIssue } from '../format/validate';
-import { DEFAULT_PRINT, SHEET_LAYOUTS, clonePrint, type LayoutProfile, type PrintSettings } from './impose';
+import type { LayoutProfile } from './impose';
 import { readRecipe, type Recipe } from './sections';
 
 /** A book: a page count, a design for every page you have filled, and the four cover pages. See docs/book-format.md. */
@@ -16,7 +16,8 @@ export interface Book {
   /** Interior pages; a multiple of 4. */
   page_count: number;
   page_numbers: boolean;
-  print: PrintSettings;
+  /** The book file holds the design only: the one thing about printing that belongs to the book is how many signatures it is split into. Everything else is the printer profile (printer.ts). */
+  print: { signatures: number };
   /** Index 0 is page 1. null leaves the page blank. */
   pages: (Page | null)[];
   /** Index 0 is page 1: the date its tokens are filled from, as 'YYYY-MM-DD', or null. Missing means no page has a date. */
@@ -27,7 +28,7 @@ export interface Book {
   recipe?: Recipe;
 }
 
-/** What a book file may hold for each print setting: the file format's limits, which the settings fields keep to. */
+/** What the printer profile may hold for each print setting (and the signatures a book may have): the settings fields keep to these. */
 export const PRINT_LIMITS = {
   creep_per_sheet_mm: { min: 0, max: 1 },
   fore_edge_shift_mm: { min: -10, max: 10 },
@@ -48,6 +49,7 @@ export const LAYOUT_LIMITS = {
   back_offset_y_mm: { min: -10, max: 10 },
   scale_x_pct: { min: 95, max: 105 },
   scale_y_pct: { min: 95, max: 105 },
+  back_rotation_deg: { min: -1.5, max: 1.5 },
 } as const satisfies Record<keyof LayoutProfile, { min: number; max: number }>;
 
 export const DEFAULT_PAGE_COUNT = 52;
@@ -57,8 +59,8 @@ export const MAX_PAGES = 400;
 /** The nearest multiple of 4 that holds `n` pages, within the limits. */
 export const roundPageCount = (n: number) => Math.min(MAX_PAGES, Math.max(MIN_PAGES, Math.ceil((Number.isFinite(n) ? n : DEFAULT_PAGE_COUNT) / 4) * 4));
 
-/** A blank book. New books start from the printer's saved settings when given them (see printer.ts), else the defaults. */
-export function emptyBook(pageCount = DEFAULT_PAGE_COUNT, print: PrintSettings = DEFAULT_PRINT): Book {
+/** A blank book. */
+export function emptyBook(pageCount = DEFAULT_PAGE_COUNT): Book {
   const count = roundPageCount(pageCount);
   return {
     format: 'dotwork-book',
@@ -66,7 +68,7 @@ export function emptyBook(pageCount = DEFAULT_PAGE_COUNT, print: PrintSettings =
     name: 'Untitled book',
     page_count: count,
     page_numbers: true,
-    print: clonePrint(print),
+    print: { signatures: 1 },
     pages: Array.from({ length: count }, () => null),
     cover: { front: null, back: null },
   };
@@ -210,21 +212,9 @@ export function readBook(input: unknown): ReadBookResult {
   if (!countOk) fail('page-count', 'page_count', `"page_count" must be a multiple of 4 from ${MIN_PAGES} to ${MAX_PAGES}, got ${JSON.stringify(count)}.`);
   if (typeof input.page_numbers !== 'boolean') fail('page-numbers', 'page_numbers', '"page_numbers" is required and must be true or false.');
 
-  const print = isObject(input.print) ? input.print : undefined;
-  if (!print) fail('print', 'print', '"print" is required and must be an object.');
-  else {
-    for (const key of Object.keys(PRINT_LIMITS) as (keyof typeof PRINT_LIMITS)[]) {
-      const { min, max } = PRINT_LIMITS[key], v = print[key];
-      const whole = key === 'signatures';
-      if (typeof v !== 'number' || !Number.isFinite(v) || v < min || v > max || (whole && !Number.isInteger(v))) {
-        fail('print-setting', `print.${key}`, `"${key}" must be ${whole ? 'a whole number' : 'a number'} from ${min} to ${max}, got ${JSON.stringify(v)}.`);
-      }
-    }
-    if (!SHEET_LAYOUTS.includes(print.sheet_layout as never)) fail('print-setting', 'print.sheet_layout', `"sheet_layout" must be ${SHEET_LAYOUTS.map((l) => `"${l}"`).join(' or ')}, got ${JSON.stringify(print.sheet_layout)}.`);
-    const layouts = isObject(print.layouts) ? print.layouts : undefined;
-    if (!layouts) fail('print-setting', 'print.layouts', '"layouts" is required: an object with the offsets and scale of "half_letter" and "letter_two_up".');
-    else for (const layout of SHEET_LAYOUTS) issues.push(...layoutIssues(layouts[layout], `print.layouts.${layout}`));
-  }
+  // Only the signatures count, and only when they make sense. Whatever else an older version saved under "print" (printer settings, in any shape) is ignored, so every old book opens.
+  const saved = isObject(input.print) ? input.print.signatures : undefined;
+  const signatures = typeof saved === 'number' && Number.isInteger(saved) && saved >= PRINT_LIMITS.signatures.min && saved <= PRINT_LIMITS.signatures.max ? saved : 1;
 
   let converted = false;
   // The inside covers print no page number, so the page-number corner is not reserved on them.
@@ -274,7 +264,7 @@ export function readBook(input: unknown): ReadBookResult {
   return {
     ok: true,
     converted,
-    book: { format: 'dotwork-book', version: 1, name: input.name as string, page_count: count as number, page_numbers: input.page_numbers as boolean, print: print as unknown as PrintSettings, pages, ...(dates ? { dates } : {}), cover, ...(recipe ? { recipe } : {}) },
+    book: { format: 'dotwork-book', version: 1, name: input.name as string, page_count: count as number, page_numbers: input.page_numbers as boolean, print: { signatures }, pages, ...(dates ? { dates } : {}), cover, ...(recipe ? { recipe } : {}) },
   };
 }
 

@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
-  bookPage, emptyBook, fillSlots, getSlot, pagesLostByResize, readBook, resizeBook, roundPageCount, setSlot, slotSide,
+  bookPage, emptyBook, fillSlots, getSlot, lastSlot, pagesLostByResize, readBook, resizeBook, roundPageCount, setSlot, slotSide,
   type Book,
 } from '../src/book/book';
+import { openings } from '../src/book/flip';
 import { buildSpread } from '../src/format/spread';
 import { emptyPage, type Page } from '../src/format/types';
 import { Library, MemoryBackend, readLibraryFile } from '../src/library/library';
@@ -13,21 +14,12 @@ const page = (name: string): Page => ({ ...emptyPage(), name, elements: [{ type:
 const rules = (r: ReturnType<typeof readBook>) => (r.ok ? [] : r.issues.map((i) => i.rule));
 
 describe('a book', () => {
-  it('starts as 52 empty pages with page numbers on and the owner’s calibration', () => {
+  it('starts as 52 empty pages with page numbers on, one signature and no printer settings', () => {
     const b = emptyBook();
     expect(b.page_count).toBe(52);
     expect(b.pages).toHaveLength(52);
     expect(b.page_numbers).toBe(true);
-    expect(b.print).toEqual({
-      creep_per_sheet_mm: 0.3, fore_edge_shift_mm: 2, cover_fore_edge_shift_mm: 2.2, target_fore_edge_margin_mm: 3.5,
-      sheet_layout: 'half_letter',
-      layouts: {
-        half_letter: { front_offset_x_mm: 1.7, front_offset_y_mm: -0.05, back_offset_x_mm: 1.5, back_offset_y_mm: 0.05, scale_x_pct: 100, scale_y_pct: 100 },
-        letter_two_up: { front_offset_x_mm: 0, front_offset_y_mm: 0, back_offset_x_mm: 0, back_offset_y_mm: 0, scale_x_pct: 100, scale_y_pct: 100 },
-      },
-      signatures: 1,
-      shade_light_pct: 6.3, shade_medium_pct: 13.7, shade_dark_pct: 25.9, gray_text_pct: 49.8,
-    });
+    expect(b.print).toEqual({ signatures: 1 }); // the book file holds the design only; the printer's settings are the printer profile's (printer.test.ts)
   });
 
   it('rounds the page count up to a multiple of 4, within limits', () => {
@@ -95,8 +87,6 @@ describe('book file', () => {
     expect(rules(readBook({ ...good(), page_count: 6 }))).toContain('page-count');
     expect(rules(readBook({ ...good(), page_numbers: 'yes' }))).toContain('page-numbers');
     expect(rules(readBook({ ...good(), pages: [] }))).toContain('pages-length');
-    expect(rules(readBook({ ...good(), print: { ...good().print, signatures: 0 } }))).toContain('print-setting');
-    expect(rules(readBook({ ...good(), print: undefined }))).toContain('print');
     expect(rules(readBook({ ...good(), cover: { front: null } }))).toContain('cover');
   });
 
@@ -144,6 +134,32 @@ describe('contact sheet', () => {
     expect(svg).toContain('>Hello<');
     expect(svg).toContain('>3<'); // page numbers
     expect(contactSheet({ ...b, page_numbers: false }).svg).not.toContain('>3<');
+  });
+
+  it('adds the outside covers, laid out as cover-outside.pdf prints them (back | front), only when one is designed', () => {
+    const b = emptyBook(8);
+    expect(contactSheet(b).svg).not.toContain('Outside');
+    setSlot(b, -1, page('FRONTOUT'));
+    setSlot(b, lastSlot(b), page('BACKOUT'));
+    const { svg } = contactSheet(b);
+    expect(svg).toContain('Outside back cover · Outside front cover');
+    expect(svg).toContain('>FRONTOUT<');
+    expect(svg).toContain('>BACKOUT<');
+    expect(svg.match(/<g transform="translate\(0 0\)">/g)).toHaveLength(6); // the 5 spreads and the outside covers
+    expect(svg.indexOf('>BACKOUT<')).toBeLessThan(svg.indexOf('>FRONTOUT<')); // the back is the left page
+  });
+});
+
+describe('flip through', () => {
+  it('has an opening for each designed outside cover, the front alone before the book and the back alone after it', () => {
+    const b = emptyBook(8);
+    expect(openings(b)).toEqual([[0, 1], [2, 3], [4, 5], [6, 7], [8, 9]]);
+    setSlot(b, -1, page('F'));
+    expect(openings(b)[0]).toEqual([null, -1]);
+    expect(openings(b)).toHaveLength(6);
+    setSlot(b, lastSlot(b), page('B'));
+    expect(openings(b).at(-1)).toEqual([10, null]);
+    expect(openings(b)).toHaveLength(7);
   });
 });
 

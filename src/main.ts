@@ -17,8 +17,8 @@ import { idbBackend } from './library/idb';
 import { LibraryDialog, type SaveOption, type SaveWhat } from './library/dialog';
 import { Arranger } from './book/arranger';
 import { emptyBook, readBook, type Book } from './book/book';
-import { clonePrint } from './book/impose';
-import { loadPrinter, printerOf, savePrinter, startingPrint, type PrinterSettings } from './printer';
+import { DEFAULT_PRINT, clonePrint, type PrintSettings } from './book/impose';
+import { loadPrinter, savePrinter } from './printer';
 import { ExportDialog } from './exporter';
 import { SettingsDialog } from './settings';
 import { checkItem, setupMenus } from './menus';
@@ -47,11 +47,11 @@ const draftStorage = (): DraftStorage | null => { try { return localStorage; } c
 /** Drafts that couldn't be read at start-up; shown (with the way to get them back) once the screen exists. */
 const startupProblems: Problem[] = [];
 
-/** The printer's saved settings (the Calibrate page keeps them), or null until there are some. */
-let printerSettings: PrinterSettings | null = (() => {
+/** The printer profile (the Calibrate page and the PDF tab change it): what every book prints with. The defaults until there are saved settings. */
+let printerSettings: PrintSettings = (() => {
   const loaded = loadPrinter(draftStorage());
   if (loaded.status === 'bad') startupProblems.push(loaded.problem);
-  return loaded.status === 'ok' ? loaded.value : null;
+  return loaded.status === 'ok' ? loaded.value : clonePrint(DEFAULT_PRINT);
 })();
 
 /** Offer a draft that couldn't be read as a download. It is already kept under a backup key. */
@@ -389,7 +389,7 @@ function loadBook(): Book {
     badDraft('book', 'dotwork-book-draft.json', d);
     notifyProblems(startupProblems.slice(-1), true);
   }
-  return emptyBook(undefined, startingPrint(printerSettings));
+  return emptyBook();
 }
 
 /** Keep the book draft, or say why not. A book that breaks the format is never written over the last good draft. */
@@ -407,17 +407,16 @@ function ensureArranger() {
       keepBook(b);
     },
     exportFiles: () => exportDialog.show('pdf'),
+    printer: () => printerSettings,
   }, book);
   void arranger.refreshDesigns();
 }
 
 const currentBook = (): Book => arranger?.current ?? (book ??= loadBook());
 
-/** `fresh` for a book that is just being made (a template): it starts from the printer's saved settings, not the defaults. */
-function openBook(next: Book, fresh = false) {
+function openBook(next: Book) {
   notify(null);
   book = structuredClone(next);
-  if (fresh && printerSettings) book.print = clonePrint({ ...book.print, ...printerSettings });
   keepBook(book);
   arranger?.setBook(book);
   view = 'book';
@@ -490,7 +489,7 @@ $('new').onclick = () => {
   notify(null);
   if (view === 'book') {
     if (currentBook().pages.some(Boolean) && !confirm('Start a new book? The current draft is replaced (save it to the Library first to keep it).')) return;
-    openBook(emptyBook(undefined, startingPrint(printerSettings)));
+    openBook(emptyBook());
     return;
   }
   if (view === 'page') { replacePage(emptyPage()); return; }
@@ -570,10 +569,12 @@ const exportDialog = new ExportDialog({
   savedBooks: async () => (await library.list()).filter((i) => i.kind === 'book').map((i) => ({ id: i.id, name: i.name, book: i.data as Book })),
   editBook: (change) => { ensureArranger(); arranger!.edit(() => change(arranger!.current)); },
   printer: {
-    saved: () => printerSettings,
-    save(print) {
-      printerSettings = printerOf(print); // kept for this visit even if the browser refuses to store it
-      return savePrinter(draftStorage(), print);
+    get: () => printerSettings,
+    edit(change) {
+      const next = clonePrint(printerSettings);
+      change(next);
+      printerSettings = next; // used for this visit even if the browser refuses to store it
+      return savePrinter(draftStorage(), next);
     },
   },
   importFile: importFromFile,

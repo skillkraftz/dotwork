@@ -3,7 +3,7 @@ import { TOKENS, findUnknownTokens } from './format/tokens';
 import { PAGE_SIDES, type Page } from './format/types';
 import { validatePage } from './format/validate';
 import { LAYOUT_LIMITS, MAX_PAGES, MIN_PAGES, PRINT_LIMITS, pagesLostByResize, resizeBook, roundPageCount, type Book } from './book/book';
-import { LAYOUT_NAMES, SHEET_LAYOUTS, profileOf, type LayoutProfile, type PrintSettings, type SheetLayout } from './book/impose';
+import { EDGE_NAMES, LAYOUT_NAMES, SHEET_LAYOUTS, profileOf, type LayoutProfile, type PrintSettings, type SheetLayout } from './book/impose';
 import type { Store } from './store';
 import type { SpreadSide } from './format/spread';
 
@@ -169,9 +169,8 @@ export class SettingsDialog {
       labelled('Book name', name),
       labelled('Pages (a multiple of 4)', pages),
       h('label', { class: 'inline' }, numbers, 'Print page numbers'),
-      h('h3', {}, 'Printing'),
-      layoutPicker(() => this.host.book(), (change) => this.host.editBook(change), () => this.show()),
-      ...printFields(() => this.host.book(), (change) => this.host.editBook(change)),
+      signaturesField(() => this.host.book(), (change) => this.host.editBook(change)),
+      h('p', { class: 'hint' }, 'The creep, offsets, scale and tones belong to your printer, not the book: they are in Import and export, on the PDF tab.'),
     ];
   }
 }
@@ -179,7 +178,7 @@ export class SettingsDialog {
 type SharedKey = Exclude<keyof PrintSettings, 'sheet_layout' | 'layouts'>;
 export type PrintFieldKey = SharedKey | keyof LayoutProfile;
 
-/** How each print setting is labelled and stepped in its field. `help` is the key of its entry in help.ts. */
+/** How each printer setting is labelled and stepped in its field. `help` is the key of its entry in help.ts. */
 const PRINT_FIELDS: Record<PrintFieldKey, { label: string; help: string; step: number }> = {
   creep_per_sheet_mm: { label: 'Creep per sheet (mm)', help: 'book-creep', step: 0.01 },
   fore_edge_shift_mm: { label: 'Fore-edge shift (mm)', help: 'book-fore-edge-shift', step: 0.1 },
@@ -189,9 +188,9 @@ const PRINT_FIELDS: Record<PrintFieldKey, { label: string; help: string; step: n
   front_offset_y_mm: { label: 'Front offset y (mm)', help: 'book-front-offset-y', step: 0.1 },
   back_offset_x_mm: { label: 'Back offset x (mm)', help: 'book-offset-x', step: 0.1 },
   back_offset_y_mm: { label: 'Back offset y (mm)', help: 'book-offset-y', step: 0.1 },
-  scale_x_pct: { label: 'Width scale (%)', help: 'book-scale-x', step: 0.1 },
-  scale_y_pct: { label: 'Height scale (%)', help: 'book-scale-y', step: 0.1 },
-  signatures: { label: 'Signatures', help: 'book-signatures', step: 1 },
+  back_rotation_deg: { label: 'Back rotation (°)', help: 'book-back-rotation', step: 0.01 },
+  scale_x_pct: { label: 'Scale along the 8.5 in edge (%)', help: 'book-scale-x', step: 0.1 },
+  scale_y_pct: { label: 'Scale along the 5.5 in edge (%)', help: 'book-scale-y', step: 0.1 },
   shade_light_pct: { label: 'Light shade (% black)', help: 'book-tone-light', step: 1 },
   shade_medium_pct: { label: 'Medium shade (% black)', help: 'book-tone-medium', step: 1 },
   shade_dark_pct: { label: 'Dark shade (% black)', help: 'book-tone-dark', step: 1 },
@@ -199,46 +198,65 @@ const PRINT_FIELDS: Record<PrintFieldKey, { label: string; help: string; step: n
 };
 
 const isLayoutKey = (key: PrintFieldKey): key is keyof LayoutProfile => key in LAYOUT_LIMITS;
-/** A setting's value in the book: a layout's settings are those of the layout selected in the book. */
+/** A setting's value in the printer profile: a layout's settings are those of the layout selected there. */
 export const printValue = (print: PrintSettings, key: PrintFieldKey): number => (isLayoutKey(key) ? profileOf(print)[key] : print[key]);
 
-/** One print setting as a number field. A number outside the book file's limits is brought back in rather than kept. */
-export function printField(book: () => Book, edit: (change: (b: Book) => void) => void, key: PrintFieldKey): HTMLElement {
-  const { label, help, step } = PRINT_FIELDS[key], { min, max } = isLayoutKey(key) ? LAYOUT_LIMITS[key] : PRINT_LIMITS[key];
-  const value = printValue(book().print, key);
+type EditPrinter = (change: (p: PrintSettings) => void) => void;
+
+/** One printer setting as a number field. A number outside its limits is brought back in rather than kept. */
+export function printField(printer: () => PrintSettings, edit: EditPrinter, key: PrintFieldKey): HTMLElement {
+  const { help, step } = PRINT_FIELDS[key], { min, max } = isLayoutKey(key) ? LAYOUT_LIMITS[key] : PRINT_LIMITS[key];
+  // The scales are named by the paper's edges of the selected layout.
+  const edges = EDGE_NAMES[printer().sheet_layout];
+  const label = key === 'scale_x_pct' ? `Scale along the ${edges.x} edge (%)` : key === 'scale_y_pct' ? `Scale along the ${edges.y} edge (%)` : PRINT_FIELDS[key].label;
+  const value = printValue(printer(), key);
   // The layout this field was drawn for: a change that arrives after the layout was switched still goes to it.
-  const layout = book().print.sheet_layout;
+  const layout = printer().sheet_layout;
   const input = h('input', { type: 'number', value, min, max, step, 'aria-label': label, 'data-key': help, 'data-help': help });
   input.onchange = () => {
     const typed = Number(input.value);
-    if (input.value === '' || !Number.isFinite(typed)) { input.value = String(printValue(book().print, key)); return; }
-    const v = Math.min(max, Math.max(min, key === 'signatures' ? Math.round(typed) : typed));
+    if (input.value === '' || !Number.isFinite(typed)) { input.value = String(printValue(printer(), key)); return; }
+    const v = Math.min(max, Math.max(min, typed));
     input.value = String(v);
-    edit((b) => { if (isLayoutKey(key)) b.print.layouts[layout][key] = v; else b.print[key] = v; });
+    edit((p) => { if (isLayoutKey(key)) p.layouts[layout][key] = v; else p[key] = v; });
   };
   return h('label', { class: 'compact' }, label, input);
 }
 
-/** Picks the sheet layout the files are made for. `redraw` runs after a change, to show the new layout's values. */
-export function layoutPicker(book: () => Book, edit: (change: (b: Book) => void) => void, redraw: () => void): HTMLElement {
+/** How many signatures the book is split into: the one print setting that belongs to the book. */
+export function signaturesField(book: () => Book, edit: (change: (b: Book) => void) => void): HTMLElement {
+  const { min, max } = PRINT_LIMITS.signatures;
+  const input = h('input', { type: 'number', value: book().print.signatures, min, max, step: 1, inputmode: 'numeric', 'aria-label': 'Signatures', 'data-key': 'book-signatures', 'data-help': 'book-signatures' });
+  input.onchange = () => {
+    const typed = Number(input.value);
+    if (input.value === '' || !Number.isFinite(typed)) { input.value = String(book().print.signatures); return; }
+    const v = Math.min(max, Math.max(min, Math.round(typed)));
+    input.value = String(v);
+    edit((b) => { b.print.signatures = v; });
+  };
+  return h('label', { class: 'compact' }, 'Signatures', input);
+}
+
+/** Picks the sheet layout the files are made for (the printer's setting). `redraw` runs after a change, to show the new layout's values. */
+export function layoutPicker(printer: () => PrintSettings, edit: EditPrinter, redraw: () => void): HTMLElement {
   const select = h('select', { 'data-key': 'book-sheet-layout', 'data-help': 'book-sheet-layout', 'aria-label': 'Sheet layout' },
-    ...SHEET_LAYOUTS.map((l) => h('option', { value: l, selected: l === book().print.sheet_layout }, LAYOUT_NAMES[l])));
-  select.onchange = () => { edit((b) => { b.print.sheet_layout = select.value as SheetLayout; }); redraw(); };
+    ...SHEET_LAYOUTS.map((l) => h('option', { value: l, selected: l === printer().sheet_layout }, LAYOUT_NAMES[l])));
+  select.onchange = () => { edit((p) => { p.sheet_layout = select.value as SheetLayout; }); redraw(); };
   return h('div', {}, h('label', { class: 'compact wide' }, 'Sheet layout', select),
-    h('p', { class: 'hint' }, 'Half letter prints on the paper cut in half (as Statement, borderless). Letter, two-up puts two half-letter sheets on one letter sheet, a top book and a bottom book, with normal margins, so the printer can duplex by itself. The offsets and the scale belong to the layout chosen here; everything else is shared.'));
+    h('p', { class: 'hint' }, 'Half letter prints on the paper cut in half (as Statement, borderless). Letter, two-up puts two half-letter sheets on one letter sheet, a top book and a bottom book, with normal margins, so the printer can duplex by itself. The offsets, rotation and scale belong to the layout chosen here; everything else is shared.'));
 }
 
 /**
- * Creep, shifts, the offsets and scale of the selected layout, signatures and tones: the settings that shape the print-ready files.
- * Used in the settings and the export window, under the layout picker.
+ * Creep, shifts, the offsets, rotation and scale of the selected layout, signatures and tones: the settings that shape the print-ready files.
+ * All but the signatures are the printer's, not the book's.
  */
-export function printFields(book: () => Book, edit: (change: (b: Book) => void) => void): HTMLElement[] {
-  const field = (key: PrintFieldKey) => printField(book, edit, key);
+export function printFields(printer: () => PrintSettings, edit: EditPrinter, book: () => Book, editBook: (change: (b: Book) => void) => void): HTMLElement[] {
+  const field = (key: PrintFieldKey) => printField(printer, edit, key);
   return [
-    field('creep_per_sheet_mm'), field('fore_edge_shift_mm'), field('cover_fore_edge_shift_mm'), field('target_fore_edge_margin_mm'), field('signatures'),
-    field('front_offset_x_mm'), field('front_offset_y_mm'), field('back_offset_x_mm'), field('back_offset_y_mm'), field('scale_x_pct'), field('scale_y_pct'),
-    h('p', { class: 'hint' }, 'Creep moves each sheet’s pages toward the fold by the sheets outside it × the creep per sheet (often more than the paper’s thickness; the Calibrate page finds it). The fore-edge shifts move every page away from the fold, so the trimmed fore-edge margin lands on the target. The front offset moves everything printed first (print-first.pdf, the fronts of print-duplex.pdf, cover-outside.pdf), the back offset everything printed second (+x right, +y up, as seen on that side), to cancel what your printer does to each side. The scale sizes everything on the sheet about its centre, to cancel a printer that enlarges or shrinks it; the Calibrate page’s Size step finds it.'),
+    field('creep_per_sheet_mm'), field('fore_edge_shift_mm'), field('cover_fore_edge_shift_mm'), field('target_fore_edge_margin_mm'), signaturesField(book, editBook),
+    field('front_offset_x_mm'), field('front_offset_y_mm'), field('back_offset_x_mm'), field('back_offset_y_mm'), field('back_rotation_deg'), field('scale_x_pct'), field('scale_y_pct'),
+    h('p', { class: 'hint' }, 'Creep moves each sheet’s pages toward the fold by the sheets outside it × the creep per sheet (often more than the paper’s thickness; the Calibrate page finds it). The fore-edge shifts move every page away from the fold, so the trimmed fore-edge margin lands on the target. The front offset moves everything printed first (print-first.pdf, the fronts of print-duplex.pdf, cover-outside.pdf), the back offset everything printed second (+x right, +y up, as seen on that side), to cancel what your printer does to each side; the back rotation turns the back about the sheet’s centre (+ is counter-clockwise as seen on the back). The scale sizes everything on the sheet about its centre, to cancel a printer that enlarges or shrinks it. The Calibrate page finds all of these.'),
     field('shade_light_pct'), field('shade_medium_pct'), field('shade_dark_pct'), field('gray_text_pct'),
-    h('p', { class: 'hint' }, 'Tones are how dark the light, medium and dark shades and the gray text print: 0 is white, 100 is black. They change the PDFs only, not the editor or PNGs. The Calibrate page helps you choose them and keeps them as your printer’s settings.'),
+    h('p', { class: 'hint' }, 'Tones are how dark the light, medium and dark shades and the gray text print: 0 is white, 100 is black. They change the PDFs only, not the editor or PNGs. The Calibrate page helps you choose them.'),
   ];
 }

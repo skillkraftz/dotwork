@@ -1,5 +1,5 @@
 import { h } from '../panel';
-import type { Book } from './book';
+import { FIRST_SLOT, lastSlot, type Book } from './book';
 
 const SPEED_KEY = 'dotwork.book.flip-ms';
 export const FLIP_MS = { min: 250, max: 3000, step: 250, default: 1000 };
@@ -12,6 +12,15 @@ const savedSpeed = () => {
   return FLIP_MS.default;
 };
 
+/** The openings of a book as slots, left and right (null for nothing there): the outside front cover alone if it is designed, then the inside front cover facing page 1, 2 facing 3, … the last page facing the inside back cover, then the outside back cover alone if it is designed. */
+export function openings(book: Book): [number | null, number | null][] {
+  return [
+    ...(book.cover.outside_front ? [[null, FIRST_SLOT] as [number | null, number | null]] : []),
+    ...Array.from({ length: openingCount(book) }, (_, i): [number, number] => [i * 2, i * 2 + 1]),
+    ...(book.cover.outside_back ? [[lastSlot(book), null] as [number | null, number | null]] : []),
+  ];
+}
+
 /** The openings of a book in order: the inside front cover facing page 1, 2 facing 3, … the last page facing the inside back cover. Each is its left slot. */
 export const openingCount = (book: Book) => book.page_count / 2 + 1;
 
@@ -20,7 +29,7 @@ export const openingCount = (book: Book) => book.page_count / 2 + 1;
  * Escape) closes at that opening and calls `onStop` with its left slot. `render` draws one slot as an SVG string.
  */
 export function flipThrough(book: Book, render: (slot: number, align: string) => string, onStop: (leftSlot: number) => void): void {
-  const last = openingCount(book) - 1;
+  const all = openings(book), last = all.length - 1;
   let at = 0, playing = true, ms = savedSpeed(), timer = 0;
 
   const stage = h('div', { class: 'book-stage spreads flip-stage', 'data-help': 'flip-stage' });
@@ -38,13 +47,14 @@ export function flipThrough(book: Book, render: (slot: number, align: string) =>
     h('div', { class: 'flip-bar' }, play, h('label', { class: 'flip-speed' }, speedLabel, speed))) as HTMLDialogElement;
 
   const show = () => {
-    const left = at * 2;
-    stage.replaceChildren(...[left, left + 1].map((slot, i) => {
+    const [left, right] = all[at];
+    stage.replaceChildren(...[left, right].map((slot, i) => {
       const page = h('div', { class: 'stage-page' });
-      page.innerHTML = render(slot, i === 0 ? 'xMaxYMid' : 'xMinYMid');
+      if (slot !== null) page.innerHTML = render(slot, i === 0 ? 'xMaxYMid' : 'xMinYMid');
       return page;
     }));
-    where.textContent = at === 0 ? 'Inside front cover and page 1' : at === last ? `Page ${book.page_count} and inside back cover` : `Pages ${left} and ${left + 1}`;
+    where.textContent = left === null ? 'Outside front cover' : right === null ? 'Outside back cover' : left === 0 ? 'Inside front cover and page 1'
+      : left === book.page_count ? `Page ${book.page_count} and inside back cover` : `Pages ${left} and ${left + 1}`;
     prev.disabled = at <= 0;
     next.disabled = at >= last;
     play.textContent = playing ? 'Pause' : at >= last ? 'Play again' : 'Play';
@@ -77,7 +87,7 @@ export function flipThrough(book: Book, render: (slot: number, align: string) =>
     if (e.key === ' ') { e.preventDefault(); toggle(); } else if (e.key === 'ArrowLeft') { e.preventDefault(); step(-1); } else if (e.key === 'ArrowRight') { e.preventDefault(); step(1); }
   });
   dialog.addEventListener('keyup', (e) => { if (e.key === ' ') e.preventDefault(); }); // a focused button must not also click on Space
-  dialog.addEventListener('close', () => { clearTimeout(timer); dialog.remove(); onStop(at * 2); });
+  dialog.addEventListener('close', () => { clearTimeout(timer); dialog.remove(); onStop(all[at][0] ?? all[at][1]!); });
 
   document.body.append(dialog);
   show();

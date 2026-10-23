@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PDFDocument } from 'pdf-lib';
-import { hit, missingHelp, open, shot, start, stop, type App, type Env } from './harness';
+import { bookMore, hit, missingHelp, open, shot, start, stop, type App, type Env } from './harness';
 
 let env: Env;
 beforeAll(async () => { env = await start(); });
@@ -46,6 +46,8 @@ for (const device of ['phone', 'tablet', 'desktop'] as const) {
       await pickLayout(app, 'export', 'letter_two_up');
       expect(await value('book-sheet-layout')).toBe('letter_two_up');
       expect(await value('book-front-offset-x')).toBe('0'); // two-up starts at zero offsets and 100 %
+      expect(await value('book-back-rotation')).toBe('0');
+      expect(await page.locator('dialog.export input[aria-label="Scale along the 11 in edge (%)"]').count()).toBe(1); // named by the paper's edges
       expect(await value('book-scale-x')).toBe('100');
       expect(await value('book-creep')).toBe('0.3'); // shared
       expect(await page.locator('dialog.export [data-key="pdf-bottom-book"]').count()).toBe(1);
@@ -62,8 +64,9 @@ for (const device of ['phone', 'tablet', 'desktop'] as const) {
       expect(await value('book-front-offset-x')).toBe('1.7');
       await pickLayout(app, 'export', 'letter_two_up');
       expect(await value('book-scale-x')).toBe('101.5');
-      expect((await bookPrint(app)).layouts.letter_two_up.scale_x_pct).toBe(101.5);
-      expect((await bookPrint(app)).layouts.half_letter.scale_x_pct).toBe(100);
+      expect((await profile(app)).layouts.letter_two_up.scale_x_pct).toBe(101.5); // the printer's, not the book's
+      expect((await profile(app)).layouts.half_letter.scale_x_pct).toBe(100);
+      expect((await bookPrint(app)) ?? { signatures: 1 }).toEqual({ signatures: 1 }); // never the printer's settings
       await type(app, 'dialog.export [data-key="book-scale-x"]', '100');
 
       // out-of-limit scale is brought back in
@@ -91,35 +94,35 @@ for (const device of ['phone', 'tablet', 'desktop'] as const) {
       expect(await page.locator('dialog.export .lib-msg').innerText()).toMatch(/Can’t export/);
     });
 
-    it('calibrates the size of a layout: two measured lines become its scale, and the other layout is left alone', async () => {
+    it('calibrates a layout from the one sheet: the long lines become its scale, and the other layout is left alone', async () => {
       const app = await open(env, device);
       const { page } = app;
       await openPdfTab(app);
+      await pickLayout(app, 'export', 'letter_two_up');
       await hit(app, 'dialog.export [data-key="calibrate-open"]');
       await page.waitForSelector('dialog.calibrate[open]');
-      expect(await page.locator('dialog.calibrate .cal-progress').innerText()).toBe('Step 1 of 4: Size');
-      await pickLayout(app, 'calibrate', 'letter_two_up');
+      expect(await page.locator('dialog.calibrate .cal-progress').innerText()).toBe('Step 1 of 3: Sheet');
       expect(await page.locator('dialog.calibrate').innerText()).toContain('Letter (not borderless)');
       expect(await page.locator('dialog.calibrate').innerText()).not.toContain('Statement (Borderless)');
-      expect(await page.locator('dialog.calibrate .cal-progress').innerText()).toBe('Step 1 of 4: Size'); // the picker keeps the step
+      expect(await page.locator('dialog.calibrate [data-key="book-sheet-layout"]').count()).toBe(0);
       expect(await missingHelp(app)).toEqual([]);
       expect(await noOverflow(app)).toBe(true);
-      await shot(app, `${device}-calibrate-size-two-up`);
-      const sheet = await download(app, 'dialog.calibrate [data-key="calibrate-download-size"]');
-      expect(sheet.name).toBe('calibration-size.pdf');
+      const sheet = await download(app, 'dialog.calibrate [data-key="calibrate-download-sheet"]');
+      expect(sheet.name).toBe('calibration-sheet.pdf');
       const pdf = await PDFDocument.load(sheet.bytes);
-      expect(pdf.getPageCount()).toBe(1);
+      expect(pdf.getPageCount()).toBe(2); // the front and the back
       expect(pdf.getPage(0).getHeight()).toBeCloseTo(11 * 72, 1); // a letter sheet, two halves
-      await type(app, 'dialog.calibrate [data-key="calibrate-read-size-h"]', '99');
-      await type(app, 'dialog.calibrate [data-key="calibrate-read-size-v"]', '100.5');
-      const result = await page.locator('[data-key="calibrate-size-result"]').innerText();
-      expect(result).toContain('Width scale: 100 → 101.01 %');
-      expect(result).toContain('Height scale: 100 → 99.5 %');
-      await hit(app, 'dialog.calibrate [data-key="calibrate-use-scale"]');
+      await type(app, 'dialog.calibrate [data-key="calibrate-read-line-x"]', '188');
+      await type(app, 'dialog.calibrate [data-key="calibrate-read-line-y"]', '262');
+      const result = await page.locator('[data-key="calibrate-sheet-result"]').innerText();
+      expect(result).toContain('Scale along the 8.5 in edge: 100 → 101.06 %');
+      expect(result).toContain('Scale along the 11 in edge: 100 → 99.24 %');
+      await hit(app, 'dialog.calibrate [data-key="calibrate-use-sheet"]');
       const saved = await profile(app);
-      expect(saved.layouts.letter_two_up).toMatchObject({ scale_x_pct: 101.01, scale_y_pct: 99.5 });
+      expect(saved.layouts.letter_two_up).toMatchObject({ scale_x_pct: 101.06, scale_y_pct: 99.24 });
       expect(saved.layouts.half_letter).toMatchObject({ scale_x_pct: 100, scale_y_pct: 100 });
       expect(saved.sheet_layout).toBe('letter_two_up');
+      expect((await bookPrint(app)) ?? { signatures: 1 }).toEqual({ signatures: 1 }); // never the printer's settings
       expect(app.errors).toEqual([]);
     });
 
@@ -168,6 +171,19 @@ for (const device of ['phone', 'tablet', 'desktop'] as const) {
       // Undo takes it back
       await hit(app, '.book-bar button:has-text("Undo")');
       expect((await savedBook(app)).cover.outside_back ?? null).toBeNull();
+
+      // Flip through starts at the outside front cover, alone on the right, and the next opening is the inside front cover facing page 1.
+      await bookMore(app, 'Flip through');
+      await page.waitForSelector('dialog.flip[open]');
+      expect(await page.locator('dialog.flip .flip-bar .where').innerText()).toBe('Outside front cover');
+      expect(await page.locator('dialog.flip .stage-page').count()).toBe(2);
+      expect(await page.locator('dialog.flip .stage-page >> nth=0').locator('svg').count()).toBe(0); // nothing on the left
+      expect(await page.locator('dialog.flip .stage-page >> nth=1').locator('svg').count()).toBe(1);
+      await hit(app, 'dialog.flip [data-help="flip-next"]');
+      expect(await page.locator('dialog.flip .flip-bar .where').innerText()).toBe('Inside front cover and page 1');
+      await hit(app, 'dialog.flip [data-help="flip-prev"]');
+      await hit(app, 'dialog.flip [data-help="flip-stop"]');
+      expect(await where()).toBe('Outside front cover'); // it stops at the opening it was on
       expect(await missingHelp(app)).toEqual([]);
       expect(app.errors).toEqual([]);
     });

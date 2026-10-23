@@ -32,26 +32,35 @@ export const backRegion = (half: number) => ({ y: halfTops('letter_two_up')[half
 
 // ---- scale and offset --------------------------------------------------------------------------------------------
 
-/** What is done to everything on one side of a sheet: scaled about the sheet's centre, then moved by the offset (dy is +down). */
-export interface SheetTransform { sx: number; sy: number; dx: number; dy: number }
+/**
+ * What is done to everything on one side of a sheet: scaled about the sheet's centre, turned about it (`rot`, radians, + counter-clockwise
+ * as seen on that side; only the back is turned), then moved by the offset (dy is +down).
+ */
+export interface SheetTransform { sx: number; sy: number; rot: number; dx: number; dy: number }
 
-/** The transform of a side of the sheet, from the selected layout's scale and its front or back offset. */
+/** The transform of a side of the sheet, from the selected layout's scale and its front or back offset; the back also takes the layout's rotation. */
 export function transformOf(print: Pick<PrintSettings, 'sheet_layout' | 'layouts'>, side: 'front' | 'back'): SheetTransform {
   const p = profileOf(print), off = offsetOf(print, side);
-  return { sx: p.scale_x_pct / 100, sy: p.scale_y_pct / 100, dx: off.x, dy: -off.y };
+  return { sx: p.scale_x_pct / 100, sy: p.scale_y_pct / 100, rot: side === 'back' ? (p.back_rotation_deg * Math.PI) / 180 : 0, dx: off.x, dy: -off.y };
 }
 
-/** Where a point on a w x h sheet lands. */
-export const mapPoint = (t: SheetTransform, w: number, h: number, p: { x: number; y: number }) =>
-  ({ x: w / 2 + t.sx * (p.x - w / 2) + t.dx, y: h / 2 + t.sy * (p.y - h / 2) + t.dy });
+/** Where a point on a w x h sheet (x right, y down) lands. */
+export function mapPoint(t: SheetTransform, w: number, h: number, p: { x: number; y: number }) {
+  const u = t.sx * (p.x - w / 2), v = t.sy * (p.y - h / 2), c = Math.cos(t.rot), s = Math.sin(t.rot);
+  // With y down, a counter-clockwise turn as seen on the sheet takes (u, v) to (u cos + v sin, -u sin + v cos).
+  return { x: w / 2 + u * c + v * s + t.dx, y: h / 2 - u * s + v * c + t.dy };
+}
 
 /**
- * Draw a whole PDF page under a transform. `draw` gets the offset to add to its coordinates: the offset when the scale is 100%
- * (so that output is exactly what it was before scale existed), else 0 and the page's matrix does the work.
+ * Draw a whole PDF page under a transform. `draw` gets the offset to add to its coordinates: the offset when the scale is 100% and
+ * there is no rotation (so that output is exactly what it was before they existed), else 0 and the page's matrix does the work.
  */
 export function onSheet(pdf: PdfPage, w: number, h: number, t: SheetTransform, draw: (dx: number, dy: number) => void) {
-  if (t.sx === 1 && t.sy === 1) { draw(t.dx, t.dy); return; }
-  pdf.pushOperators(pushGraphicsState(), concatTransformationMatrix(t.sx, 0, 0, t.sy, mmToPt(w / 2 * (1 - t.sx) + t.dx), mmToPt(h / 2 * (1 - t.sy) - t.dy)));
+  if (t.sx === 1 && t.sy === 1 && t.rot === 0) { draw(t.dx, t.dy); return; }
+  // The PDF's own axes point up, where the same counter-clockwise turn is the usual [cos sin -sin cos].
+  const c = Math.cos(t.rot), s = Math.sin(t.rot), a = t.sx * c, b = t.sx * s, cc = -t.sy * s, d = t.sy * c;
+  const cx = w / 2, cy = h / 2;
+  pdf.pushOperators(pushGraphicsState(), concatTransformationMatrix(a, b, cc, d, mmToPt(cx - (a * cx + cc * cy) + t.dx), mmToPt(cy - (b * cx + d * cy) - t.dy)));
   draw(0, 0);
   pdf.pushOperators(popGraphicsState());
 }
@@ -115,8 +124,8 @@ export function edgeProblem({ print, toward }: EdgeInput): string | null {
   for (const side of ['front', 'back'] as const) {
     const t = transformOf(print, side);
     for (const b of boxes) {
-      const a = mapPoint(t, LETTER_W_MM, LETTER_H_MM, { x: b.x, y: b.y }), z = mapPoint(t, LETTER_W_MM, LETTER_H_MM, { x: b.x + b.w, y: b.y + b.h });
-      const gaps: [string, number][] = [['left', a.x], ['right', LETTER_W_MM - z.x], ['top', a.y], ['bottom', LETTER_H_MM - z.y]];
+      const corners = [[b.x, b.y], [b.x + b.w, b.y], [b.x, b.y + b.h], [b.x + b.w, b.y + b.h]].map(([x, y]) => mapPoint(t, LETTER_W_MM, LETTER_H_MM, { x, y }));
+      const gaps: [string, number][] = [['left', Math.min(...corners.map((p) => p.x))], ['right', LETTER_W_MM - Math.max(...corners.map((p) => p.x))], ['top', Math.min(...corners.map((p) => p.y))], ['bottom', LETTER_H_MM - Math.max(...corners.map((p) => p.y))]];
       const [edge, gap] = gaps.reduce((m, g) => (g[1] < m[1] ? g : m));
       if (gap < EDGE_MM) {
         return `On the ${side} of the letter sheet ${b.name} would be ${Math.max(0, gap).toFixed(2)} mm from the ${edge} edge; printers need at least ${EDGE_MM} mm. Lower the ${side} offset or the scale of the two-up layout.`;

@@ -121,6 +121,6 @@ describe('creep', () => {
     expect(checkPrintSettings({ ...S, creep_per_sheet_mm: -1 }, 13)).toMatch(/Creep per sheet/);
     expect(checkPrintSettings({ ...S, layouts: { ...S.layouts, half_letter: { ...S.layouts.half_letter, back_offset_x_mm: NaN } } }, 13)).toMatch(/offset/);
     expect(checkPrintSettings({ ...S, layouts: { ...S.layouts, letter_two_up: { ...S.layouts.letter_two_up, front_offset_y_mm: NaN } } }, 13)).toMatch(/offset/);
-    expect(checkPrintSettings({ ...S, signatures: 0 }, 13)).toMatch(/Signatures/);
+    expect(checkPrintSettings({ ...S, layouts: { ...S.layouts, half_letter: { ...S.layouts.half_letter, back_rotation_deg: 2 } } }, 13)).toMatch(/rotation/);
   });
 });

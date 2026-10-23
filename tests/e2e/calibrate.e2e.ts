@@ -40,98 +40,102 @@ const small = (app: App) => app.page.evaluate(() => {
 
 const progress = (app: App) => app.page.locator('dialog.calibrate .cal-progress').innerText();
 const profile = (app: App) => app.page.evaluate(() => JSON.parse(localStorage.getItem('dotwork.printer') ?? 'null'));
-const bookPrint = (app: App) => app.page.evaluate(() => JSON.parse(localStorage.getItem('dotwork.book') ?? 'null')?.print);
+/** The book draft exactly as it is stored: no setting of the printer may ever change a byte of it. */
+const bookDraft = (app: App) => app.page.evaluate(() => localStorage.getItem('dotwork.book'));
+const BOOK = JSON.stringify({ format: 'dotwork-book', version: 1, name: 'Untitled book', page_count: 52, page_numbers: true, print: { signatures: 1 }, pages: Array(52).fill(null), cover: { front: null, back: null } });
 const download = async (app: App, selector: string) => {
   const [d] = await Promise.all([app.page.waitForEvent('download'), hit(app, selector)]);
   return { name: d.suggestedFilename(), bytes: await readFile((await d.path())!) };
 };
 /** A saved printer profile with no offsets or shifts, so a walk starts from simple numbers (the app's own defaults are the owner's calibration). */
-const NONE = { front_offset_x_mm: 0, front_offset_y_mm: 0, back_offset_x_mm: 0, back_offset_y_mm: 0, scale_x_pct: 100, scale_y_pct: 100 };
+const NONE = { front_offset_x_mm: 0, front_offset_y_mm: 0, back_offset_x_mm: 0, back_offset_y_mm: 0, scale_x_pct: 100, scale_y_pct: 100, back_rotation_deg: 0 };
 const FLAT = { creep_per_sheet_mm: 0.14, fore_edge_shift_mm: 0, cover_fore_edge_shift_mm: 0, target_fore_edge_margin_mm: 3.5, shade_light_pct: 6.3, shade_medium_pct: 13.7, shade_dark_pct: 25.9, gray_text_pct: 49.8, sheet_layout: 'half_letter', layouts: { half_letter: NONE, letter_two_up: NONE } };
-const startFlat = async (app: App) => {
-  await app.page.evaluate((flat) => { localStorage.setItem('dotwork.printer', JSON.stringify(flat)); localStorage.removeItem('dotwork.book'); }, FLAT);
+const startFlat = async (app: App, layout = 'half_letter') => {
+  await app.page.evaluate(([flat, l, book]) => { localStorage.setItem('dotwork.printer', JSON.stringify({ ...(flat as object), sheet_layout: l })); localStorage.setItem('dotwork.book', book as string); }, [FLAT, layout, BOOK] as const);
   await app.page.reload();
   await app.page.waitForSelector('#canvas');
 };
 const noOverflow = (app: App) => app.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
+const openCalibrate = async (app: App) => {
+  await hit(app, '#export');
+  await hit(app, 'dialog.export [data-tab="pdf"]');
+  await app.page.waitForSelector('dialog.export [data-key="calibrate-open"]');
+  await hit(app, 'dialog.export [data-key="calibrate-open"]');
+  await app.page.waitForSelector('dialog.calibrate[open]');
+};
 
 for (const device of ['phone', 'tablet', 'desktop'] as const) {
   describe(`the Calibrate wizard (${device})`, () => {
-    it('walks the four steps: the size, readings become offsets, creep and shifts, which are kept as the printer’s settings', async () => {
+    it('walks the three steps: print then measure, creep and shifts, check; everything is kept as the printer’s settings and never in the book', async () => {
       const app = await open(env, device);
       const { page } = app;
       await startFlat(app);
       await hit(app, '#export');
       await hit(app, 'dialog.export [data-tab="pdf"]');
       await page.waitForSelector('dialog.export [data-key="calibrate-open"]');
-      expect(await page.locator('[data-key="printer-notice"]').count()).toBe(0); // nothing saved yet
       await shot(app, `${device}-pdf-tab`);
       await hit(app, 'dialog.export [data-key="calibrate-open"]');
       await page.waitForSelector('dialog.calibrate[open]');
       expect(await page.locator('dialog.export').evaluate((d: HTMLDialogElement) => d.open)).toBe(false);
 
-      // ---- step 1: size
-      expect(await progress(app)).toBe('Step 1 of 4: Size');
+      // ---- step 1: the sheet
+      expect(await progress(app)).toBe('Step 1 of 3: Sheet');
       expect(await page.locator('dialog.calibrate [data-key="calibrate-back"]').isDisabled()).toBe(true);
-      expect(await page.locator('dialog.calibrate [data-key="book-sheet-layout"]').inputValue()).toBe('half_letter');
-      expect(await page.locator('dialog.calibrate').innerText()).toContain('Statement (Borderless)');
-      expect(await missingHelp(app)).toEqual([]);
-      if (app.touch) expect(await small(app)).toEqual([]);
-      expect(await noOverflow(app)).toBe(true);
-      await shot(app, `${device}-calibrate-size`);
-      const sized = await download(app, 'dialog.calibrate [data-key="calibrate-download-size"]');
-      expect(sized.name).toBe('calibration-size.pdf');
-      expect((await PDFDocument.load(sized.bytes)).getPageCount()).toBe(1);
-      await set(app, 'calibrate', 'calibrate-read-size-h', '98.8');
-      await set(app, 'calibrate', 'calibrate-read-size-v', '102.3');
-      const scaled = await page.locator('[data-key="calibrate-size-result"]').innerText();
-      expect(scaled).toContain('Width scale: 100 → 101.21 %');
-      expect(scaled).toContain('Height scale: 100 → 97.75 %');
-      await page.locator('[data-key="calibrate-use-scale"]').scrollIntoViewIfNeeded();
-      await shot(app, `${device}-calibrate-size-result`);
-      await hit(app, 'dialog.calibrate [data-key="calibrate-use-scale"]');
-      expect(await profile(app)).toMatchObject({ layouts: { half_letter: { scale_x_pct: 101.21, scale_y_pct: 97.75 }, letter_two_up: { scale_x_pct: 100, scale_y_pct: 100 } } });
-      expect(await page.locator('dialog.calibrate .lib-msg').innerText()).toMatch(/Saved as your printer’s settings/);
-      await hit(app, 'dialog.calibrate [data-key="calibrate-next"]');
-
-      // ---- step 2: alignment
-      expect(await progress(app)).toBe('Step 2 of 4: Alignment');
-      expect(await page.locator('dialog.calibrate .cal-how li').count()).toBe(3);
+      // The layout is shown, not chosen, here: that is done in the PDF tab.
+      expect(await page.locator('dialog.calibrate [data-key="book-sheet-layout"]').count()).toBe(0);
+      const layoutLine = await page.locator('dialog.calibrate [data-key="calibrate-layout"]').innerText();
+      expect(layoutLine).toContain('Half letter');
+      expect(layoutLine).toContain('Statement (Borderless)');
+      expect(await page.locator('dialog.calibrate .cal-how li').count()).toBe(5);
       expect(await page.locator('dialog.calibrate').innerText()).toMatch(/best quality/);
-      expect(await page.locator('dialog.calibrate').innerText()).toMatch(/CUPS \(localhost:631\)/);
+      expect(await page.locator('dialog.calibrate').innerText()).toMatch(/paper feed/);
+      // The inputs are named by the paper's edges, the same words as the sheet.
+      for (const label of ['x, top 8.5 in edge', 'x, bottom 8.5 in edge', 'y, left 5.5 in edge', 'y, right 5.5 in edge', 'crease', 'margin, top 8.5 in edge', 'margin, bottom 8.5 in edge', '8.5 in edge: should measure 190.0 mm', '5.5 in edge: should measure 120.0 mm']) {
+        expect(await page.locator(`dialog.calibrate input[aria-label="${label}"]`).count(), label).toBe(1);
+      }
+      expect(await page.locator('dialog.calibrate').innerText()).not.toMatch(/across|\bdown\b/i);
       expect(await missingHelp(app)).toEqual([]);
       if (app.touch) expect(await small(app)).toEqual([]);
       expect(await noOverflow(app)).toBe(true);
-      await shot(app, `${device}-calibrate-step1`);
+      await shot(app, `${device}-calibrate-sheet`);
 
-      const sheet = await download(app, 'dialog.calibrate [data-key="calibrate-download-alignment"]');
-      expect(sheet.name).toBe('calibration-alignment.pdf');
+      const sheet = await download(app, 'dialog.calibrate [data-key="calibrate-download-sheet"]');
+      expect(sheet.name).toBe('calibration-sheet.pdf');
       expect((await PDFDocument.load(sheet.bytes)).getPageCount()).toBe(2);
 
-      await set(app, 'calibrate', 'calibrate-read-front-fold', '-1.5');
-      await set(app, 'calibrate', 'calibrate-read-front-top', '4.35');
-      await set(app, 'calibrate', 'calibrate-read-front-bottom', '3.35');
-      await set(app, 'calibrate', 'calibrate-read-back-fold', '-1.2');
-      const result = await page.locator('[data-key="calibrate-alignment-result"]').innerText();
-      expect(result).toContain('Front x: 0 → -1.5 mm');
-      expect(result).toContain('Front y: 0 → 0.5 mm'); // (4.35 - 3.35) / 2
-      expect(result).toContain('Back x: 0 → -1.2 mm');
-      expect(result).toContain('Back y: 0 → 0 mm');
-      await page.locator('[data-key="calibrate-use-offsets"]').scrollIntoViewIfNeeded();
-      await shot(app, `${device}-calibrate-step1-result`);
-      await hit(app, 'dialog.calibrate [data-key="calibrate-use-offsets"]');
-      expect((await profile(app)).layouts.half_letter).toMatchObject({ front_offset_x_mm: -1.5, front_offset_y_mm: 0.5, back_offset_x_mm: -1.2, back_offset_y_mm: 0 });
-      expect((await bookPrint(app)).layouts.half_letter).toMatchObject({ front_offset_x_mm: -1.5, front_offset_y_mm: 0.5, back_offset_x_mm: -1.2 });
+      // The see-through readings, the crease, the margins and the long lines of a printer that is off.
+      await set(app, 'calibrate', 'calibrate-read-top-x', '-0.4');
+      await set(app, 'calibrate', 'calibrate-read-bottom-x', '-0.4');
+      await set(app, 'calibrate', 'calibrate-read-left-y', '0.3');
+      await set(app, 'calibrate', 'calibrate-read-right-y', '0.3');
+      await set(app, 'calibrate', 'calibrate-read-crease', '-1.5');
+      await set(app, 'calibrate', 'calibrate-read-margin-top', '4.35');
+      await set(app, 'calibrate', 'calibrate-read-margin-bottom', '3.35');
+      await set(app, 'calibrate', 'calibrate-read-line-x', '189');
+      await set(app, 'calibrate', 'calibrate-read-line-y', '119.5');
+      const result = await page.locator('[data-key="calibrate-sheet-result"]').innerText();
+      expect(result).toContain('Front offset x: 0 → 1.1 mm'); // -0.4 against the back + 1.5: the front is what is left
+      expect(result).toContain('Front offset y: 0 → 0.2 mm');
+      expect(result).toContain('Back offset x: 0 → -1.5 mm'); // against the paper: the crease
+      expect(result).toContain('Back offset y: 0 → 0.5 mm'); // (4.35 - 3.35) / 2 the other way up
+      expect(result).toContain('Back rotation: 0 → 0 °');
+      expect(result).toContain('Scale along the 8.5 in edge: 100 → 100.53 %');
+      expect(result).toContain('Scale along the 5.5 in edge: 100 → 100.42 %');
+      await page.locator('[data-key="calibrate-use-sheet"]').scrollIntoViewIfNeeded();
+      await shot(app, `${device}-calibrate-sheet-result`);
+      await hit(app, 'dialog.calibrate [data-key="calibrate-use-sheet"]');
+      expect((await profile(app)).layouts.half_letter).toMatchObject({ front_offset_x_mm: 1.1, front_offset_y_mm: 0.2, back_offset_x_mm: -1.5, back_offset_y_mm: 0.5, back_rotation_deg: 0, scale_x_pct: 100.53, scale_y_pct: 100.42 });
       expect((await profile(app)).layouts.letter_two_up).toMatchObject(NONE); // the other layout is left alone
+      // The book holds the design only: nothing of this reached it.
+      expect(await bookDraft(app)).toBe(BOOK);
       expect(await page.locator('dialog.calibrate .lib-msg').innerText()).toMatch(/Saved as your printer’s settings/);
-      expect(await page.locator('[data-key="calibrate-read-front-fold"]').inputValue()).toBe(''); // the readings are used up
+      expect(await page.locator('[data-key="calibrate-read-crease"]').inputValue()).toBe(''); // the readings are used up
       await hit(app, 'dialog.calibrate [data-key="calibrate-next"]');
 
-      // ---- step 3: creep and cover
-      expect(await progress(app)).toBe('Step 3 of 4: Creep and cover');
+      // ---- step 2: creep and cover
+      expect(await progress(app)).toBe('Step 2 of 3: Creep and cover');
       expect(await page.locator('dialog.calibrate').innerText()).toContain('pages 1 to 13');
       expect(await page.locator('dialog.calibrate').innerText()).toContain('pages 14 to 26');
-      expect(await page.locator('dialog.calibrate').innerText()).not.toMatch(/pushes the pages in/);
       expect(await missingHelp(app)).toEqual([]);
       if (app.touch) expect(await small(app)).toEqual([]);
       expect(await noOverflow(app)).toBe(true);
@@ -147,7 +151,7 @@ for (const device of ['phone', 'tablet', 'desktop'] as const) {
       expect((await PDFDocument.load(files.get('creep-test.pdf')!)).getPageCount()).toBe(26);
       expect((await PDFDocument.load(files.get('calibration-cover.pdf')!)).getPageCount()).toBe(2); // the outside, then the inside
       const record = files.get('calibration.txt')!.toString('utf8');
-      expect(record).toContain('front offset x -1.5 mm');
+      expect(record).toContain('front offset x 1.1 mm');
       expect(record).toContain('creep per sheet 0.16 mm');
       expect(record).toContain('fore-edge shift 0 | cover shift 0 | target margin 3.5 mm');
       // changing the setting after printing doesn't change what the readings start from
@@ -175,13 +179,14 @@ for (const device of ['phone', 'tablet', 'desktop'] as const) {
       await shot(app, `${device}-calibrate-step2-result`);
       await hit(app, 'dialog.calibrate [data-key="calibrate-use-creep"]');
       expect(await profile(app)).toMatchObject({ creep_per_sheet_mm: 0.318, fore_edge_shift_mm: 2, cover_fore_edge_shift_mm: 2.2 });
-      expect((await profile(app)).layouts.half_letter.front_offset_x_mm).toBe(-1.5);
-      expect(await progress(app)).toBe('Step 3 of 4: Creep and cover');
+      expect((await profile(app)).layouts.half_letter.front_offset_x_mm).toBe(1.1);
+      expect(await bookDraft(app)).toBe(BOOK);
+      expect(await progress(app)).toBe('Step 2 of 3: Creep and cover');
       expect(await page.locator('[data-key="calibrate-read-outermost"]').inputValue()).toBe(''); // the readings are used up
       await hit(app, 'dialog.calibrate [data-key="calibrate-next"]');
 
-      // ---- step 4: check, and tones
-      expect(await progress(app)).toBe('Step 4 of 4: Check');
+      // ---- step 3: check, and tones
+      expect(await progress(app)).toBe('Step 3 of 3: Check');
       expect(await page.locator('dialog.calibrate [data-key="calibrate-next"]').isDisabled()).toBe(true);
       expect(await missingHelp(app)).toEqual([]);
       if (app.touch) expect(await small(app)).toEqual([]);
@@ -195,89 +200,95 @@ for (const device of ['phone', 'tablet', 'desktop'] as const) {
 
       // Back keeps what was typed
       await hit(app, 'dialog.calibrate [data-key="calibrate-back"]');
-      expect(await progress(app)).toBe('Step 3 of 4: Creep and cover');
+      expect(await progress(app)).toBe('Step 2 of 3: Creep and cover');
       await hit(app, 'dialog.calibrate [data-key="calibrate-back"]');
-      expect(await progress(app)).toBe('Step 2 of 4: Alignment');
+      expect(await progress(app)).toBe('Step 1 of 3: Sheet');
 
-      // Done goes back to the PDF tab, whose fields hold the new values, and the book agrees with the saved settings
+      // Done goes back to the PDF tab, whose fields hold the new values
       await hit(app, 'dialog.calibrate header button');
       await page.waitForSelector('dialog.export[open]');
       expect(await page.locator('dialog.export [data-tab="pdf"]').getAttribute('aria-selected')).toBe('true');
-      for (const [key, value] of [['book-front-offset-x', '-1.5'], ['book-front-offset-y', '0.5'], ['book-offset-x', '-1.2'], ['book-scale-x', '101.21'], ['book-scale-y', '97.75'], ['book-creep', '0.318'], ['book-fore-edge-shift', '2'], ['book-cover-shift', '2.2'], ['book-tone-light', '8']]) {
+      for (const [key, value] of [['book-front-offset-x', '1.1'], ['book-front-offset-y', '0.2'], ['book-offset-x', '-1.5'], ['book-offset-y', '0.5'], ['book-back-rotation', '0'], ['book-scale-x', '100.53'], ['book-scale-y', '100.42'], ['book-creep', '0.318'], ['book-fore-edge-shift', '2'], ['book-cover-shift', '2.2'], ['book-tone-light', '8']]) {
         expect(await page.locator(`dialog.export [data-key="${key}"]`).inputValue(), key).toBe(value);
       }
-      expect(await page.locator('[data-key="printer-notice"]').count()).toBe(0);
+      expect(await bookDraft(app)).toBe(BOOK);
       expect(app.errors).toEqual([]);
     });
 
-    it('says when the book differs from the printer’s settings, and takes either', async () => {
+    it('finds the back’s rotation from the see-through readings, and keeps it for the layout', async () => {
       const app = await open(env, device);
       const { page } = app;
-      // A book made before the printer's settings were saved, with the default print settings.
-      await page.evaluate(() => {
-        const NONE_ = { front_offset_x_mm: 0, front_offset_y_mm: 0, back_offset_x_mm: 0, back_offset_y_mm: 0, scale_x_pct: 100, scale_y_pct: 100 };
-        const SAVED_ = { ...NONE_, front_offset_x_mm: -1.5, front_offset_y_mm: 0.5, back_offset_x_mm: -1.2 };
+      await startFlat(app);
+      await openCalibrate(app);
+      await set(app, 'calibrate', 'calibrate-read-top-x', '0.3');
+      await set(app, 'calibrate', 'calibrate-read-bottom-x', '-0.3');
+      const result = await page.locator('[data-key="calibrate-sheet-result"]').innerText();
+      expect(result).toContain('Back rotation: 0 → -0.302 °'); // 0.6 mm over 114 mm: counter-clockwise, so turn it back
+      expect(result).toContain('Back offset x: 0 → 0 mm');
+      await hit(app, 'dialog.calibrate [data-key="calibrate-use-sheet"]');
+      expect((await profile(app)).layouts.half_letter.back_rotation_deg).toBe(-0.302);
+      expect((await profile(app)).layouts.letter_two_up.back_rotation_deg).toBe(0);
+      await page.locator('[data-key="calibrate-read-top-x"]').scrollIntoViewIfNeeded();
+      await shot(app, `${device}-calibrate-rotation`);
+      expect(app.errors).toEqual([]);
+    });
+
+    it('names the layout being calibrated, read-only, with a way to change it that goes to the PDF tab', async () => {
+      const app = await open(env, device);
+      const { page } = app;
+      await startFlat(app, 'letter_two_up');
+      await openCalibrate(app);
+      const line = await page.locator('dialog.calibrate [data-key="calibrate-layout"]').innerText();
+      expect(line).toContain('Letter, two-up');
+      expect(line).toContain('Letter (not borderless)');
+      expect(await page.locator('dialog.calibrate [data-key="book-sheet-layout"]').count()).toBe(0);
+      // The inputs name the edges of this layout: the 11 in edge, not the 5.5 in edge.
+      expect(await page.locator('dialog.calibrate input[aria-label="y, left 11 in edge"]').count()).toBe(1);
+      expect(await page.locator('dialog.calibrate input[aria-label="260.0"]').count()).toBe(0);
+      expect(await page.locator('dialog.calibrate input[aria-label="11 in edge: should measure 260.0 mm"]').count()).toBe(1);
+      expect(await page.locator('dialog.calibrate').innerText()).toMatch(/read the top half \(Book 1\)/);
+      expect(await missingHelp(app)).toEqual([]);
+      await shot(app, `${device}-calibrate-sheet-two-up`);
+      const two = await download(app, 'dialog.calibrate [data-key="calibrate-download-sheet"]');
+      const doc = await PDFDocument.load(two.bytes);
+      expect(doc.getPageCount()).toBe(2);
+      expect(doc.getPage(0).getHeight()).toBeCloseTo(11 * 72, 0);
+      // Change: back to the PDF tab, where the layout is chosen; then Calibrate again calibrates the new one, with fresh readings.
+      await set(app, 'calibrate', 'calibrate-read-top-x', '0.2');
+      await hit(app, 'dialog.calibrate [data-key="calibrate-change-layout"]');
+      await page.waitForSelector('dialog.export[open]');
+      expect(await page.locator('dialog.export [data-tab="pdf"]').getAttribute('aria-selected')).toBe('true');
+      await page.locator('dialog.export [data-key="book-sheet-layout"]').selectOption('half_letter');
+      await hit(app, 'dialog.export [data-key="calibrate-open"]');
+      await page.waitForSelector('dialog.calibrate[open]');
+      expect(await page.locator('dialog.calibrate [data-key="calibrate-layout"]').innerText()).toContain('Half letter');
+      expect(await page.locator('[data-key="calibrate-read-top-x"]').inputValue()).toBe('');
+      expect(app.errors).toEqual([]);
+    });
+
+    it('uses the printer profile for every book, old books included: nothing is compared or copied into the book', async () => {
+      const app = await open(env, device);
+      const { page } = app;
+      // A book saved by an earlier version, with the full print settings of the time (they are ignored), and a different printer profile.
+      await page.evaluate(([none, flat]) => {
         localStorage.setItem('dotwork.book', JSON.stringify({
           format: 'dotwork-book', version: 1, name: 'Older book', page_count: 52, page_numbers: true,
-          print: { creep_per_sheet_mm: 0.14, fore_edge_shift_mm: 0, cover_fore_edge_shift_mm: 0, target_fore_edge_margin_mm: 3.5, sheet_layout: 'half_letter', layouts: { half_letter: NONE_, letter_two_up: NONE_ }, signatures: 1, shade_light_pct: 6.3, shade_medium_pct: 13.7, shade_dark_pct: 25.9, gray_text_pct: 49.8 },
+          print: { creep_per_sheet_mm: 0.14, fore_edge_shift_mm: 0, cover_fore_edge_shift_mm: 0, target_fore_edge_margin_mm: 3.5, sheet_layout: 'half_letter', layouts: { half_letter: none, letter_two_up: none }, signatures: 3, shade_light_pct: 6.3, shade_medium_pct: 13.7, shade_dark_pct: 25.9, gray_text_pct: 49.8 },
           pages: Array(52).fill(null), cover: { front: null, back: null },
         }));
-        localStorage.setItem('dotwork.printer', JSON.stringify({
-          creep_per_sheet_mm: 0.1, fore_edge_shift_mm: 0, cover_fore_edge_shift_mm: 0, target_fore_edge_margin_mm: 3.5, sheet_layout: 'half_letter', layouts: { half_letter: SAVED_, letter_two_up: NONE_ },
-          shade_light_pct: 8, shade_medium_pct: 13.7, shade_dark_pct: 25.9, gray_text_pct: 49.8,
-        }));
-      });
-      await page.reload();
-      await page.waitForSelector('#canvas');
-      await hit(app, '#export');
-      await hit(app, 'dialog.export [data-tab="pdf"]');
-      const notice = page.locator('[data-key="printer-notice"]');
-      await notice.waitFor();
-      expect(await missingHelp(app)).toEqual([]);
-      const text = await notice.innerText();
-      expect(text).toContain('differ from your printer’s saved settings');
-      expect(text).toContain('creep per sheet: 0.14 here, 0.1 saved');
-      expect(text).toContain('half letter front offset x: 0 here, -1.5 saved');
-      await shot(app, `${device}-printer-notice`);
-
-      // Keep this book's: the message goes, the book is as it was
-      await hit(app, 'dialog.export [data-key="printer-keep-book"]');
-      expect(await notice.count()).toBe(0);
-      expect(await page.locator('dialog.export [data-key="book-creep"]').inputValue()).toBe('0.14');
-      // Change a setting back and forth: the message comes back when the difference is a new one
-      await type(app, 'dialog.export [data-key="book-offset-x"]', '0.3');
-      await notice.waitFor();
-
-      // Use my printer settings: the book takes them all
-      await hit(app, 'dialog.export [data-key="printer-use-saved"]');
-      expect(await notice.count()).toBe(0);
-      for (const [key, value] of [['book-creep', '0.1'], ['book-front-offset-x', '-1.5'], ['book-front-offset-y', '0.5'], ['book-offset-x', '-1.2'], ['book-tone-light', '8']]) {
-        expect(await page.locator(`dialog.export [data-key="${key}"]`).inputValue(), key).toBe(value);
-      }
-      expect(app.errors).toEqual([]);
-    });
-
-    it('starts a new book from the printer’s settings', async () => {
-      const app = await open(env, device);
-      const { page } = app;
-      await page.evaluate(() => {
-        const none = { front_offset_x_mm: 0, front_offset_y_mm: 0, back_offset_x_mm: 0, back_offset_y_mm: 0, scale_x_pct: 100, scale_y_pct: 100 };
-        localStorage.setItem('dotwork.printer', JSON.stringify({
-          creep_per_sheet_mm: 0.1, fore_edge_shift_mm: 0, cover_fore_edge_shift_mm: 0, target_fore_edge_margin_mm: 3.5, sheet_layout: 'half_letter',
-          layouts: { half_letter: { ...none, front_offset_x_mm: -1.5, front_offset_y_mm: 0.5, back_offset_x_mm: -1.2 }, letter_two_up: none },
-          shade_light_pct: 8, shade_medium_pct: 13.7, shade_dark_pct: 25.9, gray_text_pct: 49.8,
-        }));
-      });
-      await page.evaluate(() => localStorage.removeItem('dotwork.book'));
+        localStorage.setItem('dotwork.printer', JSON.stringify({ ...(flat as object), creep_per_sheet_mm: 0.1, shade_light_pct: 8 }));
+      }, [{ front_offset_x_mm: 0, front_offset_y_mm: 0, back_offset_x_mm: 0, back_offset_y_mm: 0, scale_x_pct: 100, scale_y_pct: 100 }, FLAT] as const);
       await page.reload();
       await page.waitForSelector('#canvas');
       await hit(app, '#menu-page');
       await hit(app, '#view-book');
       await page.waitForSelector('.stage-page');
+      expect(await page.locator('#notice').isVisible()).toBe(false); // the old book opened
       await hit(app, '#export');
       await hit(app, 'dialog.export [data-tab="pdf"]');
-      expect(await page.locator('dialog.export [data-key="book-front-offset-x"]').inputValue()).toBe('-1.5');
-      expect(await page.locator('dialog.export [data-key="book-creep"]').inputValue()).toBe('0.1');
+      expect(await page.locator('dialog.export [data-key="book-creep"]').inputValue()).toBe('0.1'); // the printer's, not the book's
+      expect(await page.locator('dialog.export [data-key="book-tone-light"]').inputValue()).toBe('8');
+      expect(await page.locator('dialog.export [data-key="book-signatures"]').inputValue()).toBe('3'); // the book's own
       expect(await page.locator('[data-key="printer-notice"]').count()).toBe(0);
       expect(app.errors).toEqual([]);
     });

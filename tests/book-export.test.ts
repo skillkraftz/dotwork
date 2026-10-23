@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { PDFDocument } from 'pdf-lib';
 import { emptyBook, setSlot, type Book } from '../src/book/book';
-import { FOLD_X_MM, SHEET_W_MM, TRIM_ZONE_MM } from '../src/book/impose';
+import { FOLD_X_MM, SHEET_W_MM, TRIM_ZONE_MM, clonePrint, type PrintSettings } from '../src/book/impose';
 import { emptyPage, PAGE_H_MM, PAGE_W_MM, type Page } from '../src/format/types';
 import { exportBookFiles, type ExportedFile } from '../src/print/export';
 import { FLAT, setPrint } from './flat';
@@ -13,6 +13,8 @@ const fonts = {
   bold: readFileSync('src/fonts/CourierPrime-Bold.ttf'),
 };
 const PT = 72 / 25.4;
+/** The flat printer profile with some settings changed (the offsets and scale go to the selected layout). */
+const printer = (change: Parameters<typeof setPrint>[1] = {}): PrintSettings => { const p = clonePrint(FLAT); setPrint(p, change); return p; };
 
 /** A page whose only content is its label, set in the middle of the grid. */
 const labelled = (label: string): Page => ({
@@ -20,7 +22,7 @@ const labelled = (label: string): Page => ({
   elements: [{ type: 'text', x: 3, y: 10, text: label, size: 'heading' }],
 });
 const labelledBook = (pages: number, tweak: (b: Book) => void = () => {}): Book => {
-  const b = emptyBook(pages, FLAT);
+  const b = emptyBook(pages);
   b.page_numbers = false;
   for (let n = 1; n <= pages; n++) setSlot(b, n, labelled(`P${n}`));
   tweak(b);
@@ -31,7 +33,7 @@ const names = (files: ExportedFile[]) => files.map((f) => f.name);
 
 describe('print files for 8 pages (journal-system: test_duplex_files)', () => {
   let files: ExportedFile[];
-  beforeAll(async () => { files = await exportBookFiles(labelledBook(8), fonts); });
+  beforeAll(async () => { files = await exportBookFiles(labelledBook(8), FLAT, fonts); });
 
   it('writes fronts in reverse sheet order and backs in forward order', async () => {
     const first = await readPdf(file(files, 'print-first.pdf'));
@@ -47,7 +49,7 @@ describe('print files for 8 pages (journal-system: test_duplex_files)', () => {
 
 describe('a full 52 page book (journal-system: test_duplex_file_page_counts, test_sheet_size_is_half_letter)', () => {
   let files: ExportedFile[];
-  beforeAll(async () => { files = await exportBookFiles(labelledBook(52), fonts); });
+  beforeAll(async () => { files = await exportBookFiles(labelledBook(52), FLAT, fonts); });
 
   it('has 13 sheets each side, 52 pages and one cover spread', async () => {
     const count = async (name: string) => (await PDFDocument.load(file(files, name))).getPageCount();
@@ -86,7 +88,7 @@ describe('a full 52 page book (journal-system: test_duplex_file_page_counts, tes
 
 describe('multiple signatures (journal-system: test_multiple_signatures_pad_with_blanks)', () => {
   it('writes a pair of files per signature and a page on every sheet side it needs', async () => {
-    const files = await exportBookFiles(labelledBook(12, (b) => { b.print.signatures = 2; }), fonts);
+    const files = await exportBookFiles(labelledBook(12, (b) => { b.print.signatures = 2; }), FLAT, fonts);
     expect(names(files)).toEqual(expect.arrayContaining(['sig1-print-first.pdf', 'sig1-print-second.pdf', 'sig2-print-first.pdf', 'sig2-print-second.pdf']));
     const s1 = await readPdf(file(files, 'sig1-print-first.pdf'));
     const s2 = await readPdf(file(files, 'sig2-print-first.pdf'));
@@ -104,7 +106,7 @@ describe('centering, creep and the back offset in the content', () => {
   };
 
   it('draws no text in the trim zone, even with exaggerated creep', async () => {
-    const files = await exportBookFiles(labelledBook(52, (b) => { b.print.creep_per_sheet_mm = 0.2; }), fonts);
+    const files = await exportBookFiles(labelledBook(52), printer({ creep_per_sheet_mm: 0.2 }), fonts);
     for (const name of ['print-first.pdf', 'print-second.pdf', 'cover-outside.pdf', 'cover-inside.pdf']) {
       for (const page of await readPdf(file(files, name))) {
         expect(page.content).toMatch(/ re\nW\nn\n/); // each page is clipped to its own box
@@ -119,7 +121,7 @@ describe('centering, creep and the back offset in the content', () => {
 
   it('moves a page toward the fold by its sheet’s creep', async () => {
     const at = async (thickness: number) => {
-      const files = await exportBookFiles(labelledBook(8, (b) => { b.print.creep_per_sheet_mm = thickness; }), fonts);
+      const files = await exportBookFiles(labelledBook(8), printer({ creep_per_sheet_mm: thickness }), fonts);
       const sheets = await readPdf(file(files, 'print-first.pdf')); // [sheet 1, sheet 0]
       return sheets.map((s) => firstTextX(s.content) / PT);
     };
@@ -129,7 +131,7 @@ describe('centering, creep and the back offset in the content', () => {
   });
 
   it('moves every interior page away from the fold by the fore-edge shift (left pages left, right pages right), and the cover by its own shift', async () => {
-    const make = async (print: Parameters<typeof setPrint>[1]) => exportBookFiles(labelledBook(8, (b) => { setSlot(b, 0, labelled('FRONT')); setSlot(b, 9, labelled('BACK')); Object.assign(b.print, { creep_per_sheet_mm: 0.3, fore_edge_shift_mm: 0, cover_fore_edge_shift_mm: 0, ...print }); }), fonts);
+    const make = async (print: Parameters<typeof setPrint>[1]) => exportBookFiles(labelledBook(8, (b) => { setSlot(b, 0, labelled('FRONT')); setSlot(b, 9, labelled('BACK')); }), printer({ creep_per_sheet_mm: 0.3, fore_edge_shift_mm: 0, cover_fore_edge_shift_mm: 0, ...print }), fonts);
     const xs = async (files: ExportedFile[], name: string) => (await readPdf(file(files, name))).flatMap((p) => textPositions(p).map((t) => ({ text: t.text, x: t.x })));
     const base = await make({}), shifted = await make({ fore_edge_shift_mm: 1.5 }), cover = await make({ cover_fore_edge_shift_mm: 0.8 });
     const move = (a: { text: string; x: number }[], b: { text: string; x: number }[], text: string) => b.find((t) => t.text === text)!.x - a.find((t) => t.text === text)!.x;
@@ -153,7 +155,7 @@ describe('centering, creep and the back offset in the content', () => {
   });
 
   it('shifts each side by its own offset: the first pass (print-first, cover-outside) by the front offset, the second (print-second, cover-inside) by the back offset', async () => {
-    const make = async (print: Parameters<typeof setPrint>[1]) => exportBookFiles(labelledBook(8, (b) => { setSlot(b, 0, labelled('FRONT')); setSlot(b, 9, labelled('BACK')); setSlot(b, -1, labelled('OUTFRONT')); setSlot(b, 10, labelled('OUTBACK')); setPrint(b.print, print); }), fonts);
+    const make = async (print: Parameters<typeof setPrint>[1]) => exportBookFiles(labelledBook(8, (b) => { setSlot(b, 0, labelled('FRONT')); setSlot(b, 9, labelled('BACK')); setSlot(b, -1, labelled('OUTFRONT')); setSlot(b, 10, labelled('OUTBACK')); }), printer(print), fonts);
     const base = await make({}), front = await make({ front_offset_x_mm: 1, front_offset_y_mm: 2 }), back = await make({ back_offset_x_mm: -1, back_offset_y_mm: -2 });
     const same = (a: ExportedFile[], b: ExportedFile[], name: string) => Buffer.from(file(a, name)).equals(Buffer.from(file(b, name)));
     const pos = (c: string) => c.match(/1 0 0 1\s+(-?[\d.]+)\s+(-?[\d.]+)\s+Tm/)!;
@@ -179,14 +181,14 @@ describe('centering, creep and the back offset in the content', () => {
   });
 
   it('refuses a creep that would cross the fold', async () => {
-    await expect(exportBookFiles(labelledBook(52, (b) => { b.print.creep_per_sheet_mm = 0.5; }), fonts)).rejects.toThrow(/past the fold/);
+    await expect(exportBookFiles(labelledBook(52), printer({ creep_per_sheet_mm: 0.5 }), fonts)).rejects.toThrow(/past the fold/);
   });
 });
 
 describe('the cover', () => {
   it('is one centered spread: the inside front cover on the left, the inside back cover on the right', async () => {
     const book = labelledBook(8, (b) => { setSlot(b, 0, labelled('FRONT')); setSlot(b, 9, labelled('BACK')); });
-    const [cover] = await readPdf(file(await exportBookFiles(book, fonts), 'cover-inside.pdf'));
+    const [cover] = await readPdf(file(await exportBookFiles(book, FLAT, fonts), 'cover-inside.pdf'));
     expect(cover.strings.sort()).toEqual(['BACK', 'FRONT']);
     expect(cover.width).toBeCloseTo(SHEET_W_MM * PT, 1);
     expect(FOLD_X_MM * 2).toBeCloseTo(SHEET_W_MM);
@@ -195,16 +197,16 @@ describe('the cover', () => {
 
 describe('page numbers', () => {
   it('print by default in the outer corner and are left off on request', async () => {
-    const on = await readPdf(file(await exportBookFiles(labelledBook(8, (b) => { b.page_numbers = true; }), fonts), 'pages.pdf'));
+    const on = await readPdf(file(await exportBookFiles(labelledBook(8, (b) => { b.page_numbers = true; }), FLAT, fonts), 'pages.pdf'));
     expect(on[4].strings).toContain('5');
-    const off = await readPdf(file(await exportBookFiles(labelledBook(8, (b) => { b.page_numbers = false; }), fonts), 'pages.pdf'));
+    const off = await readPdf(file(await exportBookFiles(labelledBook(8, (b) => { b.page_numbers = false; }), FLAT, fonts), 'pages.pdf'));
     expect(off[4].strings).not.toContain('5');
   });
 
   it('leaves date tokens blank for writing in by hand', async () => {
-    const book = emptyBook(4, FLAT);
+    const book = emptyBook(4);
     setSlot(book, 1, { ...emptyPage(), identity: '{weekday} {month} {day}' });
-    const [p1] = await readPdf(file(await exportBookFiles(book, fonts), 'pages.pdf'));
+    const [p1] = await readPdf(file(await exportBookFiles(book, FLAT, fonts), 'pages.pdf'));
     expect(p1.strings.join('|')).toBe('1');
   });
 });

@@ -1,65 +1,141 @@
 import { describe, expect, it } from 'vitest';
-import { NO_READINGS, offsetsFromReadings, xFromReading, yFromReadings, type Offsets } from '../src/book/alignment';
+import { LONG_LINE_MM, NO_READINGS, backAgainstPaper, crosshairs, foldScaleAt, fromCentre, scaleCaptions, scaleFromReading, seeThrough, sheetHeight, sheetResult } from '../src/book/alignment';
+import { DEFAULT_PRINT, SHEET_H_MM, SHEET_W_MM, type LayoutProfile } from '../src/book/impose';
 import { GRID_Y_MM } from '../src/format/types';
 
-const ZERO: Offsets = { front_offset_x_mm: 0, front_offset_y_mm: 0, back_offset_x_mm: 0, back_offset_y_mm: 0 };
+const ZERO: LayoutProfile = { front_offset_x_mm: 0, front_offset_y_mm: 0, back_offset_x_mm: 0, back_offset_y_mm: 0, scale_x_pct: 100, scale_y_pct: 100, back_rotation_deg: 0 };
+const DEG = Math.PI / 180;
 
-// The signs are proved against the real PDFs in printer-error.test.ts; these pin each conversion down on its own.
-describe('the fold scale: x', () => {
-  it('new offset = the offset the sheet was printed with + the crease’s reading (+ is right, as seen on that side)', () => {
-    expect(xFromReading(0, 0.5)).toBe(0.5); // crease right of 0: the page landed too far left, so move it right
-    expect(xFromReading(0, -1.2)).toBe(-1.2);
-    expect(xFromReading(-1.5, 0.3)).toBe(-1.2);
-    expect(xFromReading(0.4, 0)).toBe(0.4);
+// printer-error.test.ts proves the signs against whole simulated printers; these pin each conversion down on its own.
+describe('where the sheet puts things', () => {
+  it('has the crosshairs symmetric about the sheet’s centre, the x ones on the fold, and the fold scale at the centre', () => {
+    for (const layout of ['half_letter', 'letter_two_up'] as const) {
+      const c = crosshairs(layout);
+      expect(c.top.x).toBe(SHEET_W_MM / 2);
+      expect(c.bottom.x).toBe(SHEET_W_MM / 2);
+      expect(c.left.x + c.right.x).toBe(SHEET_W_MM);
+      expect(foldScaleAt(layout)).toEqual({ x: SHEET_W_MM / 2, y: sheetHeight(layout) / 2 });
+    }
+    expect(sheetHeight('half_letter')).toBe(SHEET_H_MM);
+    expect(sheetHeight('letter_two_up')).toBeCloseTo(2 * SHEET_H_MM, 9);
   });
-  it('an empty reading leaves the offset alone', () => {
-    expect(xFromReading(0.7, null)).toBe(0.7);
+  it('measures from the centre, y up', () => {
+    expect(fromCentre('half_letter', { x: SHEET_W_MM / 2, y: 0 })).toEqual({ x: 0, y: SHEET_H_MM / 2 });
+    expect(fromCentre('letter_two_up', { x: 0, y: sheetHeight('letter_two_up') })).toEqual({ x: -SHEET_W_MM / 2, y: -SHEET_H_MM });
   });
-  it('stays inside the book format’s limits, and rounds to 0.01 mm', () => {
-    expect(xFromReading(9, 4)).toBe(10);
-    expect(xFromReading(-9, -4)).toBe(-10);
-    expect(xFromReading(0.1, 0.2)).toBe(0.3);
+  it('has long lines as long as the layout allows: the 8.5 in edge, and the 5.5 in edge or the full 11 in edge', () => {
+    expect(LONG_LINE_MM.half_letter).toEqual({ x: 190, y: 120 });
+    expect(LONG_LINE_MM.letter_two_up).toEqual({ x: 190, y: 260 });
+    expect(LONG_LINE_MM.half_letter.x).toBeLessThan(SHEET_W_MM - 6);
+    expect(LONG_LINE_MM.half_letter.y).toBeLessThan(SHEET_H_MM - 6);
+    expect(LONG_LINE_MM.letter_two_up.y).toBeLessThan(sheetHeight('letter_two_up') - 6);
+  });
+  it('names its scales, rulers and lines by the paper’s edges', () => {
+    expect(scaleCaptions('half_letter').left).toBe('y, left 5.5 in edge');
+    expect(scaleCaptions('letter_two_up').left).toBe('y, left 11 in edge');
+    expect(scaleCaptions('half_letter').longY).toBe('5.5 in edge: should measure 120.0 mm');
+    expect(scaleCaptions('letter_two_up').longX).toBe('8.5 in edge: should measure 190.0 mm');
   });
 });
 
-describe('the top and bottom rulers: y', () => {
-  it('top margin too big (the page sits too low): move up', () => {
-    expect(yFromReadings(0, GRID_Y_MM + 0.5, null)).toBeCloseTo(0.5, 9);
-    expect(yFromReadings(0, GRID_Y_MM - 0.5, null)).toBeCloseTo(-0.5, 9); // too high: move down
+describe('the see-through readings', () => {
+  it('give the turn from two x readings, over the distance between the scales, + counter-clockwise', () => {
+    const c = crosshairs('half_letter'), span = fromCentre('half_letter', c.top).y - fromCentre('half_letter', c.bottom).y;
+    const r = seeThrough('half_letter', { ...NO_READINGS, topX: 0.3, bottomX: -0.3 });
+    expect(r.phi!).toBeCloseTo(0.6 / span, 12);
+    expect(r.dx!).toBeCloseTo(0, 12); // symmetric about the centre: no shift
+    expect(r.dy).toBeNull();
   });
-  it('bottom margin too big (the page sits too high): move down', () => {
-    expect(yFromReadings(0, null, GRID_Y_MM + 0.5)).toBeCloseTo(-0.5, 9);
-    expect(yFromReadings(0, null, GRID_Y_MM - 0.5)).toBeCloseTo(0.5, 9);
+  it('give the turn from two y readings too, the left one positive for a counter-clockwise turn', () => {
+    const r = seeThrough('half_letter', { ...NO_READINGS, leftY: 0.5, rightY: -0.5 });
+    const c = crosshairs('half_letter');
+    expect(r.phi!).toBeCloseTo(1 / (c.right.x - c.left.x), 12);
+    expect(r.dy!).toBeCloseTo(0, 12);
   });
-  it('both margins: move up by half of (top − bottom), so the page is centered whatever the sheet’s height', () => {
-    expect(yFromReadings(0, 4.35, 3.35)).toBeCloseTo(0.5, 9);
-    expect(yFromReadings(0, 3.35, 4.35)).toBeCloseTo(-0.5, 9);
-    expect(yFromReadings(0.2, 3.85, 3.85)).toBe(0.2); // already even
-    expect(yFromReadings(0, 3.5, 3.5)).toBe(0); // a short sheet: even margins, not 3.85 each
+  it('average the two turns, and take the turn out of the shifts', () => {
+    const c = crosshairs('half_letter'), top = fromCentre('half_letter', c.top), bottom = fromCentre('half_letter', c.bottom), phi = 0.2 * DEG;
+    const r = seeThrough('half_letter', { ...NO_READINGS, topX: 0.4 + phi * top.y, bottomX: 0.4 + phi * bottom.y, leftY: -0.2, rightY: -0.2 });
+    expect(r.phi!).toBeCloseTo(phi / 2, 9); // the x pair says phi, the y pair says none
+    expect(r.dx!).toBeCloseTo(0.4, 9); // the top and bottom are equally far from the centre, so the turn's own shifts cancel
   });
-  it('no reading leaves the offset alone', () => {
-    expect(yFromReadings(0.3, null, null)).toBe(0.3);
-  });
-  it('stays inside the limits and rounds to 0.01 mm', () => {
-    expect(yFromReadings(9.5, 20, null)).toBe(10);
-    expect(yFromReadings(0, 3.851, 3.85)).toBe(0);
+  it('with one reading and no turn known, are just that reading', () => {
+    expect(seeThrough('half_letter', { ...NO_READINGS, topX: 0.7 })).toEqual({ phi: null, dx: 0.7, dy: null });
+    expect(seeThrough('half_letter', { ...NO_READINGS, rightY: -0.2 })).toEqual({ phi: null, dx: null, dy: -0.2 });
   });
 });
 
-describe('all four offsets', () => {
-  it('each side is read on its own, and the new value starts from the offset it was printed with', () => {
-    const printed: Offsets = { front_offset_x_mm: 1, front_offset_y_mm: 0.2, back_offset_x_mm: -2, back_offset_y_mm: 0.1 };
-    const next = offsetsFromReadings(printed, { fold: -0.4, top: 4.05, bottom: 3.65 }, { fold: 0.6, top: null, bottom: 4.35 });
-    expect(next.front_offset_x_mm).toBeCloseTo(0.6, 9);
-    expect(next.front_offset_y_mm).toBeCloseTo(0.4, 9); // 0.2 + (4.05 - 3.65) / 2
-    expect(next.back_offset_x_mm).toBeCloseTo(-1.4, 9);
-    expect(next.back_offset_y_mm).toBeCloseTo(-0.4, 9); // 0.1 + (3.85 - 4.35)
+describe('the crease and the margins', () => {
+  it('the crease left of the scale’s zero (negative) means the back is printed right of where it should be', () => {
+    expect(backAgainstPaper('half_letter', { ...NO_READINGS, crease: -0.5 }, null).x).toBe(0.5);
+    expect(backAgainstPaper('half_letter', { ...NO_READINGS, crease: 0.5 }, null).x).toBe(-0.5);
+  });
+  it('a top margin bigger than 3.85 means the back is too low; both margins: half of (bottom - top)', () => {
+    expect(backAgainstPaper('half_letter', { ...NO_READINGS, topMargin: GRID_Y_MM + 0.5 }, null).y).toBeCloseTo(-0.5, 9);
+    expect(backAgainstPaper('half_letter', { ...NO_READINGS, bottomMargin: GRID_Y_MM + 0.5 }, null).y).toBeCloseTo(0.5, 9);
+    expect(backAgainstPaper('half_letter', { ...NO_READINGS, topMargin: 4.35, bottomMargin: 3.35 }, null).y).toBeCloseTo(-0.5, 9);
+    expect(backAgainstPaper('half_letter', { ...NO_READINGS, topMargin: 3.5, bottomMargin: 3.5 }, null).y).toBe(0); // a short sheet: even margins, not 3.85 each
+  });
+  it('nothing read is null', () => {
+    expect(backAgainstPaper('half_letter', NO_READINGS, null)).toEqual({ x: null, y: null });
+  });
+});
+
+describe('scale from a long line', () => {
+  it('turns a measured line into a scale: a printer that makes 100 mm 98.8 mm needs 101.21 %', () => {
+    expect(scaleFromReading(100, 100, 98.8)).toBeCloseTo(101.21, 2);
+    expect(scaleFromReading(100, 100, 100)).toBe(100);
+  });
+  it('is by the line’s length: 190 mm that measures 188.0 needs 101.06 %', () => {
+    expect(scaleFromReading(100, 100, 188, 190)).toBeCloseTo(101.06, 2);
+    expect(scaleFromReading(100, 100, 190, 190)).toBe(100);
+  });
+  it('is relative to the scale the sheet was printed at', () => {
+    expect(scaleFromReading(101.21, 101.21, 100)).toBeCloseTo(101.21, 2);
+    expect(scaleFromReading(101, 101, 99.5)).toBeCloseTo(101.51, 2);
+  });
+  it('stays within 95 to 105, and keeps the old scale when nothing was measured', () => {
+    expect(scaleFromReading(100, 100, 80)).toBe(105);
+    expect(scaleFromReading(100, 100, 120)).toBe(95);
+    expect(scaleFromReading(101.2, 100, null)).toBe(101.2);
+    expect(scaleFromReading(101.2, 100, 0)).toBe(101.2);
+  });
+  it('sets each axis from its own line: the 8.5 in edge the x scale, the other the y scale', () => {
+    const next = sheetResult('letter_two_up', ZERO, { ...NO_READINGS, longX: 188, longY: 262 });
+    expect(next.scale_x_pct).toBeCloseTo(101.06, 2);
+    expect(next.scale_y_pct).toBeCloseTo(99.24, 2);
+  });
+});
+
+describe('the result', () => {
+  it('turns the back by minus what it is turned, and stays within ±1.5 degrees, rounded to 0.001', () => {
+    const c = crosshairs('half_letter'), top = fromCentre('half_letter', c.top), bottom = fromCentre('half_letter', c.bottom);
+    const read = (deg: number) => ({ ...NO_READINGS, topX: deg * DEG * top.y, bottomX: deg * DEG * bottom.y });
+    expect(sheetResult('half_letter', ZERO, read(0.4)).back_rotation_deg).toBeCloseTo(-0.4, 3);
+    expect(sheetResult('half_letter', { ...ZERO, back_rotation_deg: 0.3 }, read(0.1)).back_rotation_deg).toBeCloseTo(0.2, 3);
+    expect(sheetResult('half_letter', ZERO, read(5)).back_rotation_deg).toBe(-1.5);
+    expect(sheetResult('half_letter', ZERO, read(-5)).back_rotation_deg).toBe(1.5);
+  });
+  it('keeps the offsets within ±10 mm and rounds to 0.01 mm', () => {
+    expect(sheetResult('half_letter', { ...ZERO, back_offset_x_mm: 9 }, { ...NO_READINGS, topX: 4, bottomX: 4 }).back_offset_x_mm).toBe(10);
+    expect(sheetResult('half_letter', ZERO, { ...NO_READINGS, topX: 0.123, bottomX: 0.123 }).back_offset_x_mm).toBe(0.12);
+  });
+  it('moves the back by what it reads against the front when only the see-through is read, and the front not at all', () => {
+    const next = sheetResult('half_letter', { ...ZERO, front_offset_x_mm: 1, back_offset_x_mm: 2, back_offset_y_mm: 0.5 }, { ...NO_READINGS, topX: -0.4, bottomX: -0.4, leftY: 0.3, rightY: 0.3 });
+    expect(next.back_offset_x_mm).toBeCloseTo(1.6, 9); // the front shows through left of the scale: move the back left
+    expect(next.back_offset_y_mm).toBeCloseTo(0.8, 9); // above the scale: move the back up
+    expect(next.front_offset_x_mm).toBe(1);
+  });
+  it('moves the front too once the back is read against the paper: the front is what is left', () => {
+    // Back perfect against the paper (crease 0, margins 3.85), front shows through 0.4 mm left of the scale and 0.3 mm above it: the
+    // front is 0.4 right of where it should be (the sheet is turned over) and 0.3 too high.
+    const next = sheetResult('half_letter', DEFAULT_PRINT.layouts.half_letter, { ...NO_READINGS, topX: -0.4, bottomX: -0.4, leftY: 0.3, rightY: 0.3, crease: 0, topMargin: GRID_Y_MM, bottomMargin: GRID_Y_MM });
+    const was = DEFAULT_PRINT.layouts.half_letter;
+    expect(next.front_offset_x_mm).toBeCloseTo(was.front_offset_x_mm - 0.4, 9);
+    expect(next.front_offset_y_mm).toBeCloseTo(was.front_offset_y_mm - 0.3, 9);
+    expect(next.back_offset_x_mm).toBe(was.back_offset_x_mm);
+    expect(next.back_offset_y_mm).toBe(was.back_offset_y_mm);
   });
   it('nothing read changes nothing', () => {
-    expect(offsetsFromReadings(ZERO, NO_READINGS, NO_READINGS)).toEqual(ZERO);
-  });
-  it('one side read leaves the other as it was', () => {
-    const next = offsetsFromReadings({ ...ZERO, back_offset_x_mm: 0.9 }, { fold: 1, top: null, bottom: null }, NO_READINGS);
-    expect(next).toEqual({ ...ZERO, front_offset_x_mm: 1, back_offset_x_mm: 0.9 });
+    expect(sheetResult('half_letter', ZERO, NO_READINGS)).toEqual(ZERO);
   });
 });

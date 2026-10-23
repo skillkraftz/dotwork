@@ -7,7 +7,7 @@ import { blankTokens } from '../format/tokens';
 import { FIRST_SLOT, bookExpand, bookPage, lastSlot, type Book } from '../book/book';
 import {
   LAYOUT_NAMES, PAPER_SETTINGS, SHEET_H_MM, SHEET_W_MM, checkPrintSettings, duplexOrder, impose, pageOrigin,
-  type PageRef, type Sheet, type SheetSide, type Signature,
+  type PageRef, type PrintSettings, type Sheet, type SheetSide, type Signature,
 } from '../book/impose';
 import { drawPage, mmToPt, type Fonts } from './draw';
 import { drawCutMarks, drawHalfLabel, edgeProblem, halfLabel, halfTops, isTwoUp, onSheet, sheetSize, transformOf } from './sheets';
@@ -32,8 +32,8 @@ export type PdfPage = ReturnType<PDFDocument['addPage']>;
 type Drawer = ReturnType<typeof drawer>;
 
 /** Draws book pages and covers with their top-left corner at x, y (mm from the PDF page's top-left). */
-function drawer(book: Book, fonts: Fonts, sheetH: number) {
-  const tones = tonesOf(book.print);
+function drawer(book: Book, print: PrintSettings, fonts: Fonts, sheetH: number) {
+  const tones = tonesOf(print);
   const place = (pdf: PdfPage, page: Page, x: number, y: number, pageNumber: string | null, expand = blankTokens) =>
     drawPage(pdf, page, { x, y, sheetHeight: sheetH, fonts, pageNumber, expand, tones });
   return {
@@ -46,9 +46,9 @@ function drawer(book: Book, fonts: Fonts, sheetH: number) {
 }
 
 /** Every page at final size, in reading order. */
-async function pagesPdf(book: Book, fontBytes: FontBytes): Promise<Uint8Array> {
+async function pagesPdf(book: Book, print: PrintSettings, fontBytes: FontBytes): Promise<Uint8Array> {
   const { doc, fonts } = await newDocument(fontBytes);
-  const d = drawer(book, fonts, PAGE_H_MM);
+  const d = drawer(book, print, fonts, PAGE_H_MM);
   for (let n = 1; n <= book.page_count; n++) d.page(doc.addPage([mmToPt(PAGE_W_MM), mmToPt(PAGE_H_MM)]), n, 0, 0);
   return doc.save({ useObjectStreams: false });
 }
@@ -64,17 +64,17 @@ export interface HalfPlan {
 export interface PagePlan { side: 'front' | 'back'; halves: (HalfPlan | null)[] }
 
 /**
- * The PDF for pages of sheets. The sheet layout, offsets and scale come from `head`, the book that is exported (the top book of
- * a two-up sheet); every half uses its own book's creep, shifts and tones.
+ * The PDF for pages of sheets. The sheet layout, offsets, rotation, scale, shifts and tones all come from the printer profile `print`;
+ * each half draws its own book's pages.
  */
-export async function sheetsPdf(plans: PagePlan[], head: Book, fontBytes: FontBytes): Promise<Uint8Array> {
+export async function sheetsPdf(plans: PagePlan[], print: PrintSettings, fontBytes: FontBytes): Promise<Uint8Array> {
   const { doc, fonts } = await newDocument(fontBytes);
-  const layout = head.print.sheet_layout, { w, h } = sheetSize(layout), tops = halfTops(layout), twoUp = isTwoUp(layout);
+  const layout = print.sheet_layout, { w, h } = sheetSize(layout), tops = halfTops(layout), twoUp = isTwoUp(layout);
   const drawers = new Map<Book, Drawer>();
-  const drawerOf = (b: Book) => drawers.get(b) ?? drawers.set(b, drawer(b, fonts, h)).get(b)!;
+  const drawerOf = (b: Book) => drawers.get(b) ?? drawers.set(b, drawer(b, print, fonts, h)).get(b)!;
   for (const plan of plans) {
     const pdf = doc.addPage([mmToPt(w), mmToPt(h)]);
-    onSheet(pdf, w, h, transformOf(head.print, plan.side), (dx, dy) => {
+    onSheet(pdf, w, h, transformOf(print, plan.side), (dx, dy) => {
       plan.halves.forEach((half, i) => {
         if (!half) return;
         half.draw(drawerOf(half.book), pdf, tops[i], dx, dy);
@@ -89,7 +89,7 @@ export async function sheetsPdf(plans: PagePlan[], head: Book, fontBytes: FontBy
 const bookTitle = (b: Book) => b.name.trim() || 'Untitled book';
 
 /** Sheet `j` of a signature, one side, as a half: null if the signature (or the sheet) isn't there. */
-function sheetHalf(book: Book, sig: Signature | undefined, j: number, side: 'front' | 'back', signatures: number): HalfPlan | null {
+function sheetHalf(book: Book, print: PrintSettings, sig: Signature | undefined, j: number, side: 'front' | 'back', signatures: number): HalfPlan | null {
   const sheet: Sheet | undefined = sig?.sheets[j];
   if (!sig || !sheet) return null;
   const refs: SheetSide = sheet[side];
@@ -100,7 +100,7 @@ function sheetHalf(book: Book, sig: Signature | undefined, j: number, side: 'fro
       for (const [isRight, ref] of [[false, refs.left], [true, refs.right]] as [boolean, PageRef][]) {
         if (ref === null) continue;
         if (isRight !== Boolean(ref % 2)) throw new Error(`page ${ref} landed on the wrong side`);
-        const at = pageOrigin(isRight, sheet.creep, book.print.fore_edge_shift_mm);
+        const at = pageOrigin(isRight, sheet.creep, print.fore_edge_shift_mm);
         d.page(pdf, ref, at.x + dx, top + at.y + dy);
       }
     },
@@ -111,15 +111,15 @@ function sheetHalf(book: Book, sig: Signature | undefined, j: number, side: 'fro
 export interface Books { top: Book; bottom: Book }
 
 /** What is printed on one side of sheet `j` of signature `i`: the top book's, and for two-up the bottom book's. */
-function sheetPage(b: Books, topSigs: Signature[], bottomSigs: Signature[], i: number, j: number, side: 'front' | 'back'): PagePlan {
-  const halves = [sheetHalf(b.top, topSigs[i], j, side, topSigs.length)];
-  if (isTwoUp(b.top.print.sheet_layout)) halves.push(sheetHalf(b.bottom, bottomSigs[i], j, side, bottomSigs.length));
+function sheetPage(b: Books, print: PrintSettings, topSigs: Signature[], bottomSigs: Signature[], i: number, j: number, side: 'front' | 'back'): PagePlan {
+  const halves = [sheetHalf(b.top, print, topSigs[i], j, side, topSigs.length)];
+  if (isTwoUp(print.sheet_layout)) halves.push(sheetHalf(b.bottom, print, bottomSigs[i], j, side, bottomSigs.length));
   return { side, halves };
 }
 
 /** How many signatures and, in each, how many sheets the layout needs: the bigger of the two books, so the other's extra halves stay blank. */
-function sheetCounts(b: Books, topSigs: Signature[], bottomSigs: Signature[]): number[] {
-  const two = isTwoUp(b.top.print.sheet_layout), count = Math.max(topSigs.length, two ? bottomSigs.length : 0);
+function sheetCounts(print: PrintSettings, topSigs: Signature[], bottomSigs: Signature[]): number[] {
+  const two = isTwoUp(print.sheet_layout), count = Math.max(topSigs.length, two ? bottomSigs.length : 0);
   return Array.from({ length: count }, (_, i) => Math.max(topSigs[i]?.sheets.length ?? 0, two ? bottomSigs[i]?.sheets.length ?? 0 : 0));
 }
 
@@ -129,13 +129,13 @@ function sheetCounts(b: Books, topSigs: Signature[], bottomSigs: Signature[]): n
  * shift, on its own side of the fold, so the inside front lands behind the outside front. The outside is printed first (the
  * front offset), the inside second (the back offset).
  */
-function coverHalf(book: Book, pass: 'outside' | 'inside'): HalfPlan {
+function coverHalf(book: Book, print: PrintSettings, pass: 'outside' | 'inside'): HalfPlan {
   const [left, right] = pass === 'outside' ? [lastSlot(book), FIRST_SLOT] : [0, book.page_count + 1];
   return {
     book,
     label: [bookTitle(book), `${pass} cover`],
     draw: (d, pdf, top, dx, dy) => {
-      const shift = book.print.cover_fore_edge_shift_mm, l = pageOrigin(false, 0, shift), r = pageOrigin(true, 0, shift);
+      const shift = print.cover_fore_edge_shift_mm, l = pageOrigin(false, 0, shift), r = pageOrigin(true, 0, shift);
       d.cover(pdf, left, l.x + dx, top + l.y + dy);
       d.cover(pdf, right, r.x + dx, top + r.y + dy);
     },
@@ -143,8 +143,8 @@ function coverHalf(book: Book, pass: 'outside' | 'inside'): HalfPlan {
 }
 
 /** The cover PDF of a pass: one sheet, single-sided. Two-up puts the top book's covers on the top half and the bottom book's below. */
-const coverPdf = (b: Books, pass: 'outside' | 'inside', fontBytes: FontBytes) =>
-  sheetsPdf([{ side: pass === 'outside' ? 'front' : 'back', halves: isTwoUp(b.top.print.sheet_layout) ? [coverHalf(b.top, pass), coverHalf(b.bottom, pass)] : [coverHalf(b.top, pass)] }], b.top, fontBytes);
+const coverPdf = (b: Books, print: PrintSettings, pass: 'outside' | 'inside', fontBytes: FontBytes) =>
+  sheetsPdf([{ side: pass === 'outside' ? 'front' : 'back', halves: isTwoUp(print.sheet_layout) ? [coverHalf(b.top, print, pass), coverHalf(b.bottom, print, pass)] : [coverHalf(b.top, print, pass)] }], print, fontBytes);
 
 /** Short advice for printing, from the steps above: the real procedure (print-first, same way back in the tray, print-second) and the calibration set. */
 export const PRINT_TIPS = [
@@ -167,8 +167,8 @@ export const TWO_UP_ORDER = [
   'halves Book 2, each in nesting order. If your printer stacks the other way, each pile is in reverse order: turn it round.',
 ];
 
-export function summary(books: Books, sigs: Signature[], files: string[], now = new Date(), bottomSigs: Signature[] = sigs): string {
-  const book = books.top, p = book.print, twoUp = isTwoUp(p.sheet_layout);
+export function summary(books: Books, p: PrintSettings, sigs: Signature[], files: string[], now = new Date(), bottomSigs: Signature[] = sigs): string {
+  const book = books.top, twoUp = isTwoUp(p.sheet_layout);
   const sheets = sigs.reduce((n, g) => n + g.sheets.length, 0);
   const maxCreep = Math.max(...sigs.map((g) => (g.sheets.length - 1) * p.creep_per_sheet_mm));
   const { w, h } = sheetSize(p.sheet_layout);
@@ -181,12 +181,12 @@ export function summary(books: Books, sigs: Signature[], files: string[], now = 
     ...(twoUp ? [
       `Top: Book 1, ${bookTitle(books.top)} (${sigs.reduce((n, g) => n + g.sheets.length, 0)} sheets)`,
       `Bottom: Book 2, ${bookTitle(books.bottom)} (${bottomSigs.reduce((n, g) => n + g.sheets.length, 0)} sheets; a book with fewer sheets leaves its half blank)`,
-      'Sheet layout, offsets and scale come from Book 1; each book keeps its own creep, shifts and tones.',
+      'Both books print with the same printer settings.',
     ] : []),
     '',
     'Print settings used for these files:',
-    ...settingsLines(book, now).map((l) => `  ${l}`),
-    '  (offsets: + is right and up, as seen on that side. Front: the first pass. Back: the second. Tones: 0 = white, 100 = black.)',
+    ...settingsLines(p, now, book.print.signatures).map((l) => `  ${l}`),
+    '  (offsets: + is right and up, as seen on that side. Front: the first pass. Back: the second. Back rotation: + is counter-clockwise as seen on the back. Tones: 0 = white, 100 = black.)',
     '',
     `Files: ${files.join(', ')}`,
     '',
@@ -213,44 +213,43 @@ export function summary(books: Books, sigs: Signature[], files: string[], now = 
 export interface Include { signatures?: boolean; cover?: boolean; pages?: boolean }
 
 /** Why the books can't be printed with their settings, or null. `bottom` is checked only on a two-up sheet. */
-export function exportProblem(b: Books, topSigs: Signature[], bottomSigs: Signature[]): string | null {
-  const twoUp = isTwoUp(b.top.print.sheet_layout);
+export function exportProblem(print: PrintSettings, topSigs: Signature[], bottomSigs: Signature[], twoUp = isTwoUp(print.sheet_layout)): string | null {
   const biggest = (sigs: Signature[]) => Math.max(...sigs.map((g) => g.sheets.length));
-  const own = (book: Book, sigs: Signature[], name: string) => {
-    const problem = checkPrintSettings(book.print, biggest(sigs));
+  const own = (sigs: Signature[], name: string) => {
+    const problem = checkPrintSettings(print, biggest(sigs));
     return problem && `${name}${problem}`;
   };
-  const problem = own(b.top, topSigs, twoUp ? 'Book 1: ' : '') ?? (twoUp ? own(b.bottom, bottomSigs, 'Book 2: ') : null);
+  const problem = own(topSigs, twoUp ? 'Book 1: ' : '') ?? (twoUp ? own(bottomSigs, 'Book 2: ') : null);
   if (problem) return problem;
-  const toward = [b.top, ...(twoUp ? [b.bottom] : [])].flatMap((k, i) => {
-    const sigs = i ? bottomSigs : topSigs, n = biggest(sigs);
-    return [-k.print.fore_edge_shift_mm, (n - 1) * k.print.creep_per_sheet_mm - k.print.fore_edge_shift_mm, -k.print.cover_fore_edge_shift_mm];
+  const toward = [topSigs, ...(twoUp ? [bottomSigs] : [])].flatMap((sigs) => {
+    const n = biggest(sigs);
+    return [-print.fore_edge_shift_mm, (n - 1) * print.creep_per_sheet_mm - print.fore_edge_shift_mm, -print.cover_fore_edge_shift_mm];
   });
-  return edgeProblem({ print: b.top.print, toward });
+  return edgeProblem({ print, toward });
 }
 
 /**
- * The PDFs and the summary for a book (and, on a two-up sheet, for the book on the bottom half: the same book unless told).
- * Throws if the print settings can't be printed.
+ * The PDFs and the summary for a book (and, on a two-up sheet, for the book on the bottom half: the same book unless told), printed
+ * with the printer profile `print`. Throws if the print settings can't be printed.
  */
-export async function exportBookFiles(book: Book, fontBytes: FontBytes, include: Include = {}, bottomBook: Book = book): Promise<ExportedFile[]> {
+export async function exportBookFiles(book: Book, print: PrintSettings, fontBytes: FontBytes, include: Include = {}, bottomBook: Book = book): Promise<ExportedFile[]> {
   const { signatures = true, cover = true, pages = true } = include;
   const books: Books = { top: book, bottom: bottomBook };
-  const topSigs = impose(book.page_count, book.print, book.print.signatures);
-  const bottomSigs = isTwoUp(book.print.sheet_layout) ? impose(bottomBook.page_count, bottomBook.print, bottomBook.print.signatures) : topSigs;
+  const topSigs = impose(book.page_count, print, book.print.signatures);
+  const bottomSigs = isTwoUp(print.sheet_layout) ? impose(bottomBook.page_count, print, bottomBook.print.signatures) : topSigs;
   if (signatures || cover) {
-    const problem = exportProblem(books, topSigs, bottomSigs);
+    const problem = exportProblem(print, topSigs, bottomSigs);
     if (problem) throw new Error(problem);
   }
   const pdf = (name: string, bytes: Uint8Array): ExportedFile => ({ name, bytes, type: 'application/pdf' });
   const files: ExportedFile[] = [];
-  const twoUp = isTwoUp(book.print.sheet_layout);
+  const twoUp = isTwoUp(print.sheet_layout);
   if (signatures) {
-    const counts = sheetCounts(books, topSigs, bottomSigs);
+    const counts = sheetCounts(print, topSigs, bottomSigs);
     for (const [i, n] of counts.entries()) {
       const prefix = counts.length > 1 ? `sig${i + 1}-` : '';
       const [fronts, backs] = duplexOrder(n);
-      const make = (order: [number, 'front' | 'back'][]) => sheetsPdf(order.map(([j, side]) => sheetPage(books, topSigs, bottomSigs, i, j, side)), book, fontBytes);
+      const make = (order: [number, 'front' | 'back'][]) => sheetsPdf(order.map(([j, side]) => sheetPage(books, print, topSigs, bottomSigs, i, j, side)), print, fontBytes);
       // print-duplex: front, back, front, back… from the outermost sheet in, so a pile built in print order nests as it is.
       if (twoUp) files.push(pdf(`${prefix}print-duplex.pdf`, await make(Array.from({ length: n }, (_, j): [number, 'front' | 'back'][] => [[j, 'front'], [j, 'back']]).flat())));
       files.push(pdf(`${prefix}print-first.pdf`, await make(fronts.map((j) => [j, 'front']))));
@@ -258,13 +257,13 @@ export async function exportBookFiles(book: Book, fontBytes: FontBytes, include:
     }
   }
   if (cover) {
-    files.push(pdf('cover-outside.pdf', await coverPdf(books, 'outside', fontBytes)));
-    files.push(pdf('cover-inside.pdf', await coverPdf(books, 'inside', fontBytes)));
+    files.push(pdf('cover-outside.pdf', await coverPdf(books, print, 'outside', fontBytes)));
+    files.push(pdf('cover-inside.pdf', await coverPdf(books, print, 'inside', fontBytes)));
   }
-  if (pages) files.push(pdf('pages.pdf', await pagesPdf(book, fontBytes)));
+  if (pages) files.push(pdf('pages.pdf', await pagesPdf(book, print, fontBytes)));
   if (signatures) {
     const names = [...files.map((f) => f.name), 'preview.png'];
-    files.push({ name: 'summary.txt', bytes: new TextEncoder().encode(summary(books, topSigs, names, new Date(), bottomSigs)), type: 'text/plain' });
+    files.push({ name: 'summary.txt', bytes: new TextEncoder().encode(summary(books, print, topSigs, names, new Date(), bottomSigs)), type: 'text/plain' });
   }
   return files;
 }

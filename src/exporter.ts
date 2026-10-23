@@ -11,8 +11,6 @@ import { layoutPicker, printFields } from './settings';
 import { slug } from './slug';
 import { loadFontBytes } from './print/fonts';
 import { CalibrateDialog, type CalibrateHost } from './calibrate';
-import { differing, printerOf } from './printer';
-import { clonePrint } from './book/impose';
 
 export type ExportTab = 'import' | 'export' | 'png' | 'pdf';
 const TABS: [ExportTab, string][] = [['import', 'Import'], ['export', 'Export'], ['png', 'PNG'], ['pdf', 'PDF']];
@@ -50,8 +48,6 @@ export class ExportDialog {
   /** The Library book on the bottom half of a two-up sheet; empty is the book being exported. */
   private bottomId = '';
   private calibrate: CalibrateDialog;
-  /** The book and printer settings whose difference was dismissed with Keep this book's. */
-  private keptDifference = '';
 
   constructor(private host: ExportHost) {
     const tabBar = h('div', { class: 'lib-tabs', role: 'tablist', 'aria-label': 'Export sections' },
@@ -188,14 +184,12 @@ export class ExportDialog {
       return h('label', { class: 'choice stack' }, input, h('span', {}, h('strong', {}, label), h('small', { class: 'hint' }, note)));
     };
     const { pages, cover, signatures } = this.pdf;
-    const notice = h('div', { class: 'printer-notice-slot' });
-    this.fillNotice(notice);
-    const twoUp = book.print.sheet_layout === 'letter_two_up';
+    const printer = this.host.printer.get(), twoUp = printer.sheet_layout === 'letter_two_up';
     const names = [
       ...(pages ? ['pages.pdf'] : []), ...(cover ? ['cover-outside.pdf', 'cover-inside.pdf'] : []),
       ...(signatures ? [`${twoUp ? 'print-duplex.pdf, ' : ''}print-first.pdf and print-second.pdf for each signature, with preview.png and summary.txt`] : []),
     ];
-    const redraw = () => { this.fillNotice(notice); this.render(); };
+    const redraw = () => this.render();
     return [
       names.length === 0
         ? this.what('Choose at least one file to make.')
@@ -207,13 +201,13 @@ export class ExportDialog {
         box('signatures', 'Print files', twoUp
           ? 'print-duplex.pdf (front, back, front, back… for a printer that duplexes by itself), and print-first.pdf and print-second.pdf for when it can’t: two sheets per letter sheet, with creep, cut marks and labels. Also a preview and a summary.'
           : 'print-first.pdf (side A) and print-second.pdf (side B): pages arranged on letter-cut-in-half sheets, with creep, for printing on both sides and binding. Also a preview and a summary.')),
-      layoutPicker(() => this.host.book(), (change) => this.host.editBook(change), redraw),
+      layoutPicker(() => this.host.printer.get(), (change) => this.host.printer.edit(change), redraw),
       ...(twoUp ? [this.bottomBook()] : []),
       h('div', { class: 'export-actions' }, h('button', {
         type: 'button', 'data-key': 'calibrate-open', 'data-help': 'calibrate-open',
         onclick: () => { this.dialog.close(); this.calibrate.show(); },
       }, 'Calibrate your printer…')),
-      ...(signatures ? [notice, h('h3', {}, 'Printing'), ...printFields(() => this.host.book(), (change) => { this.host.editBook(change); this.fillNotice(notice); })] : []),
+      ...(signatures ? [h('h3', {}, 'Printing'), h('p', { class: 'hint' }, 'These belong to your printer, not the book: they are kept in this browser and used for every book. Only the signatures are saved in the book.'), ...printFields(() => this.host.printer.get(), (change) => this.host.printer.edit(change), () => this.host.book(), (change) => this.host.editBook(change))] : []),
       this.downloadButton('export-pdf', () => this.buildPdf(), names.length === 0),
     ];
   }
@@ -228,37 +222,11 @@ export class ExportDialog {
       this.bottomId = select.value;
     });
     return h('div', {}, h('label', { class: 'compact wide' }, 'Bottom book (Book 2)', select),
-      h('p', { class: 'hint' }, 'The top half (Book 1) is this book. If the books have different numbers of sheets, the extra halves are blank. Sheet layout, offsets and scale come from this book.'));
-  }
-
-  /** The printer's saved settings and where the book's print settings differ from them: the key of that difference, and what differs. */
-  private printerDifference() {
-    const saved = this.host.printer.saved(), print = this.host.book().print;
-    return { saved, print, keys: saved ? differing(print, saved) : [], id: JSON.stringify([printerOf(print), saved]) };
-  }
-
-  /**
-   * Says so when the book's print settings differ from the printer's saved ones, and offers to take either. A change to a field
-   * only updates the list, never the buttons: a tap that blurs a field and lands on a button must still reach it.
-   */
-  private fillNotice(slot: HTMLElement) {
-    const { saved, keys, id } = this.printerDifference();
-    if (!saved || keys.length === 0 || id === this.keptDifference) { slot.replaceChildren(); return; }
-    const items = keys.map((k) => h('li', {}, `${k.name}: ${k.here} here, ${k.saved} saved`));
-    const list = slot.querySelector('ul');
-    if (list) { list.replaceChildren(...items); return; }
-    const use = h('button', { type: 'button', class: 'primary', 'data-key': 'printer-use-saved', 'data-help': 'printer-use-saved' }, 'Use my printer settings');
-    use.onclick = () => { this.host.editBook((b) => Object.assign(b.print, clonePrint({ ...b.print, ...this.host.printer.saved()! }))); this.render(); };
-    const keep = h('button', { type: 'button', 'data-key': 'printer-keep-book', 'data-help': 'printer-keep-book' }, 'Keep this book’s');
-    keep.onclick = () => { this.keptDifference = this.printerDifference().id; this.fillNotice(slot); };
-    slot.replaceChildren(h('div', { class: 'printer-notice', role: 'status', 'data-key': 'printer-notice' },
-      h('p', {}, 'This book’s print settings differ from your printer’s saved settings:'),
-      h('ul', {}, ...items),
-      h('div', { class: 'problem-actions' }, use, keep)));
+      h('p', { class: 'hint' }, 'The top half (Book 1) is this book. If the books have different numbers of sheets, the extra halves are blank. Both halves print with your printer settings.'));
   }
 
   private async buildPdf() {
-    const book = this.host.book();
+    const book = this.host.book(), print = this.host.printer.get();
     const include: Include = { ...this.pdf };
     this.say('Building the PDFs…');
     let files: ExportedFile[] = [];
@@ -267,8 +235,8 @@ export class ExportDialog {
       // The PDF code is loaded only when it is needed.
       const [{ exportBookFiles }, fontBytes] = await Promise.all([import('./print/export'), loadFontBytes()]);
       // A two-up sheet's bottom book: the one chosen from the Library, else the book itself.
-      const bottom = book.print.sheet_layout === 'letter_two_up' && this.bottomId ? (await this.host.savedBooks()).find((b) => b.id === this.bottomId)?.book : undefined;
-      files = await exportBookFiles(book, fontBytes, include, bottom);
+      const bottom = print.sheet_layout === 'letter_two_up' && this.bottomId ? (await this.host.savedBooks()).find((b) => b.id === this.bottomId)?.book : undefined;
+      files = await exportBookFiles(book, print, fontBytes, include, bottom);
       if (include.signatures) {
         const sheet = contactSheet(book, FONT_CSS);
         const px = (mm: number) => Math.round((mm / 25.4) * PREVIEW_DPI);

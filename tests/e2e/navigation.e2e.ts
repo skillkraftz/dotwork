@@ -223,15 +223,17 @@ describe('the settings window', () => {
     await page.waitForSelector('.stage-page');
     await choose(app, 'page', '#settings');
     await page.waitForSelector('dialog.settings[open]');
-    for (const key of ['settings-book-name', 'settings-book-pages', 'settings-book-numbers', 'book-creep', 'book-offset-x', 'book-offset-y', 'book-signatures']) {
+    for (const key of ['settings-book-name', 'settings-book-pages', 'settings-book-numbers', 'book-signatures']) {
       expect(await page.locator(`dialog.settings [data-key="${key}"]`).count(), key).toBe(1);
     }
+    // Printer settings are not the book's: they are not here, and the layout is chosen in one place, the PDF tab.
+    for (const key of ['book-creep', 'book-offset-x', 'book-offset-y', 'book-sheet-layout']) expect(await page.locator(`dialog.settings [data-key="${key}"]`).count(), key).toBe(0);
     await page.locator('[data-key="settings-book-name"]').fill('Field notes');
-    await page.locator('[data-key="book-creep"]').fill('0.2');
-    await page.locator('[data-key="book-creep"]').dispatchEvent('change');
+    await page.locator('[data-key="book-signatures"]').fill('2');
+    await page.locator('[data-key="book-signatures"]').dispatchEvent('change');
     await page.locator('[data-key="settings-book-numbers"]').uncheck();
     const book = await page.evaluate(() => JSON.parse(localStorage.getItem('dotwork.book')!));
-    expect(book).toMatchObject({ name: 'Field notes', page_numbers: false, print: { creep_per_sheet_mm: 0.2 } });
+    expect(book).toMatchObject({ name: 'Field notes', page_numbers: false, print: { signatures: 2 } });
     expect(await smallControls(app, 'dialog.settings')).toEqual([]);
     await shot(app, 'phone-settings-book');
     noErrors(app);
