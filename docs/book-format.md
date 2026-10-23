@@ -1,8 +1,10 @@
 # Dotwork book file, version 1
 
 A book is the 52 (or more) interior pages of a pocket notebook plus its four
-cover pages (inside and outside), with the settings its print files need. It embeds every page it
-uses, so one file is the whole book. Each page inside is a complete page file
+cover pages (inside and outside). It embeds every page it
+uses, so one file is the whole book. **The book file holds the design only**: how the pages are printed (creep, shifts,
+offsets, rotation, scale, tones, the sheet layout) is the printer's, kept in the browser as the printer profile (see below),
+so changing those settings never changes the book format or stops a book from opening. Each page inside is a complete page file
 exactly as `page-format.md` defines it (version 2); this document adds nothing
 to the page format.
 
@@ -13,22 +15,7 @@ to the page format.
   "name": "Pocket journal",
   "page_count": 52,
   "page_numbers": true,
-  "print": {
-    "creep_per_sheet_mm": 0.3,
-    "fore_edge_shift_mm": 2,
-    "cover_fore_edge_shift_mm": 2.2,
-    "target_fore_edge_margin_mm": 3.5,
-    "sheet_layout": "half_letter",
-    "layouts": {
-      "half_letter": { "front_offset_x_mm": 1.7, "front_offset_y_mm": -0.05, "back_offset_x_mm": 1.5, "back_offset_y_mm": 0.05, "scale_x_pct": 100, "scale_y_pct": 100 },
-      "letter_two_up": { "front_offset_x_mm": 0, "front_offset_y_mm": 0, "back_offset_x_mm": 0, "back_offset_y_mm": 0, "scale_x_pct": 100, "scale_y_pct": 100 }
-    },
-    "signatures": 1,
-    "shade_light_pct": 6.3,
-    "shade_medium_pct": 13.7,
-    "shade_dark_pct": 25.9,
-    "gray_text_pct": 49.8
-  },
+  "print": { "signatures": 1 },
   "pages": [ { "...": "a dotwork-page with side \"right\"" }, null, { "...": "..." } ],
   "dates": [ "2026-10-18", "2026-10-25", null ],
   "cover": { "front": { "...": "a dotwork-page with side \"left\"" }, "back": null, "outside_front": null, "outside_back": null },
@@ -41,16 +28,7 @@ to the page format.
 | `name` | The book's name. |
 | `page_count` | Interior pages: a multiple of 4, from 4 to 400. Usually 52 (13 sheets). |
 | `page_numbers` | Print the page number in each page's outer top corner. On by default. The covers never carry one. |
-| `print.creep_per_sheet_mm` | Creep: how far each sheet's content must move toward the fold relative to the sheet outside it, so every sheet's content shifts toward the fold by (sheets outside it) × this. Found by the creep test. In a thick book it is often more than the paper's thickness (about 1.5×), because the round spine uses up paper. Default 0.30 (provisional, see below). 0 to 1. |
-| `print.fore_edge_shift_mm` | Moves the content of every interior page away from the fold by this amount (left pages left, right pages right), on top of the creep, so the trimmed fore-edge margin lands on the target. Default 2.0 (provisional). -10 to 10. |
-| `print.cover_fore_edge_shift_mm` | The same for the covers (`cover-outside.pdf`, `cover-inside.pdf`). Default 2.2 (provisional). -10 to 10. |
-| `print.target_fore_edge_margin_mm` | The fore-edge margin wanted on the trimmed book, content box to the trimmed edge. The creep test marks it on its rulers and the wizard aims for it. Top and bottom are unchanged (3.85 mm). Default 3.5. 1 to 10. |
-| `print.sheet_layout` | `"half_letter"` or `"letter_two_up"`: how the sheets are laid on the paper (see **Sheet layouts** below). The offsets and scale below are those of the layout chosen here when the files are made. |
-| `print.layouts.<layout>.front_offset_x_mm`, `.front_offset_y_mm` | Added to everything printed on the first pass with that layout: `print-first.pdf`, the fronts in `print-duplex.pdf`, `cover-outside.pdf` and the front calibration pages. +x moves right, +y moves up, as seen on that side. -10 to 10. Measured against the paper, not against the back (see below). Defaults for `half_letter`: 1.7 and -0.05, the owner's printer; for `letter_two_up`: 0. |
-| `print.layouts.<layout>.back_offset_x_mm`, `.back_offset_y_mm` | The same for the second pass (`print-second.pdf`, the backs in `print-duplex.pdf`, `cover-inside.pdf` and the back calibration page), as seen on that side. -10 to 10. Defaults for `half_letter`: 1.5 and 0.05; for `letter_two_up`: 0. |
-| `print.layouts.<layout>.scale_x_pct`, `.scale_y_pct` | The size of everything on the sheet, across and down, as a percent of true size, about the sheet's centre (the sheet's centre stays put), on both sides of every print PDF and calibration sheet. 95 to 105, default 100. It cancels a printer that enlarges or shrinks the page (borderless modes enlarge it slightly); the Calibrate wizard's Size step finds it. The offset is added after scaling. |
-| `print.signatures` | How many signatures to split the book into, 1 to 20. Pages are split evenly and each signature rounds up to a multiple of 4, so a short last signature is padded with blank filler pages. |
-| `print.shade_light_pct`, `print.shade_medium_pct`, `print.shade_dark_pct`, `print.gray_text_pct` | How dark the printed PDFs draw the light, medium and dark shade tones and the gray text (`"tone": "gray"` on text and sequences), as a percent of black: 0 is white, 100 is black. 0 to 100, fractions allowed. The defaults, 6.3, 13.7, 25.9 and 49.8, are the grays the editor and PNGs always use (#efefef, #dcdcdc, #bdbdbd, #808080), so a default book prints as it always did. They change `pages.pdf`, the print files, `cover.pdf` and the calibration sheets only, never the editor, the preview or PNGs. |
+| `print` | Optional. An object whose only meaning is `signatures`: how many signatures to split the book into, a whole number from 1 to 20, default 1 (a missing or unusable number is 1). Pages are split evenly and each signature rounds up to a multiple of 4, so a short last signature is padded with blank filler pages. Everything else in `print`, whatever its shape, is ignored: books saved by earlier versions kept the printer's settings here (and so may carry `creep_per_sheet_mm`, `layouts`, tones…), and they all still open. |
 | `pages` | Exactly `page_count` entries; entry *i* is page *i* + 1. A page, or `null` for a blank page. |
 | `dates` | Optional. Exactly `page_count` entries; entry *i* is the date of page *i* + 1, as `"YYYY-MM-DD"` (a real calendar day), or `null` for an undated page. A book without `dates` has none. The covers have no date. |
 | `recipe` | Optional. The steps **Build book** made the pages from, so it can be run again for another month. See **Recipe** below. |
@@ -117,8 +95,28 @@ the rest blank, and the window shows "38 of 52 used, 14 left" as the steps chang
 
 **Validation.** A reader rejects the whole file, and says which rule failed and
 where, if the format or version is wrong, `page_count` is not a multiple of 4,
-`pages` or `dates` has the wrong length, a date is not a real `YYYY-MM-DD` day, a print setting (any `print.*` number, `sheet_layout`, and every offset and scale of both layouts) is missing or out of range, a `recipe` is malformed (its month, a step's `repeat` or `start`, more than one `fill`, or a section: see `library-format.md`), or a page breaks
+`pages` or `dates` has the wrong length, a date is not a real `YYYY-MM-DD` day, a `recipe` is malformed (its month, a step's `repeat` or `start`, more than one `fill`, or a section: see `library-format.md`), or a page breaks
 the page rules or sits on the wrong side. The page-number corner rule is not applied to the covers.
+
+## The printer profile
+
+Everything about how a particular printer and paper print lives in the printer profile, kept in the browser (local storage)
+and used for every book; the Calibrate wizard finds it. It is not part of a book file, and a book is printed with whatever the
+profile is when the files are made (the zip's `summary.txt` and `calibration.txt` record the settings used). Numbers outside the
+limits below are brought back in by the fields and refused by the reader of a stored profile (which then falls back to the defaults, saying why).
+
+| Field | Meaning |
+|-------|---------|
+| `creep_per_sheet_mm` | Creep: how far each sheet's content must move toward the fold relative to the sheet outside it, so every sheet's content shifts toward the fold by (sheets outside it) × this. Found by the creep test. In a thick book it is often more than the paper's thickness (about 1.5×), because the round spine uses up paper. Default 0.30 (provisional, see below). 0 to 1. |
+| `fore_edge_shift_mm` | Moves the content of every interior page away from the fold by this amount (left pages left, right pages right), on top of the creep, so the trimmed fore-edge margin lands on the target. Default 2.0 (provisional). -10 to 10. |
+| `cover_fore_edge_shift_mm` | The same for the covers (`cover-outside.pdf`, `cover-inside.pdf`). Default 2.2 (provisional). -10 to 10. |
+| `target_fore_edge_margin_mm` | The fore-edge margin wanted on the trimmed book, content box to the trimmed edge. The creep test marks it on its rulers and the wizard aims for it. Top and bottom are unchanged (3.85 mm). Default 3.5. 1 to 10. |
+| `sheet_layout` | `"half_letter"` or `"letter_two_up"`: how the sheets are laid on the paper (see **Sheet layouts** below). The offsets and scale below are those of the layout chosen here when the files are made. |
+| `layouts.<layout>.front_offset_x_mm`, `.front_offset_y_mm` | Added to everything printed on the first pass with that layout: `print-first.pdf`, the fronts in `print-duplex.pdf`, `cover-outside.pdf` and the front calibration pages. +x moves right, +y moves up, as seen on that side. -10 to 10. Measured against the paper, not against the back (see below). Defaults for `half_letter`: 1.7 and -0.05, the owner's printer; for `letter_two_up`: 0. |
+| `layouts.<layout>.back_offset_x_mm`, `.back_offset_y_mm` | The same for the second pass (`print-second.pdf`, the backs in `print-duplex.pdf`, `cover-inside.pdf` and the back calibration page), as seen on that side. -10 to 10. Defaults for `half_letter`: 1.5 and 0.05; for `letter_two_up`: 0. |
+| `layouts.<layout>.scale_x_pct`, `.scale_y_pct` | The size of everything on the sheet along its 8.5 in edge (x) and along its other edge (y: 5.5 in, or 11 in for two-up), as a percent of true size, about the sheet's centre (the sheet's centre stays put), on both sides of every print PDF and calibration sheet. 95 to 105, default 100. It cancels a printer that enlarges or shrinks the page (borderless modes enlarge it slightly); the long lines on the calibration sheet find it. The offset is added after scaling. |
+| `layouts.<layout>.back_rotation_deg` | Turns everything printed second (`print-second.pdf`, the backs in `print-duplex.pdf`, `cover-inside.pdf` and the back calibration pages) about the sheet's centre (the letter sheet's centre for two-up): + is counter-clockwise as seen on the back. -1.5 to 1.5, default 0. Applied after the scale and before the offset; the front is never turned. Found by the calibration sheet. A profile stored before it existed reads as 0. |
+| `shade_light_pct`, `shade_medium_pct`, `shade_dark_pct`, `gray_text_pct` | How dark the printed PDFs draw the light, medium and dark shade tones and the gray text (`"tone": "gray"` on text and sequences), as a percent of black: 0 is white, 100 is black. 0 to 100, fractions allowed. The defaults, 6.3, 13.7, 25.9 and 49.8, are the grays the editor and PNGs always use (#efefef, #dcdcdc, #bdbdbd, #808080), so a default book prints as it always did. They change `pages.pdf`, the print files, `cover.pdf` and the calibration sheets only, never the editor, the preview or PNGs. |
 
 ## What the print files contain
 
@@ -135,9 +133,9 @@ the page rules or sits on the wrong side. The page-number corner rule is not app
 
 ## Sheet layouts
 
-`print.sheet_layout` says how a book's sheets are laid on the paper. Creep, the fore-edge shifts, the target margin and the tones are
-the same for both; each layout has its own offsets and scale (`print.layouts`), because a printer places and sizes each paper
-size and mode differently. The printer profile kept in the browser holds both layouts too.
+The printer profile's `sheet_layout` says how a book's sheets are laid on the paper. Creep, the fore-edge shifts, the target margin and the tones are
+the same for both; each layout has its own offsets, rotation and scale (`layouts`), because a printer places and sizes each paper
+size and mode differently. The layout is chosen in one place, the PDF tab of the export window.
 
 - **`half_letter`** is the paper cut in half, 5.5 × 8.5 in, one book's sheet per sheet of paper, printed landscape. The owner's
   printer prints it only as *Statement (Borderless)*, which enlarges the image slightly; set page scaling to None / Actual size and
@@ -146,7 +144,7 @@ size and mode differently. The printer profile kept in the browser holds both la
   (paper size *Letter*, not borderless, page scaling None / Actual size). The top half is **Book 1** and the bottom half **Book 2**:
   the book being exported and, by default, the same book (a second book saved in the Library can be chosen for the bottom; if
   the books have different numbers of sheets, the extra halves are blank). Each half is laid out exactly as a half-letter
-  sheet, with the fold at its centre, using its own book's creep, shifts and tones; the layout, offsets and scale are Book 1's.
+  sheet, with the fold at its centre; both books print with the same printer profile.
   Duplex flips on the long edge: the top stays the top and left and right swap, so a point (*x*, *y*) on a front is at (215.9 − *x*, *y*)
   on its back, and each half's back is drawn in the same half of the back page, as the half-letter back is.
 
@@ -178,49 +176,35 @@ margins at the top and bottom must be even. The page is the full height of the s
 
 ## The calibration files
 
-The Calibrate wizard (Export, PDF tab, **Calibrate your printer…**) builds these from the book's print settings, at the book's real page size, with the same imposition and drawing code as the print files. Every page prints the settings that made it (seven lines in its footer). On letter two-up every page is drawn in both halves, labelled Book 1 and Book 2 as the print files are, with the cut marks; the scale and offsets of the layout apply to the whole page.
+The Calibrate wizard (Export, PDF tab, **Calibrate your printer…**) builds these from the printer profile (and the book's size, for the creep test), at the real page size, with the same imposition and drawing code as the print files. Every page prints the settings that made it (seven lines in its footer). On letter two-up every page is drawn in both halves, labelled Book 1 and Book 2 as the print files are, with the cut marks; the scale, offsets and rotation of the layout apply to the whole page.
 
 | File | Contents |
 |------|----------|
-| `calibration-size.pdf` | One single-sided page (takes the front offset and the scale). A horizontal line and a vertical line, each 100.0 mm between end ticks and labelled "should measure 100.0 mm", and a block of dots labelled with its count and span: "28 dots across = 81.0 mm" and "44 dots down = 129.0 mm" (the outermost dots, centre to centre; that is the Dot grid page's 27 × 43 cells of 3 mm, 28 × 44 dots). |
-| `calibration-alignment.pdf` | One file, two pages. Page 1 is the front (takes the front offset), page 2 the back (takes the back offset); print them with the book's manual-duplex method. Both: the page edge, the content-area box with crosshairs at its corners and centre (which coincide when held to a light once the offsets are right), a **fold scale** across the centre (-5 to +5 mm, ticks every 0.5 mm, 0 where the spread's fold lands) and a **ruler** at the top and bottom of each page. The front also has a gray ramp from 0 to 100% in 5% steps (each with text in that gray), the three shade tones and the gray text as they print now, small and large dots, hair, thin and thick ruled lines, and a hairline weight strip (0.05 to 0.30 mm). |
+| `calibration-sheet.pdf` | One double-sided sheet per layout, two pages: page 1 is the **front** (side 1, takes the front offset), page 2 the **back** (side 2, takes the back offset and the back rotation); print them with the manual-duplex method. Two-up draws each half, with the labels and cut marks, and measures on the sheet as a whole. See below. |
 | `creep-test.pdf` | Every sheet of the book's biggest signature, **both sides**, in manual-duplex order: pages 1 to *N* are the fronts (last sheet first), pages *N* + 1 to 2*N* the backs (first sheet first), so it follows the real `print-first.pdf` / `print-second.pdf` method. Each page is shifted by its sheet's creep, the fore-edge shift and its side's offset, and says which sheet, side and pages it is, and the print range of its pass. |
 | `calibration-cover.pdf` | Two pages like `cover-outside.pdf` and `cover-inside.pdf` (cover shift; page 1 the front offset, page 2 the back offset): the box and crosshairs of the outside covers, then of the inside covers. Covers stay out of the creep test. |
 | `calibration.txt`, `book.json`, `error.txt` | The settings that made the files, the book as JSON, and the error log if something went wrong. |
 
-**Rulers.** A margin ruler counts millimetres outward from the page's box line, with a tick every 0.5 mm, so the number where the paper (or the trimmed edge) ends is the margin there. The expected margin is marked with a longer tick: 3.85 mm at the top and bottom (the ruler stops there, at the edge of the unshifted page; if the paper ends past it, measure the extra with a ruler and add it) and the target margin (`target_fore_edge_margin_mm`, 3.5 by default) at the fore-edge (the ruler runs to 7 mm, past the trim line). The creep test and the cover sheet have rulers at the top, bottom and fore-edge of every page; the alignment sheet at the top and bottom.
+**Rulers.** A margin ruler counts millimetres outward from the page's box line, with a tick every 0.5 mm, so the number where the paper (or the trimmed edge) ends is the margin there. The expected margin is marked with a longer tick: 3.85 mm at the top and bottom (the ruler stops there, at the edge of the unshifted page; if the paper ends past it, measure the extra with a ruler and add it) and the target margin (`target_fore_edge_margin_mm`, 3.5 by default) at the fore-edge (the ruler runs to 7 mm, past the trim line). The creep test and the cover sheet have rulers at the top, bottom and fore-edge of every page; the calibration sheet at the top and bottom edge of the paper.
 
-**Reading the size sheet.** Print it with page scaling None / Actual size and the paper size the step names (*Statement (Borderless)* for half letter, *Letter* for two-up). With a ruler, measure each line between its end ticks, in mm. A line printed at *p* % that measures *m* mm means the printer sizes by *m* ÷ *p*, so the scale that cancels it is **new scale = 100 × printed scale ÷ measured** (printed scale is in the footer; a sheet printed at 100 % measuring 98.8 mm gives 101.21 %). The horizontal line sets `scale_x_pct` and the vertical line `scale_y_pct` of the selected layout, clamped to 95 to 105. The dot block is for counting without a ruler's help: 28 dots across span 81.0 mm and 44 down span 129.0 mm.
+**The calibration sheet.**
 
-**Reading the alignment sheet.** Print page 1, put the sheet back the same way as for `print-second.pdf`, print page 2. Fold the sheet in half edge to edge, crease it hard, open it. On each side:
+- *Side 1 (printed first)*: in each half, the gray ramp from 0 to 100% in 5% steps (each with text in that gray), the three shade tones and the gray text as they print now, small and large dots, hair, thin and thick ruled lines, a hairline weight strip (0.05 to 0.30 mm), the page edge, the content-area box and the settings footer; and once on the sheet, **four crosshairs**, one near each edge of the content area (at the fold near the paper's top edge, at the fold near its bottom edge, and at mid-height of the top half near the left and right edges), and the **fold mark**, a short line on the fold at the sheet's centre. They are symmetric about the sheet's centre, so each shows through the paper (the sheet turned over, left and right swapped) at the place of its mirror image.
+- *Side 2 (all measuring)*: next to where each crosshair shows through, a **mm scale** (-5 to +5 in ticks of 0.5 mm): along x at the top and bottom edge, along y at the left and right edge, each captioned with the paper's edge it is near; the **fold scale** (the same) at the sheet's centre, for the crease; a **ruler** at the paper's top and bottom edge (3.85 is right); and two **long lines** to measure with a ruler, as long as the layout allows and at least 3 mm from the paper's edge: one along the 8.5 in edge (190.0 mm) and one along the other (120.0 mm along the 5.5 in edge of a half-letter sheet; 260.0 mm along the full 11 in edge of a two-up sheet, crossing both halves). Each long line says "should measure N.0 mm".
+- *Names*: the sheet and the wizard name the paper's edges of the selected layout, never "across" or "down": half letter has an 8.5 in edge (top and bottom) and a 5.5 in edge (left and right); two-up an 8.5 in edge and an 11 in edge. The captions read "x, top 8.5 in edge", "x, bottom 8.5 in edge", "y, left 5.5 in edge" (11 in for two-up), "y, right …", "crease", "margin, top 8.5 in edge", "margin, bottom 8.5 in edge", and the two long lines; the wizard's inputs use the same words. On two-up, read the top half's left and right scales (Book 1).
 
-- *x*: read where the crease crosses the fold scale (+ to the right, as seen on that side). New offset x = the offset printed in the footer + the reading. The scale's 0 is where the fold landed, so a crease to the left of 0 means the page landed too far right.
-- *y*: read the margin where the paper ends on the top ruler and on the bottom ruler. With both, new offset y = printed offset y + (top − bottom) ÷ 2 (+ is up): the page is centered, so a sheet cut a little tall or short cancels out. With only one, that margin is brought to 3.85: new offset y = printed + (top − 3.85), or printed + (3.85 − bottom).
+**Reading the sheet.** Print it twice if you can: if the readings differ much between the two prints, the twist comes from the paper feed, not something a setting can fix. Print page 1, put the sheet back the same way as for `print-second.pdf`, print page 2. Hold the sheet to a light and read each scale where the front's crosshair shows through (x + to the right, y + up, as seen on side 2). Fold the sheet in half edge to edge, crease it hard, open it, and read where the crease crosses the fold scale and the margin where the paper ends on the two rulers. Measure the two long lines with a ruler. Every reading is optional; only what was read changes a setting. All readings are relative to the settings the sheet was printed with (its footer).
 
-Offsets are clamped to the limits above and rounded to 0.01 mm.
+*The geometry.* Work in the back's view, from the sheet's centre (the letter sheet's, for two-up), x right, y up, angles counter-clockwise. Let Rf be how far the front's print is from where it should be (its offset plus the printer's error, + right and + up as seen on the front) and Rb the same for the back, which is also turned by φ. The front is mirrored in the back's view, so a scale at *q* reads
 
-**Reading the creep test and the cover sheet.** Print `calibration-cover.pdf` on the cover stock (page 1, the sheet back the same way, page 2) and `creep-test.pdf` on the real paper (pages 1 to *N*, the stack back the same way, pages *N* + 1 to 2*N*), fold, bind and trim like a book, then read the fore-edge margin on a right-hand page of the cover, of sheet 1 (outermost) and of sheet *N* (innermost): the number on the ruler where the trimmed edge falls. Set the creep per sheet *before* printing (the paper's thickness is a good start); the wizard shows the values the test prints with, and each page's footer and `calibration.txt` record them.
+    reading = ( φ·q.y − Rb.x − Rf.x ,  Rf.y − Rb.y − φ·q.x )
 
-The cut is made 3.5 in from the cover's fold, and a thick saddle-stitched book has a round spine. Paper going round the curve is used up, so outer pages' content lands about (π/2 − 1) × *r* further from the fore-edge than designed (*r* is the spine's radius, about half the book's thickness), and each sheet's fore-edge creeps out about (π/2) × the caliper per sheet, not 1 ×. So the margin at sheet *k* (0 outermost), printed with creep *c* and fore-edge shift *s*, is
+(a front printed to the right shows through to the left; a back turned counter-clockwise puts its top to the left). So:
 
-> margin(*k*) = *A* + *k* × (*c* − *g*) − *s*
+- **Rotation.** φ from the two x readings is (top − bottom) ÷ (q_top.y − q_bottom.y), and from the two y readings (left − right) ÷ (q_right.x − q_left.x); with both, their mean. New back rotation = printed − φ (in degrees; clamped to ±1.5, rounded to 0.001). On two-up the x readings are the top of the top half and the bottom of the bottom half, which doubles the lever.
+- **The back against the front.** d = Rf′ − Rb, the back's translation against the front: x: reading − φ·q.y, y: reading + φ·q.x, averaged over the readings made. With only these, new back offset = printed + d (the back follows the front; the front stays).
+- **Against the paper.** The crease is the paper's own centre, so crease = φ·q.y − Rb.x, and Rb.x = φ·q.y − crease (q is the fold scale's, the sheet's centre, so q.y = 0). The margins are the box line to the edge: top = 3.85 + (down), bottom = 3.85 + (up), so Rb.y = (bottom − top) ÷ 2, or 3.85 − top with only the top, or bottom − 3.85 with only the bottom (a sheet cut a little tall or short cancels out with both). With a reading of the back against the paper, new back offset = printed − Rb.
+- **The front.** Once the back is known against the paper, what is left of the see-through is the front's error, Rf = d + Rb (x mirrored): new front offset x = printed + d.x + Rb.x, new front offset y = printed − d.y − Rb.y. Without the crease or margins the front is not touched.
+- **Scale per paper edge.** A line of *N* mm printed at *p* % that measures *m* mm means the printer sizes by *m* ÷ (*p* × *N* ÷ 100), so the scale that cancels it is **new scale = printed scale × N ÷ measured** (a 190.0 mm line at 100 % measuring 188.0 gives 101.06 %). The 8.5 in line sets `scale_x_pct`, the other `scale_y_pct`, clamped to 95 to 105.
 
-where *A* is the outermost margin with no shift (more than the page's own 3.95 mm, because of the curve) and *g* is how far each sheet really creeps. The cover is the outermost fold and has no creep: margin = *A*c − (cover shift). A bigger shift moves the content toward the fore-edge, so it makes the margin smaller. The wizard fits *A*, *g* and *A*c to the three readings, from the values the test was **printed** with (never whatever is set now), and sets:
-
-- **new creep = printed creep + (outermost − innermost) ÷ (sheets − 1).** A bigger margin on the innermost sheet than on the outermost means the inner sheets were moved in too far: less creep. Compare the innermost sheet with the *outermost sheet*, not with the cover, which has a different fold.
-- **new fore-edge shift = printed shift + (outermost − target).** A margin bigger than the target means the content must move toward the fore-edge: a bigger shift.
-- **new cover shift = printed cover shift + (cover − target).**
-
-With the new settings, every margin comes out at the target; the wizard shows the predicted margins and the spine-side margin of the innermost page on the paper (3.95 mm less how far its content moved toward the fold), and warns when that is under 2 mm. Worked example: printed with creep 0.14 and no shifts, target 3.5, 13 sheets, readings cover 5.7, outermost 5.5, innermost 3.6 → creep 0.14 + 1.9 ÷ 12 ≈ 0.298, fore-edge shift +2.0, cover shift +2.2.
-
-**The defaults are provisional.** `DEFAULT_PRINT` holds the owner's calibration (half-letter offsets 1.7 / -0.05 and 1.5 / 0.05, scale 100 %; letter two-up offsets 0 and scale 100 % until calibrated; creep 0.30, shifts 2.0 and 2.2, target 3.5) in case the saved printer profile is cleared. The creep and the two shifts come from the example above, not from a creep test run with them, until the owner's next test confirms them. A saved printer profile always takes precedence.
-
-Page order, creep and centering follow journal-system's
-`pocketjournal/imposition.py` and are tested with the same cases (see
-`tests/imposition.test.ts`): sheet *k* of *n* carries front
-`(4n − 2k, 2k + 1)` and back `(2k + 2, 4n − 2k − 1)`; creep for sheet *k* is
-*k* × creep per sheet (journal-system calls it paper thickness; dotwork's fore-edge shifts have no counterpart there yet); the outer 0.75 in of each side is trimmed after binding.
-Text is real text in the embedded Courier Prime font and lines are vector paths,
-so the PDFs stay sharp at any scale. Content must stay on the sheet and off the fold: on every
-sheet and on the cover, the page's 3.95 mm spine-side margin less the content's move toward the fold must stay above
-0, and the fore-edge side must stay on the paper, or the export is refused with the reason.
+Offsets are clamped to ±10 and rounded to 0.01 mm. Whether the front also needs a rotation against the paper is not measured: only the back is turned, against the front.

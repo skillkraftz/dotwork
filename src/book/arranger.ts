@@ -9,7 +9,7 @@ import { issuesProblem, problemView } from '../problems';
 import type { Library, LibraryItem } from '../library/library';
 import { applyDesign, blankPage, bookExpand, bookPage, dateOf, fillSlots, FIRST_SLOT, getSlot, isCover, lastSlot, readBook, setDates, setSlot, slotSide, type Book, type Design, type Facing } from './book';
 import { BUILTIN_SPREADS } from '../builtin/library';
-import { checkPrintSettings, signatureSizes } from './impose';
+import { checkPrintSettings, signatureSizes, type PrintSettings } from './impose';
 import { applyBuild, buildSummary, guessMove, planSteps, sectionFrom, stepLine, type BuildPlan } from './build';
 import { MOVES, MOVE_LABEL, readSection, type Move, type Recipe, type Section, type Step } from './sections';
 import { notesPage } from '../builtin/pages';
@@ -24,6 +24,8 @@ export interface ArrangerHost {
   /** Called after every change to the book, so the draft can be kept. */
   changed(book: Book): void;
   exportFiles(book: Book): void;
+  /** The printer profile, to warn when the book can't be printed with it. */
+  printer(): PrintSettings;
 }
 
 const MAX_UNDO = 30;
@@ -266,7 +268,7 @@ export class Arranger {
 
   private updateWarning() {
     const sizes = signatureSizes(this.book.page_count, this.book.print.signatures);
-    const problem = checkPrintSettings(this.book.print, Math.max(...sizes) / 4);
+    const problem = checkPrintSettings(this.host.printer(), Math.max(...sizes) / 4);
     this.warnEl.textContent = problem ?? '';
     this.warnEl.hidden = !problem;
   }

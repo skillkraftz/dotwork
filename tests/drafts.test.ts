@@ -1,3 +1,5 @@
+import { DEFAULT_PRINT } from '../src/book/impose';
+import { PRINTER_KEYS, readPrinter } from '../src/printer';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { badDraftProblem, backupsOf, loadDraft, saveDraft, type DraftStorage } from '../src/drafts';
@@ -21,28 +23,28 @@ class FakeStorage implements DraftStorage {
 const readIt = (data: unknown) => { const r = readBook(data); return r.ok ? { ok: true as const, value: r.book } : r; };
 const check = (b: Book) => { const r = readBook(b); return r.ok ? [] : r.issues; };
 
-/** The owner's book: a print setting the settings window let through but the book file refuses. */
+/** The owner's book, made to break the book format: "page_numbers" must be true or false. */
 const ownersBook = (): Book => {
   const b = TEMPLATES.find((t) => t.id === 'year-planner')!.build({ year: 2026 });
   b.name = 'Owner’s year';
-  b.print.creep_per_sheet_mm = 2;
+  (b as unknown as Record<string, unknown>).page_numbers = 'yes';
   return b;
 };
 
 describe('the owner’s lost book', () => {
   it('is refused by the book format (this is what made the next refresh drop it)', () => {
     const issues = check(ownersBook());
-    expect(issues.map((i) => i.path)).toEqual(['print.creep_per_sheet_mm']);
+    expect(issues.map((i) => i.path)).toEqual(['page_numbers']);
   });
 
   it('is never written over the last good draft', () => {
     const s = new FakeStorage();
     const good = ownersBook();
-    good.print.creep_per_sheet_mm = 0.14;
+    good.page_numbers = true;
     expect(saveDraft(s, 'dotwork.book', good, 'book', check)).toBeNull();
     const problem = saveDraft(s, 'dotwork.book', ownersBook(), 'book', check);
-    expect(problem?.lines.join('\n')).toContain('print.creep_per_sheet_mm');
-    expect(JSON.parse(s.getItem('dotwork.book')!).print.creep_per_sheet_mm).toBe(0.14);
+    expect(problem?.lines.join('\n')).toContain('page_numbers');
+    expect(JSON.parse(s.getItem('dotwork.book')!).page_numbers).toBe(true);
   });
 
   it('is kept under a backup key, with its reasons, when it is already stored', () => {
@@ -56,7 +58,7 @@ describe('the owner’s lost book', () => {
     expect(s.getItem('dotwork.book')).toBe(raw); // the draft itself is untouched, too
     const p = badDraftProblem('book', d, []);
     expect(p.lines[0]).toContain('Nothing was deleted');
-    expect(p.lines.join('\n')).toContain('print.creep_per_sheet_mm');
+    expect(p.lines.join('\n')).toContain('page_numbers');
     expect(p.details).toContain(raw); // Copy details carries the whole draft
     // loading again doesn't pile up copies, and never replaces one
     loadDraft(s, 'dotwork.book', readIt, new Date('2026-10-21T00:00:00Z'));
@@ -115,7 +117,7 @@ describe('the zip', () => {
 
   it('carries the book as JSON beside the PDFs, with no error log when all is well', async () => {
     const book = emptyBook(8);
-    const files = withBookJson(book, await exportBookFiles(book, fonts, { pages: true, cover: false, signatures: false }));
+    const files = withBookJson(book, await exportBookFiles(book, DEFAULT_PRINT, fonts, { pages: true, cover: false, signatures: false }));
     expect(files.map((f) => f.name)).toEqual(['pages.pdf', 'book.json']);
     expect(JSON.parse(new TextDecoder().decode(files[1].bytes))).toEqual(book);
   });
@@ -123,13 +125,13 @@ describe('the zip', () => {
   it('puts the error in an error.txt when the export fails, and still has the book', async () => {
     const book = ownersBook();
     let failure: unknown;
-    try { await exportBookFiles(book, { regular: new Uint8Array(), bold: new Uint8Array() }); } catch (err) { failure = err; }
+    try { await exportBookFiles(book, DEFAULT_PRINT, { regular: new Uint8Array(), bold: new Uint8Array() }); } catch (err) { failure = err; }
     expect(failure).toBeDefined();
     const files = withBookJson(book, [], failure);
     expect(files.map((f) => f.name)).toEqual(['book.json', 'error.txt']);
     const log = new TextDecoder().decode(files[1].bytes);
     expect(log).toContain('The export failed.');
-    expect(log).toContain('print.creep_per_sheet_mm'); // every way the book breaks the format
+    expect(log).toContain('page_numbers'); // every way the book breaks the format
   });
 
   it('says so when the files were made from a book that breaks the format', () => {
@@ -146,14 +148,19 @@ describe('the zip', () => {
 });
 
 describe('print limits', () => {
-  it('are the ones the book reader enforces', () => {
-    for (const [key, { min, max }] of Object.entries(PRINT_LIMITS)) {
-      for (const v of [min, max]) {
-        const b = emptyBook(); (b.print as unknown as Record<string, number>)[key] = v;
-        expect(check(b), `${key}=${v}`).toEqual([]);
-      }
-      const b = emptyBook(); (b.print as unknown as Record<string, number>)[key] = max + 1;
-      expect(check(b).map((i) => i.path)).toEqual([`print.${key}`]);
+  it('are the ones the printer profile enforces', () => {
+    for (const key of PRINTER_KEYS) {
+      const { min, max } = PRINT_LIMITS[key];
+      for (const v of [min, max]) expect(readPrinter({ ...DEFAULT_PRINT, [key]: v }).ok, `${key}=${v}`).toBe(true);
+      const r = readPrinter({ ...DEFAULT_PRINT, [key]: max + 1 });
+      expect(r.ok ? [] : r.issues.map((i) => i.path)).toEqual([key]);
     }
+  });
+
+  it('can never stop a book from opening: only the signatures are read from a book’s print settings', () => {
+    const b = emptyBook();
+    expect(check(b)).toEqual([]);
+    (b as unknown as { print: unknown }).print = { creep_per_sheet_mm: 99, signatures: 2 };
+    expect(check(b)).toEqual([]);
   });
 });

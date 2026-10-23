@@ -15,21 +15,20 @@ async function openBook(app: App) {
 
 describe('the owner’s lost book', () => {
   // The error: out-of-range print settings (paper thickness 2 mm, say) were saved into the draft, the book file format
-  // refuses them, and the next refresh found a draft it couldn't read, started an empty book and overwrote the draft.
-  it('keeps print settings the book file can hold, so a refresh brings the same book back', async () => {
+  // refused them, and the next refresh found a draft it couldn't read, started an empty book and overwrote the draft.
+  // Printer settings now live in the printer profile, so a book can never be refused over them.
+  it('keeps the book a refresh brings back, whatever the printer settings: only the signatures are in it', async () => {
     const app = await open(env, 'desktop');
     const { page } = app;
     await openBook(app);
     await choose(app, 'page', '#settings');
     await page.waitForSelector('dialog.settings[open]');
     await page.locator('[data-key="settings-book-name"]').fill('Field notes');
-    const thickness = page.locator('dialog.settings [data-key="book-creep"]');
-    await thickness.fill('2');
-    await thickness.dispatchEvent('change');
-    expect(await thickness.inputValue()).toBe('1'); // brought back into range, not kept
+    expect(await page.locator('dialog.settings [data-key="book-creep"]').count()).toBe(0); // not a book setting
     await page.locator('dialog.settings [data-key="book-signatures"]').fill('99');
     await page.locator('dialog.settings [data-key="book-signatures"]').dispatchEvent('change');
     expect(await stored(app, 'dotwork.book')).toContain('"signatures": 20'.replace(': ', ':'));
+    expect(JSON.parse((await stored(app, 'dotwork.book'))!).print).toEqual({ signatures: 20 });
 
     await page.reload();
     await openBook(app);
@@ -38,10 +37,22 @@ describe('the owner’s lost book', () => {
     expect(await backups(app, 'dotwork.book')).toEqual([]);
     expect(app.errors).toEqual([]);
   });
+
+  it('opens a book draft saved with any printer settings in it, such as the broken ones that used to be refused', async () => {
+    const app = await open(env, 'desktop');
+    const { page } = app;
+    const old = JSON.stringify({ format: 'dotwork-book', version: 1, name: 'Precious', page_count: 52, page_numbers: true, print: { creep_per_sheet_mm: 2, back_offset_x_mm: 0, signatures: 1 }, pages: Array(52).fill(null), cover: { front: null, back: null } });
+    await page.evaluate((raw) => localStorage.setItem('dotwork.book', raw), old);
+    await page.reload();
+    await openBook(app);
+    expect(await page.locator('#notice').isVisible()).toBe(false);
+    expect(JSON.parse((await stored(app, 'dotwork.book'))!).name).toBe('Precious');
+    expect(await backups(app, 'dotwork.book')).toEqual([]);
+  });
 });
 
 describe('a draft that can’t be read is never lost', () => {
-  const broken = JSON.stringify({ format: 'dotwork-book', version: 1, name: 'Precious', page_count: 52, page_numbers: true, print: { creep_per_sheet_mm: 2, fore_edge_shift_mm: 0, cover_fore_edge_shift_mm: 0, target_fore_edge_margin_mm: 3.5, back_offset_x_mm: 0, back_offset_y_mm: 0, signatures: 1 }, pages: Array(52).fill(null), cover: { front: null, back: null } });
+  const broken = JSON.stringify({ format: 'dotwork-book', version: 1, name: 'Precious', page_count: 52, page_numbers: 'yes', print: { signatures: 1 }, pages: Array(52).fill(null), cover: { front: null, back: null } });
 
   it('keeps a bad book draft under a backup key, says why, and offers the download and Start fresh', async () => {
     const app = await open(env, 'desktop');
@@ -52,7 +63,7 @@ describe('a draft that can’t be read is never lost', () => {
     const notice = page.locator('#notice');
     await notice.waitFor({ state: 'visible' });
     const text = await notice.innerText();
-    expect(text).toContain('print.creep_per_sheet_mm');
+    expect(text).toContain('page_numbers');
     expect(text).toContain('Nothing was deleted');
     expect(await notice.locator('button').allInnerTexts()).toEqual(['Download the draft', 'Start fresh', 'Copy details', 'Dismiss']);
     const kept = await backups(app, 'dotwork.book');

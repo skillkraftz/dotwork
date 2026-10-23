@@ -31,7 +31,10 @@ export type SheetLayout = 'half_letter' | 'letter_two_up';
 export const SHEET_LAYOUTS: readonly SheetLayout[] = ['half_letter', 'letter_two_up'];
 export const LAYOUT_NAMES: Record<SheetLayout, string> = { half_letter: 'Half letter', letter_two_up: 'Letter, two-up' };
 
-/** How the owner's printer is set for a layout (page scaling and paper size): in summary.txt and in the Calibrate wizard's Size step. */
+/** The paper's edges as the owner knows them: the 8.5 in edge is the sheet's top and bottom edge as the PDF is drawn, the other its left and right. Calibrate names its readings by these, never by across and down. */
+export const EDGE_NAMES: Record<SheetLayout, { x: string; y: string }> = { half_letter: { x: '8.5 in', y: '5.5 in' }, letter_two_up: { x: '8.5 in', y: '11 in' } };
+
+/** How the owner's printer is set for a layout (page scaling and paper size): in summary.txt and in the Calibrate wizard. */
 export const PAPER_SETTINGS: Record<SheetLayout, string> = {
   half_letter: 'page scaling None (Actual size), paper size Statement (Borderless)',
   letter_two_up: 'page scaling None (Actual size), paper size Letter (not borderless)',
@@ -49,9 +52,11 @@ export interface LayoutProfile {
   back_offset_y_mm: number;
   scale_x_pct: number;
   scale_y_pct: number;
+  /** Degrees the back pass is turned about the sheet's centre (the letter sheet's, for two-up), + counter-clockwise as seen on the back. */
+  back_rotation_deg: number;
 }
 
-/** What the printer and paper need. The defaults are the owner's measured printer and paper. */
+/** What the printer and paper need: the printer profile. It lives in the browser, never in a book. The defaults are the owner's measured printer and paper. */
 export interface PrintSettings {
   /**
    * Creep: each sheet's content moves toward the fold by (sheets outside it) x this, relative to the sheet outside it. In a thick
@@ -69,8 +74,6 @@ export interface PrintSettings {
   sheet_layout: SheetLayout;
   /** The offsets and the scale of each layout: a printer places and sizes each paper size and mode differently. */
   layouts: Record<SheetLayout, LayoutProfile>;
-  /** How many signatures to split the book into. */
-  signatures: number;
   /**
    * How dark the printed PDFs draw the light, medium and dark shade tones and the gray text, as a percent of black
    * (0 is white, 100 is black). The editor and PNGs keep the fixed grays; see src/print/tones.ts.
@@ -90,10 +93,9 @@ export const DEFAULT_PRINT: PrintSettings = {
   creep_per_sheet_mm: 0.30, fore_edge_shift_mm: 2.0, cover_fore_edge_shift_mm: 2.2, target_fore_edge_margin_mm: 3.5,
   sheet_layout: 'half_letter',
   layouts: {
-    half_letter: { front_offset_x_mm: 1.7, front_offset_y_mm: -0.05, back_offset_x_mm: 1.5, back_offset_y_mm: 0.05, scale_x_pct: 100, scale_y_pct: 100 },
-    letter_two_up: { front_offset_x_mm: 0, front_offset_y_mm: 0, back_offset_x_mm: 0, back_offset_y_mm: 0, scale_x_pct: 100, scale_y_pct: 100 },
+    half_letter: { front_offset_x_mm: 1.7, front_offset_y_mm: -0.05, back_offset_x_mm: 1.5, back_offset_y_mm: 0.05, scale_x_pct: 100, scale_y_pct: 100, back_rotation_deg: 0 },
+    letter_two_up: { front_offset_x_mm: 0, front_offset_y_mm: 0, back_offset_x_mm: 0, back_offset_y_mm: 0, scale_x_pct: 100, scale_y_pct: 100, back_rotation_deg: 0 },
   },
-  signatures: 1,
   shade_light_pct: 6.3, shade_medium_pct: 13.7, shade_dark_pct: 25.9, gray_text_pct: 49.8,
 };
 
@@ -192,8 +194,8 @@ export function checkPrintSettings(s: PrintSettings, sheets: number): string | n
     const l = s.layouts[layout];
     if (![l.front_offset_x_mm, l.front_offset_y_mm, l.back_offset_x_mm, l.back_offset_y_mm].every(Number.isFinite)) return `The ${LAYOUT_NAMES[layout].toLowerCase()} offsets must be numbers.`;
     if (![l.scale_x_pct, l.scale_y_pct].every((v) => Number.isFinite(v) && v >= 95 && v <= 105)) return `The ${LAYOUT_NAMES[layout].toLowerCase()} scale must be a percentage from 95 to 105.`;
+    if (!Number.isFinite(l.back_rotation_deg) || Math.abs(l.back_rotation_deg) > 1.5) return `The ${LAYOUT_NAMES[layout].toLowerCase()} back rotation must be a number of degrees from -1.5 to 1.5.`;
   }
-  if (!Number.isInteger(s.signatures) || s.signatures < 1) return 'Signatures must be a whole number, at least 1.';
   for (const key of ['shade_light_pct', 'shade_medium_pct', 'shade_dark_pct', 'gray_text_pct'] as const) {
     if (!Number.isFinite(s[key]) || s[key] < 0 || s[key] > 100) return 'Each tone must be a percentage from 0 to 100.';
   }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { emptyBook, readBook } from '../src/book/book';
 import { DEFAULT_PRINT, clonePrint, type LayoutProfile, type PrintSettings } from '../src/book/impose';
-import { PRINTER_KEY, PRINTER_KEYS, differing, loadPrinter, printerOf, savePrinter, startingPrint, type PrinterStorage } from '../src/printer';
+import { PRINTER_KEY, PRINTER_KEYS, loadPrinter, readPrinter, savePrinter, type PrinterStorage } from '../src/printer';
 
 /** A storage that is a plain object, or one that refuses. */
 const memory = (initial: Record<string, string> = {}): PrinterStorage & { data: Record<string, string> } => {
@@ -10,22 +10,22 @@ const memory = (initial: Record<string, string> = {}): PrinterStorage & { data: 
 };
 const refusing = (message: string): PrinterStorage => ({ getItem: () => { throw new Error(message); }, setItem: () => { throw new Error(message); } });
 
-const calibrated = setPrintCopy({ ...clonePrint(DEFAULT_PRINT), creep_per_sheet_mm: 0.11, shade_light_pct: 9 }, { front_offset_x_mm: -1.5, front_offset_y_mm: 0.3, back_offset_x_mm: 1.4, back_offset_y_mm: -0.2 });
+const calibrated = setPrintCopy({ ...clonePrint(DEFAULT_PRINT), creep_per_sheet_mm: 0.11, shade_light_pct: 9 }, { front_offset_x_mm: -1.5, front_offset_y_mm: 0.3, back_offset_x_mm: 1.4, back_offset_y_mm: -0.2, back_rotation_deg: 0.12 });
 function setPrintCopy(p: PrintSettings, change: Partial<LayoutProfile>): PrintSettings { Object.assign(p.layouts.half_letter, change); return p; }
 
 describe('the printer profile', () => {
-  it('holds the creep, the shifts, the target and the tones, and each layout’s offsets and scale, but not the signatures', () => {
+  it('holds the creep, the shifts, the target and the tones, and each layout’s offsets, rotation and scale, but not the signatures', () => {
     expect([...PRINTER_KEYS].sort()).toEqual(['cover_fore_edge_shift_mm', 'creep_per_sheet_mm', 'fore_edge_shift_mm', 'gray_text_pct', 'shade_dark_pct', 'shade_light_pct', 'shade_medium_pct', 'target_fore_edge_margin_mm']);
-    expect(printerOf({ ...calibrated, signatures: 3 })).not.toHaveProperty('signatures');
-    expect(Object.keys(printerOf(calibrated).layouts)).toEqual(['half_letter', 'letter_two_up']);
+    expect(DEFAULT_PRINT).not.toHaveProperty('signatures');
+    expect(Object.keys(calibrated.layouts)).toEqual(['half_letter', 'letter_two_up']);
+    expect(Object.keys(DEFAULT_PRINT.layouts.half_letter)).toContain('back_rotation_deg');
   });
 
   it('is saved and loaded back', () => {
     const storage = memory();
-    expect(savePrinter(storage, { ...calibrated, signatures: 3 })).toBeNull();
-    expect(JSON.parse(storage.data[PRINTER_KEY])).toEqual(printerOf(calibrated));
-    const loaded = loadPrinter(storage);
-    expect(loaded).toEqual({ status: 'ok', value: printerOf(calibrated) });
+    expect(savePrinter(storage, calibrated)).toBeNull();
+    expect(JSON.parse(storage.data[PRINTER_KEY])).toEqual(calibrated);
+    expect(loadPrinter(storage)).toEqual({ status: 'ok', value: calibrated });
   });
 
   it('is none when nothing is saved', () => {
@@ -33,28 +33,25 @@ describe('the printer profile', () => {
     expect(loadPrinter(null)).toEqual({ status: 'none' });
   });
 
-  it('starts a new book: the saved settings over the defaults, signatures from the defaults', () => {
-    expect(startingPrint(null)).toEqual(DEFAULT_PRINT);
-    const book = emptyBook(8, startingPrint(printerOf({ ...calibrated, signatures: 4 })));
-    expect(book.print).toEqual({ ...calibrated, signatures: DEFAULT_PRINT.signatures });
-    expect(emptyBook().print).toEqual(DEFAULT_PRINT);
-    expect(readBook(JSON.parse(JSON.stringify(book))).ok).toBe(true); // and it is still a valid book
+  it('is the only place the print settings live: a new book has none of them, only its signatures', () => {
+    expect(emptyBook(8).print).toEqual({ signatures: 1 });
+    expect(readBook(JSON.parse(JSON.stringify(emptyBook(8)))).ok).toBe(true);
   });
 
-  it('is not shared with the book: changing the book afterwards leaves the saved settings alone', () => {
-    const saved = printerOf(calibrated);
-    const book = emptyBook(8, startingPrint(saved));
-    book.print.layouts.half_letter.front_offset_x_mm = 9;
-    expect(saved.layouts.half_letter.front_offset_x_mm).toBe(-1.5);
+  it('is its own copy: editing a loaded profile leaves the saved text alone', () => {
+    const storage = memory();
+    savePrinter(storage, calibrated);
+    const loaded = loadPrinter(storage);
+    if (loaded.status === 'ok') loaded.value.layouts.half_letter.front_offset_x_mm = 9;
+    expect(JSON.parse(storage.data[PRINTER_KEY]).layouts.half_letter.front_offset_x_mm).toBe(-1.5);
   });
 
-  it('says which of the book’s settings differ from the saved ones, and none when they agree', () => {
-    const saved = printerOf(calibrated);
-    expect(differing(calibrated, saved)).toEqual([]);
-    expect(differing({ ...calibrated, signatures: 5 }, saved)).toEqual([]); // not a printer setting
-    const other = { ...calibrated, shade_light_pct: 6.3, layouts: { ...calibrated.layouts, half_letter: { ...calibrated.layouts.half_letter, front_offset_x_mm: 0 } } };
-    expect(differing(other, saved).map((d) => d.name)).toEqual(['light', 'half letter front offset x']);
-    expect(differing(DEFAULT_PRINT, saved).length).toBeGreaterThan(0);
+  it('reads a profile saved before the back rotation existed, as no rotation', () => {
+    const old = clonePrint(DEFAULT_PRINT) as unknown as { layouts: Record<string, Record<string, unknown>> };
+    for (const l of Object.values(old.layouts)) delete l.back_rotation_deg;
+    const r = readPrinter(old);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value.layouts.half_letter.back_rotation_deg).toBe(0);
   });
 
   it('reports a storage that refuses, with the browser’s own reason', () => {
@@ -74,7 +71,7 @@ describe('the printer profile', () => {
   });
 
   it('refuses stored settings that break the format’s limits, naming each, and does not use them', () => {
-    const bad = memory({ [PRINTER_KEY]: JSON.stringify({ ...printerOf(calibrated), layouts: { ...calibrated.layouts, letter_two_up: { ...calibrated.layouts.letter_two_up, scale_x_pct: 110 } }, gray_text_pct: 'dark' }) });
+    const bad = memory({ [PRINTER_KEY]: JSON.stringify({ ...calibrated, layouts: { ...calibrated.layouts, letter_two_up: { ...calibrated.layouts.letter_two_up, scale_x_pct: 110 } }, gray_text_pct: 'dark' }) });
     const load = loadPrinter(bad);
     expect(load.status).toBe('bad');
     if (load.status === 'bad') {
@@ -89,28 +86,17 @@ describe('the printer profile', () => {
   });
 });
 
-describe('the layouts in the book file', () => {
-  it('require every offset and scale of each layout, within their limits, with the path', () => {
-    const limits = { front_offset_x_mm: [-10.1, 10.1], front_offset_y_mm: [-10.1, 10.1], back_offset_x_mm: [-10.1, 10.1], back_offset_y_mm: [-10.1, 10.1], scale_x_pct: [94.9, 105.1], scale_y_pct: [94.9, 105.1] } as const;
+describe('the layouts in the printer profile', () => {
+  it('require every offset, the rotation and the scale of each layout, within their limits, with the path', () => {
+    const limits = { front_offset_x_mm: [-10.1, 10.1], front_offset_y_mm: [-10.1, 10.1], back_offset_x_mm: [-10.1, 10.1], back_offset_y_mm: [-10.1, 10.1], back_rotation_deg: [-1.6, 1.6], scale_x_pct: [94.9, 105.1], scale_y_pct: [94.9, 105.1] } as const;
     for (const layout of ['half_letter', 'letter_two_up'] as const) for (const key of Object.keys(limits) as (keyof typeof limits)[]) {
       for (const bad of [...limits[key], 'x', null]) {
-        const b = JSON.parse(JSON.stringify(emptyBook(8)));
-        b.print.layouts[layout][key] = bad;
-        const r = readBook(b);
+        const p = JSON.parse(JSON.stringify(DEFAULT_PRINT));
+        p.layouts[layout][key] = bad;
+        const r = readPrinter(p);
         expect(r.ok, `${layout} ${key} ${bad}`).toBe(false);
-        if (!r.ok) expect(r.issues.map((i) => i.path)).toEqual([`print.layouts.${layout}.${key}`]);
+        if (!r.ok) expect(r.issues.map((i) => i.path)).toEqual([`layouts.${layout}.${key}`]);
       }
-      const missing = JSON.parse(JSON.stringify(emptyBook(8)));
-      delete missing.print.layouts[layout][key];
-      expect(readBook(missing).ok).toBe(false);
     }
-  });
-
-  it('round-trip', () => {
-    const b = emptyBook(8);
-    Object.assign(b.print.layouts.half_letter, { front_offset_x_mm: -1.5, front_offset_y_mm: 0.25 });
-    const r = readBook(JSON.parse(JSON.stringify(b)));
-    expect(r.ok).toBe(true);
-    if (r.ok) expect(r.book.print).toEqual(b.print);
   });
 });

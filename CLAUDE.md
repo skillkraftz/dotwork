@@ -83,6 +83,7 @@ Dotwork's print export follows the same physical rules as journal-system
   now: designing a page and laying out a book on a phone should be easy enough that someone can turn an idea
   into a finished book in 30-60 minutes. Build what covers 80% of what people want, simply; polish and edge
   cases come later.
+- The book file holds the design only. Printer and calibration settings live in the printer profile; changing them must never change the book format or stop a book from opening.
 - Don't add features beyond the task. When a choice is unclear, take the
   simplest version and list the question in the PR.
 - Every new control gets a help entry with touch and desktop text; the help test enforces it.
@@ -141,4 +142,5 @@ Dotwork's print export follows the same physical rules as journal-system
     (done).
 17. Printing two books per letter sheet (Letter, two-up, with print-duplex.pdf, cut marks and labels), a layout picker with offsets
     and scale kept per layout, a Size step in Calibrate, and the outside covers (cover-outside.pdf, cover-inside.pdf) (done).
-18. Later: dials and other components, color, sharing, a page gallery.
+18. Books hold the design only (every printer and calibration setting is in the printer profile, so old books always open), one double-sided calibration sheet per layout with a back rotation and a scale per paper edge, and the outside covers in preview.png and Flip through (done).
+19. Later: dials and other components, color, sharing, a page gallery.

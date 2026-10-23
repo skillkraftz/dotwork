@@ -1,3 +1,4 @@
+import { DEFAULT_PRINT } from '../src/book/impose';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { PDFDocument } from 'pdf-lib';
@@ -138,7 +139,7 @@ describe('the book templates', () => {
         expect(r.ok ? [] : problems(r.issues)).toEqual([]);
         expect(getSlot(book, 0)).not.toBeNull();
         expect(getSlot(book, 53)).not.toBeNull();
-        const files = await exportBookFiles(book, fonts);
+        const files = await exportBookFiles(book, DEFAULT_PRINT, fonts);
         expect(files.map((f) => f.name).sort()).toEqual(['cover-inside.pdf', 'cover-outside.pdf', 'pages.pdf', 'print-first.pdf', 'print-second.pdf', 'summary.txt']);
         const count = async (name: string) => (await PDFDocument.load(files.find((f) => f.name === name)!.bytes)).getPageCount();
         expect(await count('pages.pdf')).toBe(52);
@@ -153,7 +154,7 @@ describe('the book templates', () => {
   it('draws the dot grid book fast and small (each dot pattern is written once per PDF)', async () => {
     const book = TEMPLATES.find((t) => t.id === 'dot-grid-journal')!.build({});
     const start = performance.now();
-    const files = await exportBookFiles(book, fonts);
+    const files = await exportBookFiles(book, DEFAULT_PRINT, fonts);
     expect(performance.now() - start).toBeLessThan(1000);
     expect(files.filter((f) => f.name.endsWith('.pdf')).reduce((n, f) => n + f.bytes.length, 0)).toBeLessThan(500_000);
   });

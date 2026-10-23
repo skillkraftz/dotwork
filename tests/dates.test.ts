@@ -1,3 +1,4 @@
+import { DEFAULT_PRINT } from '../src/book/impose';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { bookExpand, dateOf, emptyBook, readBook, resizeBook, setDates, setSlot, type Book } from '../src/book/book';
@@ -175,7 +176,7 @@ describe('an exported dated book', () => {
   };
 
   it('fills each page’s tokens from its own date; undated pages have no digits', async () => {
-    const files = await exportBookFiles(book(), fonts);
+    const files = await exportBookFiles(book(), DEFAULT_PRINT, fonts);
     const pages = await readPdf(files.find((f) => f.name === 'pages.pdf')!.bytes);
     expect(pages).toHaveLength(52);
     const first = pages[0].strings;
@@ -196,7 +197,7 @@ describe('an exported dated book', () => {
   it('prints a dated design blank when the page has no date', async () => {
     const b = book();
     setDates(b, 1, Array(10).fill(null));
-    const files = await exportBookFiles(b, fonts, { pages: true, cover: false, signatures: false });
+    const files = await exportBookFiles(b, DEFAULT_PRINT, fonts, { pages: true, cover: false, signatures: false });
     const pages = await readPdf(files[0].bytes);
     expect(pages[0].strings).not.toContain('SUN');
     expect(pages[0].strings).toEqual(['GOAL', 'OUTCOME', '1']); // only the page's own words
@@ -245,7 +246,7 @@ describe('rotated sequences', () => {
   it('prints rotated text rotated, and keeps the same text', async () => {
     const out = async (r: 0 | 90 | 270) => {
       const b = emptyBook(8); b.page_numbers = false; setSlot(b, 1, row(r));
-      const files = await exportBookFiles(b, fonts, { pages: true, cover: false, signatures: false });
+      const files = await exportBookFiles(b, DEFAULT_PRINT, fonts, { pages: true, cover: false, signatures: false });
       return (await readPdf(files[0].bytes))[0];
     };
     const [plain, up, down] = [await out(0), await out(90), await out(270)];
@@ -262,7 +263,7 @@ describe('rotated sequences', () => {
   it('puts rotated PDF text on the baseline of its own cell, centered on the cell', async () => {
     const b = emptyBook(8); b.page_numbers = false;
     for (const r of [90, 270] as const) setSlot(b, r === 90 ? 1 : 3, row(r));
-    const [file] = await exportBookFiles(b, fonts, { pages: true, cover: false, signatures: false });
+    const [file] = await exportBookFiles(b, DEFAULT_PRINT, fonts, { pages: true, cover: false, signatures: false });
     const pages = await readPdf(file.bytes);
     const mm = (v: number) => v * 72 / 25.4;
     // The first number "1" sits in cell x 2, y 3 (center 7.5, 10.5 mm from the grid corner, which is 3.95, 3.85 from the page's).

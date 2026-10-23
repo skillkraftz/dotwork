@@ -1,3 +1,4 @@
+import { DEFAULT_PRINT } from '../src/book/impose';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { exportBookFiles } from '../src/print/export';
@@ -162,7 +163,7 @@ describe('printing', () => {
     const book = emptyBook(8);
     book.page_numbers = false;
     setSlot(book, 1, page);
-    const files = await exportBookFiles(book, {
+    const files = await exportBookFiles(book, DEFAULT_PRINT, {
       regular: readFileSync('src/fonts/CourierPrime-Regular.ttf'), bold: readFileSync('src/fonts/CourierPrime-Bold.ttf'),
     });
     const pdf = await readPdf(files.find((f) => f.name === 'pages.pdf')!.bytes);

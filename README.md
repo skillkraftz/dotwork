@@ -143,35 +143,36 @@ cover. The outside front and outside back covers are two more pages to design.
   expands on tap. On a phone it opens from the **Contents** button.
 - **Page numbers** are on by default, in each page's outer top corner. Date
   tokens (`{weekday}` and so on) print blank so the date can be written in.
-- **Book settings** (Page ▾, then Settings, and again in the PDF tab): creep per sheet and the **fore-edge shifts** (interior and cover) and **target fore-edge margin** that put the trimmed
-  margin where you want it, the **sheet layout** (**Half letter**, or **Letter, two-up**: two half-letter sheets on one letter sheet, a top book and a bottom
-  book, so the printer can duplex by itself), the layout's **front and back offsets** (x and y; each side's own error against the
-  paper, so the fold lands on the sheet's centre and the margins are even) and **width and height scale** (so printed sizes
-  measure true), the number of signatures, and four **tones**: how dark
-  the printed PDFs draw the light, medium and dark shade and the gray text, as a percent of black (the editor and PNGs
+- **Book settings** (Page ▾, then Settings): the name, the number of pages, page numbers, and the number of **signatures**: the
+  one print setting that belongs to the book. The book file holds the design only.
+- **Printer settings** (Export, PDF tab) belong to your printer, are kept in the browser and used for every book, and old books included:
+  the **sheet layout** (**Half letter**, or **Letter, two-up**: two half-letter sheets on one letter sheet, a top book and a bottom
+  book, so the printer can duplex by itself; chosen in this one place), creep per sheet and the **fore-edge shifts** (interior and cover) and **target fore-edge margin** that put the trimmed
+  margin where you want it, and for each layout the **front and back offsets** (x and y), the **back rotation** and the **scale along each paper edge** (so printed sizes
+  measure true), and four **tones**: how dark the printed PDFs draw the light, medium and dark shade and the gray text, as a percent of black (the editor and PNGs
   keep their fixed grays). Settings that would push content past the fold or off the paper are refused with the reason.
-- **Calibrate your printer…** (PDF tab) opens a four-step wizard for the sheet layout chosen at its top, one step on screen at a time, with Back and Next:
-  1. **Size** downloads `calibration-size.pdf`: a line across and a line down that should each measure 100.0 mm, and a dot block
-     labelled "28 dots across = 81.0 mm" and "44 dots down = 129.0 mm". Measure the two lines; the wizard sets the layout's scale.
-     It says how to print: page scaling None / Actual size, paper size *Statement (Borderless)* for half letter or *Letter* (not
-     borderless) for two-up.
-  2. **Alignment** downloads `calibration-alignment.pdf` (page 1 the front, page 2 the back). Fold the printed sheet in half edge to edge
-     and read where the crease crosses each side's fold scale, then read the margin where the paper ends on the top and
-     bottom rulers. The wizard turns the readings into the four offsets.
-  3. **Creep and cover** downloads a zip with `creep-test.pdf` (every sheet of your biggest signature, both sides, in
+- **Calibrate your printer…** (PDF tab) opens a three-step wizard for the sheet layout chosen in the PDF tab (it names it, with a link to change it), one step on screen at a time, with Back and Next:
+  1. **Sheet** downloads `calibration-sheet.pdf`, one double-sided sheet per layout (two-up: both halves). Side 1 has the gray ramp, sample
+     text, dot, line and hairline samples, four crosshairs (one near each edge of the content area) and the fold mark. Side 2 is all
+     measuring: print the sheet, hold it to a light, and read a mm scale where each crosshair shows through (x at the top and bottom 8.5 in edge, y
+     at the left and right edge), fold it and read where the crease crosses the fold scale and the margins on the rulers at the
+     top and bottom edge, and measure two long lines with a ruler (along the 8.5 in edge, and the 5.5 in edge or the full 11 in edge of two-up).
+     Print it twice: if the readings differ much between the two prints, the twist comes from the paper feed, not something a setting
+     can fix. The wizard turns the readings into the back's offsets and **rotation** (about the sheet's centre) and the front's offsets, and
+     the long lines into the scale of each paper edge. It says how to print: page scaling None / Actual size, paper size *Statement
+     (Borderless)* for half letter or *Letter* (not borderless) for two-up.
+  2. **Creep and cover** downloads a zip with `creep-test.pdf` (every sheet of your biggest signature, both sides, in
      manual-duplex order) and `calibration-cover.pdf` (the outside, then the inside), both with margin rulers on every page. After binding and
      trimming, read the fore-edge margin on the cover, the outermost sheet and the innermost sheet. The values the test
      prints with are editable first (set the creep per sheet before printing); the wizard turns the readings, from the
      values the test was printed with, into the new creep, fore-edge shift and cover shift, and shows the margins they
      should give and the spine-side margin of the innermost page.
-  4. **Check** (optional) prints the corrected creep test again and compares the margins you measure with the targets
+  3. **Check** (optional) prints the corrected creep test again and compares the margins you measure with the targets
      (your target at the fore-edge, 3.5 mm by default; 3.85 mm top and bottom); it also holds the tone fields.
 
-  Everything you enter there is also kept in the browser as **your printer's settings**: new books start from them, and the
-  PDF tab says when a book's settings differ, with **Use my printer settings** and **Keep this book's**. The book still
-  carries its own copy in `book.json`. What the sheets contain and how to read them is in [docs/book-format.md](docs/book-format.md).
+  Everything you enter there is kept in the browser as **your printer's settings**, never in the book, so a book always opens whatever those are. What the sheets contain and how to read them is in [docs/book-format.md](docs/book-format.md).
 - **Print files…** (or Export, then PDF) offers **pages at final size** (`pages.pdf`) or **print-ready signatures**
-  (`print-first.pdf` and `print-second.pdf`, one pair per signature, plus `print-duplex.pdf` on letter two-up, with a `preview.png` contact sheet and a
+  (`print-first.pdf` and `print-second.pdf`, one pair per signature, plus `print-duplex.pdf` on letter two-up, with a `preview.png` contact sheet (the outside covers too, when designed) and a
   `summary.txt` in the zip, which lists the print settings that made the files and short printing tips), and the **covers** (`cover-outside.pdf`, printed first, then `cover-inside.pdf`) with either. On **Letter, two-up** the PDF tab also picks the book for the bottom half (the same book by default), and the files carry cut marks and a label for each half ("Book 1 | name | sheet 3 of 13 | front"). It always downloads as a zip, with `book.json` (the book it was built from) and, if anything failed, an `error.txt`.
   If the book breaks the book format the PDFs are still made, and the screen and `error.txt` say why. After every change the
   Book view checks the book and shows the reason, with Copy details, if it breaks. A draft the app can't read is never deleted: it is kept under a backup name in the browser and offered as a download.
