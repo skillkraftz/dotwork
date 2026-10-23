@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { PDFDocument } from 'pdf-lib';
 import { emptyBook, setSlot, PRINT_LIMITS, type Book } from '../src/book/book';
 import { DEFAULT_PRINT, SHEET_H_MM, SHEET_W_MM, clonePrint, creepFor, duplexOrder, impose, pageOrigin, type PrintSettings } from '../src/book/impose';
-import { LONG_LINE_MM, crosshairs, foldScaleAt, scaleCaptions, sheetHeight } from '../src/book/alignment';
+import { LINE_MM, MARK_CLEAR_MM, markZone, crosshairs, scaleCaptions, sheetHeight, type MarkName } from '../src/book/alignment';
 import { PRINTER_KEYS, readPrinter } from '../src/printer';
 import { sheetSize } from '../src/print/sheets';
 import { GRID_X_MM, PAGE_H_MM, PAGE_W_MM, emptyPage, type Page } from '../src/format/types';
@@ -170,7 +170,7 @@ for (const layout of ['half_letter', 'letter_two_up'] as const) {
       sheets = await readPdf(made.bytes);
     });
 
-    it('is one PDF, double-sided: page 1 the front, page 2 the back, at the real sheet size', async () => {
+    it('is one PDF, double-sided: page 1 the front, page 2 the back, on the whole paper at the real sheet size, with no halves, labels or cut marks', async () => {
       expect(made.name).toBe(SHEET_FILE);
       expect(SHEET_FILE).toBe('calibration-sheet.pdf');
       const doc = await PDFDocument.load(made.bytes);
@@ -179,13 +179,14 @@ for (const layout of ['half_letter', 'letter_two_up'] as const) {
         expect(page.getWidth()).toBeCloseTo(SHEET_W_MM * PT, 1);
         expect(page.getHeight()).toBeCloseTo(H * PT, 1);
       }
-      expect(sheets[0].strings).toContain('SIDE 1 (FRONT), left page');
+      expect(H).toBeCloseTo(twoUp ? 279.4 : 139.7, 9);
+      expect(sheets[0].strings).toContain('SIDE 1 (FRONT)');
       expect(sheets[1].strings).toContain('SIDE 2: MEASURE');
+      for (const sheet of sheets) expect(sheet.strings.filter((t) => /^Book \d/.test(t))).toEqual([]);
     });
 
-    it('prints the settings on both pages of side 1, the same as calibration.txt', () => {
-      const lines = settingsLines(print, NOW);
-      for (const line of lines) expect(sheets[0].strings.filter((s) => s === line), line).toHaveLength(twoUp ? 4 : 2);
+    it('prints the settings once on side 1, the same as calibration.txt', () => {
+      for (const line of settingsLines(print, NOW)) expect(sheets[0].strings.filter((s) => s === line), line).toHaveLength(1);
     });
 
     it('draws the ramp in 5% steps, the three tones and the gray text as they print now, on side 1 only', async () => {
@@ -198,7 +199,7 @@ for (const layout of ['half_letter', 'letter_two_up'] as const) {
       for (const pct of RAMP_STEPS) expect(colors, `${pct}%`).toContain(rgOf(grayHex(pct)));
       for (const pct of [10, 20, 35, 65]) expect(colors).toContain(rgOf(grayHex(pct)));
       for (const pct of RAMP_STEPS) expect(front.strings).toContain(`${String(pct).padStart(3)}%`);
-      expect(front.strings.filter((t) => t === 'Gray text')).toHaveLength(21 * (twoUp ? 2 : 1));
+      expect(front.strings.filter((t) => t === 'Gray text')).toHaveLength(21);
       expect(back.strings).not.toContain('Gray text');
       expect(HAIRLINE_WIDTHS).toContain(0.12);
     });
@@ -207,68 +208,112 @@ for (const layout of ['half_letter', 'letter_two_up'] as const) {
       for (const p of calibrationPages(print)) expect(validatePage(p), p.side).toEqual([]);
     });
 
-    it('has four crosshairs on side 1, one near each edge of the content area, and the fold mark', () => {
+    it('has a fine + at all five marks on side 1: 0.2 mm lines, 6 mm across, and no scales', () => {
       const at = crosshairs(layout), segs = segments(sheets[0].content, H);
       for (const [name, p] of Object.entries(at)) {
-        expect(segs.some((s) => near(s.y1, p.y) && near(s.y2, p.y) && near(s.x1, p.x - 2) && near(s.x2, p.x + 2)), `${name} horizontal`).toBe(true);
-        expect(segs.some((s) => near(s.x1, p.x) && near(s.x2, p.x) && near(s.y1, p.y - 2) && near(s.y2, p.y + 2)), `${name} vertical`).toBe(true);
+        expect(segs.some((s) => near(s.y1, p.y) && near(s.y2, p.y) && near(s.x1, p.x - 3) && near(s.x2, p.x + 3)), `${name} horizontal`).toBe(true);
+        expect(segs.some((s) => near(s.x1, p.x) && near(s.x2, p.x) && near(s.y1, p.y - 3) && near(s.y2, p.y + 3)), `${name} vertical`).toBe(true);
       }
-      // Top and bottom are on the fold, left and right mid-height, symmetric about the sheet's centre.
-      expect(at.top.x).toBe(SHEET_W_MM / 2);
-      expect(at.bottom.x).toBe(SHEET_W_MM / 2);
-      expect(at.left.x + at.right.x).toBeCloseTo(SHEET_W_MM, 9);
-      expect(at.left.y).toBe(at.right.y);
-      // On two-up the x readings span the whole letter sheet: the bottom one is in the bottom half.
-      expect(at.bottom.y - at.top.y).toBeCloseTo(H - 2 * 12.85, 9);
-      const f = foldScaleAt(layout);
-      expect(segs.some((s) => near(s.x1, f.x) && near(s.x2, f.x) && near(s.y1, f.y - 5) && near(s.y2, f.y + 5)), 'fold mark').toBe(true);
-      expect(sheets[0].strings).toContain('fold');
-      // Four crosshairs and nothing else with their arms (4 mm, hairline).
-      expect(segs.filter((s) => near(Math.hypot(s.x2 - s.x1, s.y2 - s.y1), 4))).toHaveLength(8);
+      expect(segs.filter((s) => near(Math.hypot(s.x2 - s.x1, s.y2 - s.y1), 6))).toHaveLength(10);
+      expect(sheets[0].content).toMatch(/\n0\.56\d* w\n/);
+      for (const label of ['-5', '-4', '-3', '-2', '-1']) expect(sheets[0].strings).not.toContain(label);
+      expect(sheets[0].strings.filter((t) => /see-through|edge should/.test(t))).toEqual([]);
     });
 
-    it('has a mm scale on side 2 next to where each crosshair shows through: -5 to +5, five of them with the fold scale', () => {
-      const back = sheets[1];
-      for (const label of ['-5', '-4', '-3', '-2', '-1']) expect(back.strings.filter((s) => s === label), label).toHaveLength(5);
+    it('has the marks 8 mm from each edge and at the centre of the whole paper', () => {
+      const at = crosshairs(layout);
+      expect(at.top).toEqual({ x: SHEET_W_MM / 2, y: 8 });
+      expect(at.bottom).toEqual({ x: SHEET_W_MM / 2, y: H - 8 });
+      expect(at.left).toEqual({ x: 8, y: H / 2 });
+      expect(at.right).toEqual({ x: SHEET_W_MM - 8, y: H / 2 });
+      expect(at.centre).toEqual({ x: SHEET_W_MM / 2, y: H / 2 });
+    });
+
+    it('has a see-through scale at each edge mark on side 2 (-5 to +5, ticks every 0.5 mm, running parallel to the edge) and only a + at the centre', () => {
+      const back = sheets[1], segs = segments(back.content, H), at = crosshairs(layout);
       expect(SCALE_MM).toBe(5);
-      // Scales are placed at the crosshairs: a 11 mm line, through the crosshair, along x at the top and bottom and along y at the sides.
-      const segs = segments(back.content, H), at = crosshairs(layout);
-      for (const p of [at.top, at.bottom]) expect(segs.some((s) => near(s.y1, p.y) && near(s.y2, p.y) && near(s.x1, p.x - 5.5) && near(s.x2, p.x + 5.5)), 'x scale').toBe(true);
-      for (const p of [at.left, at.right]) expect(segs.some((s) => near(s.x1, p.x) && near(s.x2, p.x) && near(s.y1, p.y + 5.5) && near(s.y2, p.y - 5.5)), 'y scale').toBe(true);
-      const f = foldScaleAt(layout);
-      expect(segs.some((s) => near(s.y1, f.y) && near(s.x1, f.x - 5.5) && near(s.x2, f.x + 5.5)), 'fold scale').toBe(true);
-      // The ruler at the paper's top and bottom edge, with the expected margin marked.
-      expect(margins(back.strings).top).toBe(2);
+      for (const label of ['-5', '-4', '-3', '-2', '-1', '1', '3', '5']) expect(back.strings.filter((s) => s === label), label).toHaveLength(4);
+      for (const p of [at.top, at.bottom]) {
+        expect(segs.some((s) => near(s.y1, p.y) && near(s.y2, p.y) && near(s.x1, p.x - 5.5) && near(s.x2, p.x + 5.5)), 'x scale').toBe(true);
+        // 21 ticks across it, one every 0.5 mm.
+        expect(segs.filter((s) => near(s.x1, s.x2) && Math.abs(s.x1 - p.x) <= 5.01 && Math.abs((s.y1 + s.y2) / 2 - p.y) < 0.01 && Math.abs(s.y2 - s.y1) < 3.1)).toHaveLength(21);
+      }
+      for (const p of [at.left, at.right]) {
+        expect(segs.some((s) => near(s.x1, p.x) && near(s.x2, p.x) && near(s.y1, p.y + 5.5) && near(s.y2, p.y - 5.5)), 'y scale').toBe(true);
+        expect(segs.filter((s) => near(s.y1, s.y2) && Math.abs(s.y1 - p.y) <= 5.01 && Math.abs((s.x1 + s.x2) / 2 - p.x) < 0.01 && Math.abs(s.x2 - s.x1) < 3.1)).toHaveLength(21);
+      }
+      // The centre: a + and nothing else within its 10 mm.
+      const c = at.centre;
+      expect(segs.some((s) => near(s.y1, c.y) && near(s.y2, c.y) && near(s.x1, c.x - 3) && near(s.x2, c.x + 3))).toBe(true);
+      expect(segs.filter((s) => Math.hypot((s.x1 + s.x2) / 2 - c.x, (s.y1 + s.y2) / 2 - c.y) < 12)).toHaveLength(2);
     });
 
-    it('names the paper’s edges of the layout everywhere, never across and down', () => {
-      const cap = scaleCaptions(layout);
-      const edge = twoUp ? '11 in' : '5.5 in';
-      expect([cap.top, cap.bottom, cap.left, cap.right, cap.crease, cap.topMargin, cap.bottomMargin]).toEqual([
-        'x, top 8.5 in edge', 'x, bottom 8.5 in edge', `y, left ${edge} edge`, `y, right ${edge} edge`, 'crease', 'margin, top 8.5 in edge', 'margin, bottom 8.5 in edge',
-      ]);
-      expect(cap.longX).toBe('8.5 in edge: should measure 190.0 mm');
-      expect(cap.longY).toBe(`${edge} edge: should measure ${twoUp ? '260.0' : '120.0'} mm`);
+    it('has an edge ruler from each edge mark to the paper’s edge: 0 to 8 mm in 0.5 mm ticks, labelled "edge should be at 8.0"', () => {
+      const segs = segments(sheets[1].content, H), at = crosshairs(layout), cap = scaleCaptions(layout);
+      const ends = { top: { x: at.top.x, y: 0 }, bottom: { x: at.bottom.x, y: H }, left: { x: 0, y: at.left.y }, right: { x: SHEET_W_MM, y: at.right.y } };
+      for (const name of ['top', 'bottom', 'left', 'right'] as const) {
+        const p = at[name], e = ends[name], vertical = name === 'top' || name === 'bottom';
+        expect(segs.some((s) => (near(s.x1, p.x) && near(s.y1, p.y) && near(s.x2, e.x) && near(s.y2, e.y)) || (near(s.x2, p.x) && near(s.y2, p.y) && near(s.x1, e.x) && near(s.y1, e.y)))).toBe(true);
+        // 17 ticks along it (0, 0.5 ... 8), across it.
+        const ticks = segs.filter((s) => (vertical ? near(s.y1, s.y2) && Math.abs(s.x1 - p.x) < 1.6 : near(s.x1, s.x2) && Math.abs(s.y1 - p.y) < 1.6)
+          && Math.abs(vertical ? s.y1 - p.y : s.x1 - p.x) <= 8.01 && Math.abs(vertical ? s.y1 - p.y : s.x1 - p.x) >= 0.49 + (vertical ? 0 : 0) - 0.5 && Math.abs(Math.hypot(s.x2 - s.x1, s.y2 - s.y1)) < 3.1);
+        expect(ticks.length, name).toBeGreaterThanOrEqual(16);
+      }
+      expect(sheets[1].strings.filter((t) => t === cap.edge)).toHaveLength(4);
+      expect(cap.edge).toBe('edge should be at 8.0');
+    });
+
+    it('names the paper’s edges of the layout everywhere, in the words of the readings, never across and down', () => {
+      const cap = scaleCaptions(layout), edge = twoUp ? '11 in' : '5.5 in';
+      expect([cap.top, cap.bottom, cap.left, cap.right]).toEqual(['see-through top x', 'see-through bottom x', 'see-through left y', 'see-through right y']);
+      expect(cap.longX).toBe('parallel to the 8.5 in edge: should measure 100.0 mm');
+      expect(cap.longY).toBe(`parallel to the ${edge} edge: should measure 100.0 mm`);
       for (const text of [cap.top, cap.bottom, cap.left, cap.right, cap.longX, cap.longY]) expect(sheets[1].strings, text).toContain(text);
-      for (const sheet of sheets) for (const s of sheet.strings) expect(s.toLowerCase(), s).not.toMatch(/across|\bdown\b/);
+      for (const sheet of sheets) for (const s of sheet.strings) expect(s.toLowerCase(), s).not.toMatch(/across|\bdown\b|crease|fold scale|190|260/);
     });
 
-    it('has two long lines on side 2, as long as the layout allows, and the two-up one crosses both halves', () => {
+    it('has two 100.0 mm lines with end ticks on side 2, one parallel to each paper edge, and no 190, 260 mm lines or fold scale', () => {
       const segs = segments(sheets[1].content, H);
-      const len = LONG_LINE_MM[layout];
-      const horizontal = segs.filter((s) => near(s.y1, s.y2) && near(Math.abs(s.x2 - s.x1), len.x)), vertical = segs.filter((s) => near(s.x1, s.x2) && near(Math.abs(s.y2 - s.y1), len.y));
+      expect(LINE_MM).toBe(100);
+      const horizontal = segs.filter((s) => near(s.y1, s.y2) && near(Math.abs(s.x2 - s.x1), 100)), vertical = segs.filter((s) => near(s.x1, s.x2) && near(Math.abs(s.y2 - s.y1), 100));
       expect(horizontal).toHaveLength(1);
       expect(vertical).toHaveLength(1);
-      expect(len.x).toBe(190);
-      expect(len.y).toBe(twoUp ? 260 : 120);
-      if (twoUp) {
-        const v = vertical[0];
-        expect(Math.min(v.y1, v.y2)).toBeLessThan(SHEET_H_MM);
-        expect(Math.max(v.y1, v.y2)).toBeGreaterThan(SHEET_H_MM);
+      // An end tick at each end, across the line.
+      for (const h of horizontal) for (const x of [h.x1, h.x2]) expect(segs.some((s) => near(s.x1, x) && near(s.x2, x) && near(Math.abs(s.y2 - s.y1), 5) && near((s.y1 + s.y2) / 2, h.y1))).toBe(true);
+      for (const v of vertical) for (const y of [v.y1, v.y2]) expect(segs.some((s) => near(s.y1, y) && near(s.y2, y) && near(Math.abs(s.x2 - s.x1), 5) && near((s.x1 + s.x2) / 2, v.x1))).toBe(true);
+      expect(segs.filter((s) => Math.hypot(s.x2 - s.x1, s.y2 - s.y1) > 100.5)).toEqual([]);
+    });
+
+    it('keeps everything but the marks 10 mm from every mark, on both sides', () => {
+      for (const [i, side] of [[0, 1], [1, 2]] as const) {
+        const zones = (Object.keys(crosshairs(layout)) as MarkName[]).map((n) => markZone(layout, n, side));
+        const gap = (x: number, y: number) => Math.min(...zones.map((z) => Math.hypot(Math.max(z.x0 - x, 0, x - z.x1), Math.max(z.y0 - y, 0, y - z.y1))));
+        const items = [
+          ...segments(sheets[i].content, H).flatMap((s) => [[s.x1, s.y1], [s.x2, s.y2]]),
+          // Text starts here and runs right (an upper bound for its length).
+          ...textPositions(sheets[i]).flatMap((t) => [[t.x, t.y], [t.x + 1.1 * t.text.length, t.y]]),
+        ];
+        for (const [x, y] of items) {
+          const d = gap(x, y);
+          expect(d === 0 || d >= MARK_CLEAR_MM - 0.01, `side ${side}: (${x.toFixed(1)}, ${y.toFixed(1)}) is ${d.toFixed(1)} mm from a mark`).toBe(true);
+        }
       }
-      // Each stays 3 mm from the paper's edge, as printers need.
-      for (const s of [...horizontal, ...vertical]) for (const [x, y] of [[s.x1, s.y1], [s.x2, s.y2]]) {
-        expect(Math.min(x, SHEET_W_MM - x, y, H - y)).toBeGreaterThanOrEqual(3);
+    });
+
+    it('stays 3 mm from every paper edge, except the edge rulers, which run to it', () => {
+      for (const sheet of sheets) {
+        const zones = (['top', 'bottom', 'left', 'right'] as const).map((n) => markZone(layout, n, 2));
+        const inRuler = (x: number, y: number) => zones.some((z) => x >= z.x0 && x <= z.x1 && y >= z.y0 && y <= z.y1) && (x < 3 || y < 3 || x > SHEET_W_MM - 3 || y > H - 3);
+        for (const s of segments(sheet.content, H)) for (const [x, y] of [[s.x1, s.y1], [s.x2, s.y2]]) {
+          if (inRuler(x, y)) continue;
+          expect(Math.min(x, SHEET_W_MM - x, y, H - y), `(${x.toFixed(1)}, ${y.toFixed(1)})`).toBeGreaterThanOrEqual(3 - 0.01);
+        }
+        for (const t of textPositions(sheet)) {
+          if (/^[\d-]+$/.test(t.text)) continue; // the numbers on the edge rulers
+          expect(Math.min(t.x, SHEET_W_MM - t.x, t.y, H - t.y), t.text).toBeGreaterThanOrEqual(3);
+          // (The two labels that run up the sheet start where they are drawn.)
+          if (!t.text.startsWith('edge should') && !t.text.startsWith('parallel to the 5.5') && !t.text.startsWith('parallel to the 11')) expect(t.x + 1.1 * t.text.length, t.text).toBeLessThanOrEqual(SHEET_W_MM - 3);
+        }
       }
     });
 
@@ -277,7 +322,7 @@ for (const layout of ['half_letter', 'letter_two_up'] as const) {
         const own = clonePrint(print);
         setPrint(own, change);
         const [front, back] = await readPdf((await sheetFile(emptyBook(52), own, fontBytes, NOW)).bytes);
-        return { front: textPositions(front).find((t) => t.text === 'fold')!, back: textPositions(back).find((t) => t.text === 'crease')! };
+        return { front: textPositions(front).find((t) => t.text === 'SIDE 1 (FRONT)')!, back: textPositions(back).find((t) => t.text === 'SIDE 2: MEASURE')! };
       };
       const base = await at({});
       const moved = await at({ front_offset_x_mm: 1, front_offset_y_mm: 0.5 });

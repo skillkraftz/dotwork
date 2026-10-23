@@ -1,22 +1,22 @@
 // The calibration sheets: paper that shows, without printing a whole book, how a printer places and tones the pages.
 // Built with the same imposition, page size and drawing code as the book's own print files. Printer settings come from the printer profile.
 //
-//   calibration-sheet.pdf  one double-sided sheet per layout: page 1 = the front, page 2 = the back; print them the way print-first and
-//       print-second are printed. Side 1 has the gray ramp, sample text, dots, lines, a hairline strip, four small crosshairs (one
-//       near each edge of the content area) and the fold mark. Side 2 is all measuring: a mm scale where each crosshair shows through
-//       (read x at the top and bottom, y at the left and right), the fold scale for the crease, a ruler at the paper's top and bottom
-//       edge, and two long lines to measure with a ruler. See src/book/alignment.ts for what the readings mean.
+//   calibration-sheet.pdf  one double-sided sheet per layout on the WHOLE paper (the half sheet, or the whole letter sheet for two-up: no halves,
+//       labels or cut marks): page 1 = the front, page 2 = the back; print them the way print-first and print-second are printed. Five
+//       marks, 8 mm in from the edges and at the centre. Side 1: a fine + at each, and the gray ramp, sample text, dots, lines and
+//       hairlines at least 10 mm from every mark. Side 2 (all measuring): at the four edge marks a see-through scale and an edge ruler,
+//       at the centre a +, and two 100 mm lines. See src/book/alignment.ts for what the readings mean.
 //   creep-test.pdf             every sheet of the book's biggest signature, both sides, in manual-duplex order: pages 1 to N are
 //       the fronts (last sheet first), pages N+1 to 2N the backs (first sheet first). Margin rulers on every page.
 //   calibration-cover.pdf      the cover sheet as cover-outside.pdf and cover-inside.pdf print it (two passes), with margin rulers
 //   calibration.txt            the settings that made them
 //
-// On the letter two-up layout every page has the same thing in both halves, labelled Book 1 and Book 2 like the print files, with the
+// On the letter two-up layout every page of the creep test and the cover has the same thing in both halves, labelled Book 1 and Book 2 like the print files, with the
 // cut marks; the scale, offsets and rotation of the selected layout apply to the whole page. Covers stay out of the creep test.
 import { GRID_X_MM, GRID_Y_MM, PAGE_H_MM, PAGE_W_MM, COLS, ROWS, PITCH_MM as P, emptyPage, type Page, type PageElement, type Text } from '../format/types';
 import type { Book } from '../book/book';
-import { FOLD_X_MM, SHEET_H_MM, SHEET_W_MM, checkPrintSettings, duplexOrder, impose, pageOrigin, type PrintSettings, type Sheet } from '../book/impose';
-import { LONG_LINE_MM, SCALE_RANGE_MM, crosshairs, foldScaleAt, scaleCaptions, sheetHeight } from '../book/alignment';
+import { SHEET_W_MM, checkPrintSettings, duplexOrder, impose, pageOrigin, type PrintSettings, type Sheet } from '../book/impose';
+import { LINE_MM, MARK_FROM_EDGE_MM, SCALE_RANGE_MM, crosshairs, scaleCaptions, sheetHeight } from '../book/alignment';
 import { LINE } from '../render';
 import { degrees } from 'pdf-lib';
 import { color, drawPage, mmToPt, type Fonts } from './draw';
@@ -83,6 +83,7 @@ function sheetCanvas(pdf: PdfPage, fonts: Fonts, height: number, dx = 0, dy = 0)
       pdf.drawRectangle({ x: X(x), y: Y(y + h), width: mmToPt(w), height: mmToPt(h), color: color(c) }),
     outline: (x: number, y: number, w: number, h: number, lw: number, c = BLACK) =>
       pdf.drawRectangle({ x: X(x), y: Y(y + h), width: mmToPt(w), height: mmToPt(h), borderWidth: mmToPt(lw), borderColor: color(c) }),
+    width: (str: string, size: number) => fonts.regular.widthOfTextAtSize(str, mmToPt(size)) / mmToPt(1),
     /** Text with its baseline at y. */
     text: (str: string, x: number, y: number, size: number, c = BLACK, align: Align = 'start', knockout = false, rotate = false) => {
       const width = fonts.regular.widthOfTextAtSize(str, mmToPt(size));
@@ -210,8 +211,8 @@ function frontLeft(p: PrintSettings): Page {
   return page('left', [
     text(0, 1, 'GRAY RAMP: percent black', { style: 'bold' }),
     text(0, 24, 'TONES AS THEY PRINT NOW', { style: 'bold' }),
-    { type: 'shade', tones: 'L', x: 0, y: 25, w: 8, h: 3 }, { type: 'shade', tones: 'M', x: 9, y: 25, w: 8, h: 3 }, { type: 'shade', tones: 'D', x: 18, y: 25, w: 8, h: 3 },
-    text(0, 28, `light ${p.shade_light_pct}%`), text(9, 28, `medium ${p.shade_medium_pct}%`), text(18, 28, `dark ${p.shade_dark_pct}%`),
+    { type: 'shade', tones: 'L', x: 0, y: 25, w: 6, h: 3 }, { type: 'shade', tones: 'M', x: 7, y: 25, w: 6, h: 3 }, { type: 'shade', tones: 'D', x: 14, y: 25, w: 6, h: 3 },
+    text(0, 28, `light ${p.shade_light_pct}%`), text(7, 28, `medium ${p.shade_medium_pct}%`), text(14, 28, `dark ${p.shade_dark_pct}%`),
     text(0, 30, 'GRAY TEXT AS IT PRINTS NOW', { style: 'bold' }),
     text(0, 31, `Gray text ${p.gray_text_pct}%: the quick brown fox`, { tone: 'gray' }),
     text(0, 32, 'Black text: the quick brown fox'),
@@ -229,26 +230,28 @@ function ramp(c: Canvas) {
   });
 }
 
-/** Two rows lower than it needs to be, so rows 0 and 1 stay free for the fold scale. */
+/** Five columns in from the spine and 22 wide, so nothing comes within 10 mm of the marks at the top, bottom and centre of the fold. */
+const RIGHT_X = 5, RIGHT_W = 22;
 const frontRight = () => page('right', [
-  text(0, 3, 'DOT GRID: small and large dots', { style: 'bold' }),
-  { type: 'pattern', pattern: 'dots', x: 0, y: 4, w: 13, h: 6 }, { type: 'pattern', pattern: 'dots', dots: 'large', x: 14, y: 4, w: 13, h: 6 },
-  text(0, 11, 'small'), text(14, 11, 'large'),
-  text(0, 13, 'RULED LINES: hair, thin, thick', { style: 'bold' }),
-  text(0, 14, 'hair (writing lines)'), { type: 'pattern', pattern: 'lines', x: 0, y: 15, w: 27, h: 3 },
-  text(0, 19, 'thin'), { type: 'pattern', pattern: 'lines', weight: 'thin', x: 0, y: 20, w: 27, h: 3 },
-  text(0, 24, 'thick'), { type: 'pattern', pattern: 'lines', weight: 'thick', x: 0, y: 25, w: 27, h: 3 },
-  text(0, 30, 'HAIRLINE WEIGHTS: mm (writing: 0.12)', { style: 'bold' }),
+  text(RIGHT_X, 3, 'DOT GRID: small and large dots', { style: 'bold' }),
+  { type: 'pattern', pattern: 'dots', x: RIGHT_X, y: 4, w: 10, h: 6 }, { type: 'pattern', pattern: 'dots', dots: 'large', x: RIGHT_X + 11, y: 4, w: 11, h: 6 },
+  text(RIGHT_X, 11, 'small'), text(RIGHT_X + 11, 11, 'large'),
+  text(RIGHT_X, 13, 'RULED LINES: hair, thin, thick', { style: 'bold' }),
+  text(RIGHT_X, 14, 'hair (writing lines)'), { type: 'pattern', pattern: 'lines', x: RIGHT_X, y: 15, w: RIGHT_W, h: 3 },
+  text(RIGHT_X, 19, 'thin'), { type: 'pattern', pattern: 'lines', weight: 'thin', x: RIGHT_X, y: 20, w: RIGHT_W, h: 3 },
+  text(RIGHT_X, 24, 'thick'), { type: 'pattern', pattern: 'lines', weight: 'thick', x: RIGHT_X, y: 25, w: RIGHT_W, h: 3 },
+  text(RIGHT_X, 30, 'HAIRLINE WEIGHTS: mm (writing: 0.12)', { style: 'bold' }),
 ]);
 
 /** Lines of each width, in black and in the light gray of writing lines. */
 function hairlines(c: Canvas) {
   const { x, y } = gridAt(true, 0);
+  const x0 = x + RIGHT_X * P;
   HAIRLINE_WIDTHS.forEach((w, i) => {
     const at = y + (31 + i * 0.8) * P + 1.5;
-    c.line(x, at, x + 30, at, w);
-    c.line(x + 33, at, x + 63, at, w, LINE.hair.c);
-    c.text(w.toFixed(2), x + 66, at + 0.8, 2.3);
+    c.line(x0, at, x0 + 22, at, w);
+    c.line(x0 + 25, at, x0 + 47, at, w, LINE.hair.c);
+    c.text(w.toFixed(2), x0 + 50, at + 0.8, 2.3);
   });
 }
 
@@ -288,79 +291,104 @@ async function calibrationPdf(book: Book, print: PrintSettings, fontBytes: FontB
 
 // ---- the calibration sheet -----------------------------------------------------------------------------------
 
-const ARM_MM = 2; // a crosshair's arm
+const PLUS_MM = 0.2, PLUS_ARM_MM = 3; // side 1's and the centre's +: 0.2 mm lines, 6 mm across
 const CAPTION_MM = 1.8;
-const cross = (c: Canvas, p: Pt) => { c.line(p.x - ARM_MM, p.y, p.x + ARM_MM, p.y, HAIR_MM); c.line(p.x, p.y - ARM_MM, p.x, p.y + ARM_MM, HAIR_MM); };
+const plus = (c: Canvas, p: Pt) => { c.line(p.x - PLUS_ARM_MM, p.y, p.x + PLUS_ARM_MM, p.y, PLUS_MM); c.line(p.x, p.y - PLUS_ARM_MM, p.x, p.y + PLUS_ARM_MM, PLUS_MM); };
 
-/** Side 1, in each half: the gray ramp, sample text, dots, lines and hairlines. */
+/** Side 1: the ramp, sample text, dots, lines and hairlines, in the top half of the paper (the left page's settings footer is small and ends 10 mm short of the marks). */
 function sheetFront(g: Half, print: PrintSettings, now: Date) {
   content(g, print, frontLeft(print), false);
   content(g, print, frontRight(), true);
   ramp(g.c);
   hairlines(g.c);
-  for (const right of [false, true]) {
-    frame(g.c, right, 0, 0, false);
-    footer(g.c, print, now, right, 0, 0, [`SIDE 1 (FRONT), ${right ? 'right' : 'left'} page`]);
+  const { x, y } = gridAt(false, 0);
+  const lines = ['SIDE 1 (FRONT)', ...settingsLines(print, now)];
+  lines.forEach((line, i) => g.c.text(line, x + 0.8, y + 114 - (lines.length - 1 - i) * 1.7, 1.4));
+  for (const p of Object.values(crosshairs(print.sheet_layout))) plus(g.c, p);
+}
+
+/** The unit vectors, in sheet millimetres (y down), of an edge mark: toward the paper's edge, and along its see-through scale in the direction a reading counts up (right, or up). */
+const EDGE_DIRS = {
+  top: { out: { x: 0, y: -1 }, along: { x: 1, y: 0 } }, bottom: { out: { x: 0, y: 1 }, along: { x: 1, y: 0 } },
+  left: { out: { x: -1, y: 0 }, along: { x: 0, y: -1 } }, right: { out: { x: 1, y: 0 }, along: { x: 0, y: -1 } },
+} as const;
+
+/** A tick centred on `at`, across a line that runs along `dir`. */
+const tick = (c: Canvas, at: Pt, dir: Pt, len: number) => c.line(at.x - (dir.y * len) / 2, at.y - (dir.x * len) / 2, at.x + (dir.y * len) / 2, at.y + (dir.x * len) / 2, HAIR_MM);
+
+/**
+ * An edge mark on side 2: a see-through scale through the mark (-5 to +5 mm, a tick every 0.5, the numbers in two rows on the side away from the
+ * edge so neighbours don't touch) and an edge ruler from the mark to the paper's edge (0 to 8 mm). The captions are in the words of the readings.
+ */
+function edgeMark(g: Half, name: 'top' | 'bottom' | 'left' | 'right', p: Pt, cap: ReturnType<typeof scaleCaptions>) {
+  const c = g.c, { out, along } = EDGE_DIRS[name], inner = { x: -out.x, y: -out.y }, horizontal = out.x === 0, size = 1.4;
+  const at = (a: number, o: number): Pt => ({ x: p.x + along.x * a + out.x * o, y: p.y + along.y * a + out.y * o });
+  // The see-through scale.
+  const [a0, a1] = [at(-SCALE_RANGE_MM - 0.5, 0), at(SCALE_RANGE_MM + 0.5, 0)];
+  c.line(a0.x, a0.y, a1.x, a1.y, HAIR_MM);
+  for (let half = -2 * SCALE_RANGE_MM; half <= 2 * SCALE_RANGE_MM; half++) {
+    const mm = half / 2, whole = half % 2 === 0, t = at(mm, 0);
+    tick(c, t, along, mm === 0 ? 3 : whole ? 1.6 : 0.9);
+    if (!whole) continue;
+    const row = mm % 2 === 0 ? 2.3 : 4.3; // even numbers in the row next to the line, odd ones in the row beyond
+    const label = String(mm);
+    if (horizontal) c.text(label, t.x, t.y + inner.y * row + (inner.y > 0 ? size * 0.75 : 0), size, BLACK, 'middle', true);
+    else c.text(label, t.x + inner.x * row, t.y + size * 0.35, size, BLACK, inner.x > 0 ? 'start' : 'end', true);
   }
+  const caption = { top: cap.top, bottom: cap.bottom, left: cap.left, right: cap.right }[name];
+  if (horizontal) c.text(caption, p.x + 8, p.y + 0.6, CAPTION_MM);
+  else c.text(caption, p.x + inner.x * 9, p.y + 0.6, CAPTION_MM, BLACK, inner.x > 0 ? 'start' : 'end');
+  // The edge ruler: 0 at the mark, counting toward the paper's edge, 8.0 where the paper should end.
+  const [r0, r1] = [at(0, 0), at(0, MARK_FROM_EDGE_MM)];
+  c.line(r0.x, r0.y, r1.x, r1.y, HAIR_MM);
+  for (let half = 0; half <= 2 * MARK_FROM_EDGE_MM; half++) {
+    const mm = half / 2, whole = half % 2 === 0, t = at(0, mm);
+    tick(c, t, out, mm === MARK_FROM_EDGE_MM ? 3 : whole ? 1.6 : 0.9);
+    if (whole && mm > 0 && mm < MARK_FROM_EDGE_MM && mm % 2 === 0) {
+      if (horizontal) c.text(String(mm), t.x - 1.2, t.y + size * 0.35, size, BLACK, 'end', true);
+      else c.text(String(mm), t.x, t.y - 1.3, size, BLACK, 'middle', true);
+    }
+  }
+  if (horizontal) c.text(cap.edge, p.x + 2, p.y + (out.y > 0 ? 4 : -3), CAPTION_MM);
+  // On the left and right the label runs up the sheet below the ruler.
+  else c.text(cap.edge, out.x < 0 ? p.x - 2.6 : p.x + 3.6, p.y + 2.4 + c.width(cap.edge, CAPTION_MM), CAPTION_MM, BLACK, 'start', false, true);
 }
 
-/** Side 1, once on the sheet: the four crosshairs, and the fold mark, a short line on the fold at the centre that shows through next to the crease on side 2. */
-function frontMarks(g: Half, print: PrintSettings) {
-  for (const p of Object.values(crosshairs(print.sheet_layout))) cross(g.c, p);
-  const f = foldScaleAt(print.sheet_layout);
-  g.c.line(f.x, f.y - 5, f.x, f.y + 5, HAIR_MM);
-  g.c.text('fold', f.x - 1.2, f.y - 6, CAPTION_MM, BLACK, 'end');
-}
-
-/** Side 2, once on the sheet: a mm scale where each crosshair shows through, the fold scale, the rulers at the paper's top and bottom edge, and how to read them. */
+/** Side 2: the four edge marks, the centre +, the two 100 mm lines, and how to read them. */
 function sheetBack(g: Half, print: PrintSettings) {
-  const layout = print.sheet_layout, cap = scaleCaptions(layout), at = crosshairs(layout), c = g.c, H = sheetHeight(layout);
-  const label = (mm: number) => (Math.abs(mm) <= SCALE_MM ? String(mm) : null);
-  const across = (p: Pt) => scale(c, p, { x: 1, y: 0 }, -SCALE_MM - 0.5, SCALE_MM + 0.5, { label });
-  const up = (p: Pt) => scale(c, p, { x: 0, y: -1 }, -SCALE_MM - 0.5, SCALE_MM + 0.5, { label });
-  across(at.top); across(at.bottom); up(at.left); up(at.right);
-  c.text(cap.top, at.top.x + 8, at.top.y + 0.6, CAPTION_MM);
-  c.text(cap.bottom, at.bottom.x + 8, at.bottom.y + 0.6, CAPTION_MM);
-  c.text(cap.left, at.left.x + 6, at.left.y + 0.6, CAPTION_MM);
-  c.text(cap.right, at.right.x - 6, at.right.y + 0.6, CAPTION_MM, BLACK, 'end');
-  const f = foldScaleAt(layout);
-  across(f);
-  c.text(cap.crease, f.x, f.y + 6.5, CAPTION_MM, BLACK, 'middle');
-  // The rulers at the paper's top and bottom edge, on the fold: they count outward from the box line.
-  marginRuler(c, { x: FOLD_X_MM - PAGE_W_MM / 2, y: 0 }, 'top', 0);
-  marginRuler(c, { x: FOLD_X_MM - PAGE_W_MM / 2, y: H - SHEET_H_MM }, 'bottom', 0);
-  c.text(cap.topMargin, FOLD_X_MM - 3, 6.5, CAPTION_MM, BLACK, 'end');
-  c.text(cap.bottomMargin, FOLD_X_MM - 3, H - 8.2, CAPTION_MM, BLACK, 'end');
+  const layout = print.sheet_layout, cap = scaleCaptions(layout), at = crosshairs(layout), c = g.c, W = SHEET_W_MM, H = sheetHeight(layout);
+  for (const name of ['top', 'bottom', 'left', 'right'] as const) edgeMark(g, name, at[name], cap);
+  plus(c, at.centre);
   const how = [
-    'SIDE 2: MEASURE', '', 'Hold the sheet to a light: side 1\'s crosshairs', 'show through next to the scales. Read each', 'scale where its crosshair is: + is right and',
-    '+ is up, as seen on this side.', '', 'Fold the sheet in half edge to edge, crease it', 'hard, open it, and read where the crease', 'crosses its scale.',
-    '', 'Print the sheet twice. If the readings differ', 'much between the two prints, the paper feed', 'twists it: no setting can fix that.',
+    'SIDE 2: MEASURE', '', 'Hold the sheet to a light. Where', 'side 1\'s + shows through, read the', 'see-through scales: + is right and', 'up, as seen on this side.',
+    '', 'Read each edge ruler where the paper', 'ends: it should be at 8.0.', '', 'Measure each 100 mm line with a ruler,', 'tick to tick.',
+    '', 'Print twice: if readings differ much,', 'the paper feed twists it; no setting', 'can fix that.',
   ];
-  how.forEach((line, i) => c.text(line, FOLD_X_MM - PAGE_W_MM + GRID_X_MM + 1, 20 + i * 2.7, 2.1));
-  sheetLines(g, print);
+  how.forEach((line, i) => c.text(line, W / 2 + 16, H / 2 - 15 + i * 2.7, 1.8));
+  // The 100 mm lines, in clear space: one parallel to the 8.5 in edge (the top), one to the other (the left).
+  const y = H / 2 - 25, x0 = (W - LINE_MM) / 2;
+  c.line(x0, y, x0 + LINE_MM, y, PLUS_MM);
+  for (const x of [x0, x0 + LINE_MM]) c.line(x, y - 2.5, x, y + 2.5, PLUS_MM);
+  c.text(cap.longX, x0 + 2, y - 3.2, CAPTION_MM);
+  const x = W / 2 - 58, y0 = H / 2 - LINE_MM / 2;
+  c.line(x, y0, x, y0 + LINE_MM, PLUS_MM);
+  for (const yy of [y0, y0 + LINE_MM]) c.line(x - 2.5, yy, x + 2.5, yy, PLUS_MM);
+  c.text(cap.longY, x + 5.6, y0 + LINE_MM - 3, CAPTION_MM, BLACK, 'start', false, true);
 }
 
-/** The two long lines to measure, along the 8.5 in edge (at the bottom) and the other (at the left), each with its tick marks. */
-function sheetLines(g: Half, print: PrintSettings) {
-  const layout = print.sheet_layout, cap = scaleCaptions(layout), len = LONG_LINE_MM[layout], H = sheetHeight(layout), c = g.c;
-  const x0 = (SHEET_W_MM - len.x) / 2, y = H - 5.5;
-  c.line(x0, y, x0 + len.x, y, 0.2);
-  for (const x of [x0, x0 + len.x]) c.line(x, y - TICK_MM / 2, x, y + TICK_MM / 2, 0.2);
-  c.text(cap.longX, x0 + 2, y - 1.6, CAPTION_MM);
-  // On two-up the line is kept out of the printer's 3 mm margin and the half labels' column (x 9 to 11) in the left trim zone.
-  const y0 = (H - len.y) / 2, x = 4.6;
-  c.line(x, y0, x, y0 + len.y, 0.2);
-  for (const yy of [y0, y0 + len.y]) c.line(x - 1.5, yy, x + 1.5, yy, 0.2);
-  c.text(cap.longY, x + 3.6, y0 + len.y - 8, 1.6, BLACK, 'start', false, true);
+/** calibration-sheet.pdf: page 1 the front, page 2 the back, each on the whole paper with its own offset; the back is turned by the layout's rotation. */
+async function sheetPdf(print: PrintSettings, fontBytes: FontBytes, now: Date): Promise<Uint8Array> {
+  const { doc, fonts } = await newDocument(fontBytes);
+  const { w, h } = sheetSize(print.sheet_layout);
+  for (const side of ['front', 'back'] as const) {
+    const pdf = doc.addPage([mmToPt(w), mmToPt(h)]);
+    onSheet(pdf, w, h, transformOf(print, side), (dx, dy) => {
+      const g: Half = { pdf, fonts, height: h, dx, dy, c: sheetCanvas(pdf, fonts, h, dx, dy), index: 0, count: 1 };
+      if (side === 'front') sheetFront(g, print, now); else sheetBack(g, print);
+    });
+  }
+  return doc.save({ useObjectStreams: false });
 }
-
-const TICK_MM = 5;
-
-/** calibration-sheet.pdf: page 1 the front, page 2 the back, each with its own offset; the back is turned by the layout's rotation. */
-const sheetPdf = (book: Book, print: PrintSettings, fontBytes: FontBytes, now: Date) => calibrationPdf(book, print, fontBytes, [
-  { side: 'front', label: ['calibration', 'front'], draw: (g) => sheetFront(g, print, now), whole: (g) => frontMarks(g, print) },
-  { side: 'back', label: ['calibration', 'back'], draw: () => {}, whole: (g) => sheetBack(g, print) },
-]);
 
 // ---- creep test and cover ----------------------------------------------------------------------------------
 
@@ -428,7 +456,7 @@ function check(book: Book, print: PrintSettings) {
 /** The calibration step: calibration-sheet.pdf. */
 export async function sheetFile(book: Book, print: PrintSettings, fontBytes: FontBytes, now = new Date()): Promise<ExportedFile> {
   check(book, print);
-  return pdf(SHEET_FILE, await sheetPdf(book, print, fontBytes, now));
+  return pdf(SHEET_FILE, await sheetPdf(print, fontBytes, now));
 }
 
 /** The creep step: the cover sheet and the creep test, with calibration.txt. */
