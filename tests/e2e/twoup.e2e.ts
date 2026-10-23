@@ -139,10 +139,10 @@ for (const device of ['phone', 'tablet', 'desktop'] as const) {
       await hit(app, '[data-help="book-choose"]');
       await page.waitForSelector('dialog.picker[open] .design');
       expect(await page.locator('dialog.picker .lib-tabs').isVisible()).toBe(false); // a right page: pages only
-      await hit(app, 'dialog.picker .design:has-text("Notes")');
-      expect((await savedBook(app)).cover.outside_front.name).toBe('Notes');
+      await hit(app, 'dialog.picker .design:has(.design-title:text-is("Lined page"))');
+      expect((await savedBook(app)).cover.outside_front.name).toBe('Lined page');
       expect((await savedBook(app)).cover.outside_front.side).toBe('right');
-      expect(await page.locator('.design-name strong').innerText()).toBe('Notes');
+      expect(await page.locator('.design-name strong').innerText()).toBe('Lined page');
       expect(await noOverflow(app)).toBe(true);
       await shot(app, `${device}-book-outside-front`);
 
@@ -150,7 +150,7 @@ for (const device of ['phone', 'tablet', 'desktop'] as const) {
       if (app.touch) await hit(app, '[data-help="book-contents"]');
       const rows = page.locator('.book-contents .crow');
       expect(await rows.first().innerText()).toContain('Outside front cover');
-      expect(await rows.first().innerText()).toContain('Notes');
+      expect(await rows.first().innerText()).toContain('Lined page');
       expect(await rows.last().innerText()).toContain('Outside back cover');
       await shot(app, `${device}-book-contents-covers`);
       await hit(app, '.book-contents .crow >> nth=-1');
@@ -160,9 +160,9 @@ for (const device of ['phone', 'tablet', 'desktop'] as const) {
       await hit(app, '[data-help="book-choose"]');
       await page.waitForSelector('dialog.picker[open] .design');
       expect(await page.locator('dialog.picker .lib-tabs').isVisible()).toBe(false);
-      await hit(app, 'dialog.picker .design:has-text("Lined page")');
+      await hit(app, 'dialog.picker .design:has(.design-title:text-is("Dot grid page"))');
       const book = await savedBook(app);
-      expect(book.cover.outside_back.name).toBe('Lined page');
+      expect(book.cover.outside_back.name).toBe('Dot grid page');
       expect(book.cover.outside_back.side).toBe('left');
       expect(book.pages).toHaveLength(52);
       // Undo takes it back

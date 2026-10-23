@@ -206,13 +206,15 @@ export const printValue = (print: PrintSettings, key: PrintFieldKey): number => 
 export function printField(book: () => Book, edit: (change: (b: Book) => void) => void, key: PrintFieldKey): HTMLElement {
   const { label, help, step } = PRINT_FIELDS[key], { min, max } = isLayoutKey(key) ? LAYOUT_LIMITS[key] : PRINT_LIMITS[key];
   const value = printValue(book().print, key);
+  // The layout this field was drawn for: a change that arrives after the layout was switched still goes to it.
+  const layout = book().print.sheet_layout;
   const input = h('input', { type: 'number', value, min, max, step, 'aria-label': label, 'data-key': help, 'data-help': help });
   input.onchange = () => {
     const typed = Number(input.value);
     if (input.value === '' || !Number.isFinite(typed)) { input.value = String(printValue(book().print, key)); return; }
     const v = Math.min(max, Math.max(min, key === 'signatures' ? Math.round(typed) : typed));
     input.value = String(v);
-    edit((b) => { if (isLayoutKey(key)) profileOf(b.print)[key] = v; else b.print[key] = v; });
+    edit((b) => { if (isLayoutKey(key)) b.print.layouts[layout][key] = v; else b.print[key] = v; });
   };
   return h('label', { class: 'compact' }, label, input);
 }
