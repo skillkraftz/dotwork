@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { PDFDocument } from 'pdf-lib';
 import { emptyBook, setSlot, PRINT_LIMITS, type Book } from '../src/book/book';
-import { DEFAULT_PRINT, SHEET_H_MM, SHEET_W_MM, clonePrint, creepFor, duplexOrder, impose, pageOrigin, type PrintSettings } from '../src/book/impose';
+import { DEFAULT_PRINT, SHEET_H_MM, SHEET_W_MM, clonePrint, creepFor, impose, pageOrigin, type PrintSettings } from '../src/book/impose';
 import { FOLD_FROM_CENTRE_MM, FOLD_HOW, LINE_MM, MARK_CLEAR_MM, markZone, crosshairs, foldScales, scaleCaptions, sheetHeight, type MarkName } from '../src/book/alignment';
 import { PRINTER_KEYS, readPrinter } from '../src/printer';
 import { sheetSize } from '../src/print/sheets';

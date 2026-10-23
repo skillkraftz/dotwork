@@ -73,6 +73,8 @@ async function flow(app: App, device: string) {
 
   // Apply to more pages, with the pages shown first
   await click(app, page.getByRole('button', { name: 'Apply to more pages…' }));
+  // On a tablet the first tap after the synthetic swipe is swallowed (Chromium's touch sequence is still closing): tap again if nothing opened.
+  if (!(await page.locator('dialog.apply').first().evaluate((d: HTMLDialogElement) => d.open))) await click(app, page.getByRole('button', { name: 'Apply to more pages…' }));
   await page.waitForSelector('dialog.apply[open]');
   await click(app, page.getByLabel('Every right page, from … to …'));
   await page.getByLabel('From page').fill('1');
