@@ -1,21 +1,26 @@
 // The printer's settings: what the Calibrate page finds out about a printer and its paper (offsets, creep, fore-edge shifts, tones),
 // kept in the browser so every new book starts from them. The book still carries its own copy in book.json.
-import { PRINT_LIMITS } from './book/book';
-import { DEFAULT_PRINT, type PrintSettings } from './book/impose';
+import { PRINT_LIMITS, layoutIssues } from './book/book';
+import { DEFAULT_PRINT, LAYOUT_NAMES, SHEET_LAYOUTS, clonePrint, type LayoutProfile, type PrintSettings } from './book/impose';
 import type { ValidationIssue } from './format/validate';
 import { errorProblem, issuesProblem, type Problem } from './problems';
+import { LAYOUT_LABELS, PRINT_LABELS } from './print/settingstext';
 
 export const PRINTER_KEY = 'dotwork.printer';
 
 /** The print settings that belong to the printer; the number of signatures belongs to the book. */
 export const PRINTER_KEYS = [
-  'creep_per_sheet_mm', 'fore_edge_shift_mm', 'cover_fore_edge_shift_mm', 'target_fore_edge_margin_mm', 'front_offset_x_mm', 'front_offset_y_mm', 'back_offset_x_mm', 'back_offset_y_mm',
+  'creep_per_sheet_mm', 'fore_edge_shift_mm', 'cover_fore_edge_shift_mm', 'target_fore_edge_margin_mm',
   'shade_light_pct', 'shade_medium_pct', 'shade_dark_pct', 'gray_text_pct',
 ] as const satisfies readonly (keyof PrintSettings)[];
-export type PrinterSettings = Pick<PrintSettings, (typeof PRINTER_KEYS)[number]>;
+/** The printer's settings: those above, which every layout shares, and the offsets and scale of each layout, with the layout in use. */
+export type PrinterSettings = Pick<PrintSettings, (typeof PRINTER_KEYS)[number] | 'sheet_layout' | 'layouts'>;
 
-/** The printer's part of a book's print settings. */
-export const printerOf = (p: PrintSettings): PrinterSettings => Object.fromEntries(PRINTER_KEYS.map((k) => [k, p[k]])) as PrinterSettings;
+/** The printer's part of a book's print settings (a copy). */
+export const printerOf = (p: PrintSettings): PrinterSettings => {
+  const c = clonePrint(p);
+  return { ...(Object.fromEntries(PRINTER_KEYS.map((k) => [k, c[k]])) as Pick<PrintSettings, (typeof PRINTER_KEYS)[number]>), sheet_layout: c.sheet_layout, layouts: c.layouts };
+};
 
 /** Where it is kept: the browser's local storage, or anything shaped like it (tests use a plain object). */
 export type PrinterStorage = Pick<Storage, 'getItem' | 'setItem'>;
@@ -28,6 +33,9 @@ export function readPrinter(data: unknown): { ok: true; value: PrinterSettings }
     const { min, max } = PRINT_LIMITS[key], v = o[key];
     if (typeof v !== 'number' || !Number.isFinite(v) || v < min || v > max) issues.push({ rule: 'print-setting', path: key, message: `"${key}" must be a number from ${min} to ${max}, got ${JSON.stringify(v)}.` });
   }
+  if (!SHEET_LAYOUTS.includes(o.sheet_layout as never)) issues.push({ rule: 'print-setting', path: 'sheet_layout', message: `"sheet_layout" must be ${SHEET_LAYOUTS.map((l) => `"${l}"`).join(' or ')}, got ${JSON.stringify(o.sheet_layout)}.` });
+  const layouts = typeof o.layouts === 'object' && o.layouts !== null ? (o.layouts as Record<string, unknown>) : {};
+  for (const layout of SHEET_LAYOUTS) issues.push(...layoutIssues(layouts[layout], `layouts.${layout}`));
   return issues.length ? { ok: false, issues } : { ok: true, value: printerOf(o as unknown as PrintSettings) };
 }
 
@@ -61,7 +69,19 @@ export function savePrinter(storage: PrinterStorage | null, settings: PrintSetti
 }
 
 /** The print settings a new book starts from: the defaults, with the printer's saved settings over them. */
-export const startingPrint = (saved: PrinterSettings | null): PrintSettings => ({ ...DEFAULT_PRINT, ...saved });
+export const startingPrint = (saved: PrinterSettings | null): PrintSettings => clonePrint({ ...DEFAULT_PRINT, ...saved });
 
-/** The settings where the book's print settings differ from the printer's saved ones. */
-export const differing = (book: PrintSettings, saved: PrinterSettings): (typeof PRINTER_KEYS)[number][] => PRINTER_KEYS.filter((k) => book[k] !== saved[k]);
+/** Every setting of the printer, flat: its name in words and its value. Layout settings are named by their layout. */
+export function printerEntries(p: PrinterSettings): [string, number | string][] {
+  return [
+    ...PRINTER_KEYS.map((k): [string, number | string] => [PRINT_LABELS[k], p[k]]),
+    ['sheet layout', LAYOUT_NAMES[p.sheet_layout]],
+    ...SHEET_LAYOUTS.flatMap((l) => (Object.keys(LAYOUT_LABELS) as (keyof LayoutProfile)[]).map((k): [string, number | string] => [`${LAYOUT_NAMES[l].toLowerCase()} ${LAYOUT_LABELS[k]}`, p.layouts[l][k]])),
+  ];
+}
+
+/** The settings where the book's print settings differ from the printer's saved ones: the name, the book's value and the saved one. */
+export function differing(book: PrintSettings, saved: PrinterSettings): { name: string; here: number | string; saved: number | string }[] {
+  const mine = printerEntries(book), theirs = printerEntries(saved);
+  return mine.flatMap(([name, here], i) => (here !== theirs[i][1] ? [{ name, here, saved: theirs[i][1] }] : []));
+}

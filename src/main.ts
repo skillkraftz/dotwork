@@ -17,6 +17,7 @@ import { idbBackend } from './library/idb';
 import { LibraryDialog, type SaveOption, type SaveWhat } from './library/dialog';
 import { Arranger } from './book/arranger';
 import { emptyBook, readBook, type Book } from './book/book';
+import { clonePrint } from './book/impose';
 import { loadPrinter, printerOf, savePrinter, startingPrint, type PrinterSettings } from './printer';
 import { ExportDialog } from './exporter';
 import { SettingsDialog } from './settings';
@@ -416,7 +417,7 @@ const currentBook = (): Book => arranger?.current ?? (book ??= loadBook());
 function openBook(next: Book, fresh = false) {
   notify(null);
   book = structuredClone(next);
-  if (fresh) book.print = { ...book.print, ...printerSettings };
+  if (fresh && printerSettings) book.print = clonePrint({ ...book.print, ...printerSettings });
   keepBook(book);
   arranger?.setBook(book);
   view = 'book';
@@ -566,6 +567,7 @@ const exportDialog = new ExportDialog({
     : view === 'page' ? { page: stores.page.page }
       : { page: cur().page, spread: { left: stores.left.page, right: stores.right.page, name: spreadName.trim() || 'Untitled spread' } }),
   book: currentBook,
+  savedBooks: async () => (await library.list()).filter((i) => i.kind === 'book').map((i) => ({ id: i.id, name: i.name, book: i.data as Book })),
   editBook: (change) => { ensureArranger(); arranger!.edit(() => change(arranger!.current)); },
   printer: {
     saved: () => printerSettings,

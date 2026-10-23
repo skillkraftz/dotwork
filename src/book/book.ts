@@ -5,10 +5,10 @@ import { expandFor, usesDates } from '../format/tokens';
 import { withSide, type SpreadSide } from '../format/spread';
 import { headerOf, hitsCorner } from '../format/bounds';
 import type { ValidationIssue } from '../format/validate';
-import { DEFAULT_PRINT, type PrintSettings } from './impose';
+import { DEFAULT_PRINT, SHEET_LAYOUTS, clonePrint, type LayoutProfile, type PrintSettings } from './impose';
 import { readRecipe, type Recipe } from './sections';
 
-/** A book: a page count, a design for every page you have filled, and the two inside covers. See docs/book-format.md. */
+/** A book: a page count, a design for every page you have filled, and the four cover pages. See docs/book-format.md. */
 export interface Book {
   format: 'dotwork-book';
   version: 1;
@@ -21,7 +21,8 @@ export interface Book {
   pages: (Page | null)[];
   /** Index 0 is page 1: the date its tokens are filled from, as 'YYYY-MM-DD', or null. Missing means no page has a date. */
   dates?: (string | null)[];
-  cover: { front: Page | null; back: Page | null };
+  /** front and back are the inside covers; the outside covers are optional (missing means blank). */
+  cover: { front: Page | null; back: Page | null; outside_front?: Page | null; outside_back?: Page | null };
   /** The steps the book builder made the pages from, so it can be run again for another month. See docs/book-format.md. */
   recipe?: Recipe;
 }
@@ -32,16 +33,22 @@ export const PRINT_LIMITS = {
   fore_edge_shift_mm: { min: -10, max: 10 },
   cover_fore_edge_shift_mm: { min: -10, max: 10 },
   target_fore_edge_margin_mm: { min: 1, max: 10 },
-  front_offset_x_mm: { min: -10, max: 10 },
-  front_offset_y_mm: { min: -10, max: 10 },
-  back_offset_x_mm: { min: -10, max: 10 },
-  back_offset_y_mm: { min: -10, max: 10 },
   signatures: { min: 1, max: 20 },
   shade_light_pct: { min: 0, max: 100 },
   shade_medium_pct: { min: 0, max: 100 },
   shade_dark_pct: { min: 0, max: 100 },
   gray_text_pct: { min: 0, max: 100 },
 } as const;
+
+/** The limits of each layout's offsets and scale. */
+export const LAYOUT_LIMITS = {
+  front_offset_x_mm: { min: -10, max: 10 },
+  front_offset_y_mm: { min: -10, max: 10 },
+  back_offset_x_mm: { min: -10, max: 10 },
+  back_offset_y_mm: { min: -10, max: 10 },
+  scale_x_pct: { min: 95, max: 105 },
+  scale_y_pct: { min: 95, max: 105 },
+} as const satisfies Record<keyof LayoutProfile, { min: number; max: number }>;
 
 export const DEFAULT_PAGE_COUNT = 52;
 export const MIN_PAGES = 4;
@@ -59,32 +66,39 @@ export function emptyBook(pageCount = DEFAULT_PAGE_COUNT, print: PrintSettings =
     name: 'Untitled book',
     page_count: count,
     page_numbers: true,
-    print: { ...print },
+    print: clonePrint(print),
     pages: Array.from({ length: count }, () => null),
     cover: { front: null, back: null },
   };
 }
 
 // ---- slots ---------------------------------------------------------------
-// Slot 0 is the inside front cover, slots 1..N the pages, slot N+1 the inside back cover.
-// Odd slots are right-hand pages and even slots left-hand pages, so the covers sit
-// beside page 1 (right) and page N (left) when the book is open.
+// Slot -1 is the outside front cover, slot 0 the inside front cover, slots 1..N the pages, slot N+1 the inside back cover and
+// slot N+2 the outside back cover. Odd slots are right-hand pages and even slots left-hand pages, so the inside covers sit
+// beside page 1 (right) and page N (left) when the book is open; the outside front cover is a right page and the outside back
+// cover a left page, so that they sit side by side on the sheet that prints the outsides (back | front).
 
+/** The slots inside the covers' openings: the inside covers and the pages (0..N+1), as many as the book has halves of openings. */
 export const slotCount = (book: Book) => book.page_count + 2;
+export const FIRST_SLOT = -1;
+export const lastSlot = (book: Book) => book.page_count + 2;
 export const slotSide = (slot: number): SpreadSide => (slot % 2 ? 'right' : 'left');
 
 export function getSlot(book: Book, slot: number): Page | null {
+  if (slot === FIRST_SLOT) return book.cover.outside_front ?? null;
   if (slot === 0) return book.cover.front;
   if (slot === book.page_count + 1) return book.cover.back;
+  if (slot === lastSlot(book)) return book.cover.outside_back ?? null;
   return book.pages[slot - 1] ?? null;
 }
 
-const isCover = (book: Book, slot: number) => slot === 0 || slot === book.page_count + 1;
+/** Whether a slot is one of the four cover pages (they print no page number). */
+export const isCover = (book: Book, slot: number) => slot < 1 || slot > book.page_count;
 
 /**
  * Put a copy of the page in the slot, turned to face the way that slot faces. null empties it.
  * The page number's corner is at the outer edge, so it moves when the side changes. If the copy would then cover the
- * number, its page number is turned off (the design you placed is untouched) and this returns true. The inside covers
+ * number, its page number is turned off (the design you placed is untouched) and this returns true. The covers
  * never print a number, so they are not checked.
  */
 export function setSlot(book: Book, slot: number, page: Page | null): boolean {
@@ -94,8 +108,10 @@ export function setSlot(book: Book, slot: number, page: Page | null): boolean {
     put.page_number = false;
     numberOff = true;
   }
-  if (slot === 0) book.cover.front = put;
+  if (slot === FIRST_SLOT) book.cover.outside_front = put;
+  else if (slot === 0) book.cover.front = put;
   else if (slot === book.page_count + 1) book.cover.back = put;
+  else if (slot === lastSlot(book)) book.cover.outside_back = put;
   else book.pages[slot - 1] = put;
   // A page that prints nothing from a date has no use for one.
   if (!isCover(book, slot) && dateOf(book, slot) && !usesDates(put)) setDates(book, slot, [null]);
@@ -204,6 +220,10 @@ export function readBook(input: unknown): ReadBookResult {
         fail('print-setting', `print.${key}`, `"${key}" must be ${whole ? 'a whole number' : 'a number'} from ${min} to ${max}, got ${JSON.stringify(v)}.`);
       }
     }
+    if (!SHEET_LAYOUTS.includes(print.sheet_layout as never)) fail('print-setting', 'print.sheet_layout', `"sheet_layout" must be ${SHEET_LAYOUTS.map((l) => `"${l}"`).join(' or ')}, got ${JSON.stringify(print.sheet_layout)}.`);
+    const layouts = isObject(print.layouts) ? print.layouts : undefined;
+    if (!layouts) fail('print-setting', 'print.layouts', '"layouts" is required: an object with the offsets and scale of "half_letter" and "letter_two_up".');
+    else for (const layout of SHEET_LAYOUTS) issues.push(...layoutIssues(layouts[layout], `print.layouts.${layout}`));
   }
 
   let converted = false;
@@ -241,11 +261,14 @@ export function readBook(input: unknown): ReadBookResult {
   let recipe: Recipe | undefined;
   if (input.recipe !== undefined) recipe = readRecipe(input.recipe, fail);
 
-  let cover = { front: null as Page | null, back: null as Page | null };
+  let cover: Book['cover'] = { front: null, back: null };
   if (!isObject(input.cover)) fail('cover', 'cover', '"cover" is required and must be an object with "front" and "back".');
   else {
     for (const k of ['front', 'back'] as const) if (!(k in input.cover)) fail('cover', `cover.${k}`, `"cover.${k}" is required (a page, or null).`);
     cover = { front: readSlot(input.cover.front ?? null, 'cover.front', 'left', true), back: readSlot(input.cover.back ?? null, 'cover.back', 'right', true) };
+    // The outside covers are optional. Seen from outside, the front cover is the right page and the back cover the left page.
+    if (input.cover.outside_front !== undefined) cover.outside_front = readSlot(input.cover.outside_front, 'cover.outside_front', 'right', true);
+    if (input.cover.outside_back !== undefined) cover.outside_back = readSlot(input.cover.outside_back, 'cover.outside_back', 'left', true);
   }
   if (issues.length) return { ok: false, issues };
   return {
@@ -253,6 +276,17 @@ export function readBook(input: unknown): ReadBookResult {
     converted,
     book: { format: 'dotwork-book', version: 1, name: input.name as string, page_count: count as number, page_numbers: input.page_numbers as boolean, print: print as unknown as PrintSettings, pages, ...(dates ? { dates } : {}), cover, ...(recipe ? { recipe } : {}) },
   };
+}
+
+/** Why a layout's offsets and scale break the book format. */
+export function layoutIssues(raw: unknown, path: string): ValidationIssue[] {
+  if (!isObject(raw)) return [{ rule: 'print-setting', path, message: `"${path}" must be an object with the offsets and scale.` }];
+  const issues: ValidationIssue[] = [];
+  for (const key of Object.keys(LAYOUT_LIMITS) as (keyof typeof LAYOUT_LIMITS)[]) {
+    const { min, max } = LAYOUT_LIMITS[key], v = raw[key];
+    if (typeof v !== 'number' || !Number.isFinite(v) || v < min || v > max) issues.push({ rule: 'print-setting', path: `${path}.${key}`, message: `"${key}" must be a number from ${min} to ${max}, got ${JSON.stringify(v)}.` });
+  }
+  return issues;
 }
 
 /** The page that stands in for a slot with nothing in it. */

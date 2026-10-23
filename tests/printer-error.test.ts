@@ -5,11 +5,11 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { emptyBook, setSlot, type Book } from '../src/book/book';
 import { offsetsFromReadings, type SideReadings } from '../src/book/alignment';
-import { FOLD_X_MM, SHEET_H_MM, SHEET_W_MM } from '../src/book/impose';
+import { FOLD_X_MM, SHEET_H_MM, SHEET_W_MM, profileOf } from '../src/book/impose';
 import { GRID_Y_MM, PAGE_H_MM, PAGE_W_MM, PITCH_MM, ROWS, emptyPage } from '../src/format/types';
 import { exportBookFiles } from '../src/print/export';
 import { FOLD_SCALE_Y, SCALE_MM, alignmentFile } from '../src/print/calibrate';
-import { FLAT } from './flat';
+import { FLAT, setPrint } from './flat';
 import { readPdf, textPositions, type PageInfo } from './pdf-text';
 
 const fontBytes = { regular: readFileSync('src/fonts/CourierPrime-Regular.ttf'), bold: readFileSync('src/fonts/CourierPrime-Bold.ttf') };
@@ -83,7 +83,7 @@ describe('a printer that is off by e on every pass, with only the back taking an
       // The back is seen mirrored through the paper, so the sides disagree by 2e, and the front is e off the centre.
       expect(uncorrected.front.fold - (SHEET_W_MM - uncorrected.back.fold)).toBeCloseTo(2 * e, 6);
       expect(uncorrected.front.fold - FOLD_X_MM).toBeCloseTo(e, 6);
-      const corrected = await landed(book((b) => { b.print.back_offset_x_mm = -2 * e; }), printer);
+      const corrected = await landed(book((b) => { setPrint(b.print, { back_offset_x_mm: -2 * e }); }), printer);
       expect(corrected.front.fold).toBeCloseTo(SHEET_W_MM - corrected.back.fold, 6); // front and back line up with each other...
       expect(corrected.front.fold - FOLD_X_MM).toBeCloseTo(e, 6); // ...and both are e off the paper's centre
     });
@@ -94,7 +94,7 @@ describe('front and back offsets measured against the paper', () => {
   for (const e of [0.5, -1.5, 1.5]) {
     it(`e = ${e} on every pass: a front offset of -e and a back offset of -e put the fold on the paper's centre on both sides`, async () => {
       const printer: Printer = { front: { x: e, y: 0 }, back: { x: e, y: 0 }, height: SHEET_H_MM };
-      const fixed = await landed(book((b) => { b.print.front_offset_x_mm = -e; b.print.back_offset_x_mm = -e; }), printer);
+      const fixed = await landed(book((b) => { setPrint(b.print, { front_offset_x_mm: -e, back_offset_x_mm: -e }); }), printer);
       expect(fixed.front.fold).toBeCloseTo(FOLD_X_MM, 6);
       expect(fixed.back.fold).toBeCloseTo(FOLD_X_MM, 6);
       expect(fixed.front.fold).toBeCloseTo(SHEET_W_MM - fixed.back.fold, 6); // so the sides also line up with each other
@@ -103,7 +103,7 @@ describe('front and back offsets measured against the paper', () => {
 
   it('moves the front and the back separately, +x right and +y up as seen on each side', async () => {
     const none = await landed(book(), { front: { x: 0, y: 0 }, back: { x: 0, y: 0 }, height: SHEET_H_MM });
-    const moved = await landed(book((b) => { Object.assign(b.print, { front_offset_x_mm: 0.4, front_offset_y_mm: 0.3, back_offset_x_mm: -0.7, back_offset_y_mm: -0.2 }); }), { front: { x: 0, y: 0 }, back: { x: 0, y: 0 }, height: SHEET_H_MM });
+    const moved = await landed(book((b) => { setPrint(b.print, { front_offset_x_mm: 0.4, front_offset_y_mm: 0.3, back_offset_x_mm: -0.7, back_offset_y_mm: -0.2 }); }), { front: { x: 0, y: 0 }, back: { x: 0, y: 0 }, height: SHEET_H_MM });
     expect(moved.front.fold - none.front.fold).toBeCloseTo(0.4, 6);
     expect(none.front.top - moved.front.top).toBeCloseTo(0.3, 6); // up: the top margin shrinks
     expect(moved.back.fold - none.back.fold).toBeCloseTo(-0.7, 6);
@@ -122,7 +122,7 @@ describe('the calibration finds the offsets: readings from the real alignment sh
     it(`${name}: after one round the fold is on the paper's centre and the margins are even`, async () => {
       const b = book();
       const [front, back] = await readSheet(b, printer);
-      Object.assign(b.print, offsetsFromReadings(b.print, front, back));
+      setPrint(b.print, offsetsFromReadings(profileOf(b.print), front, back));
       const after = await landed(b, printer);
       for (const side of [after.front, after.back]) {
         expect(Math.abs(side.fold - FOLD_X_MM), 'fold').toBeLessThan(0.06);
@@ -135,10 +135,10 @@ describe('the calibration finds the offsets: readings from the real alignment sh
     it(`${name}: a second round changes nothing, and the footer says what the sheet was printed with`, async () => {
       const b = book();
       const [f1, b1] = await readSheet(b, printer);
-      Object.assign(b.print, offsetsFromReadings(b.print, f1, b1));
+      setPrint(b.print, offsetsFromReadings(profileOf(b.print), f1, b1));
       const [f2, b2] = await readSheet(b, printer);
-      const again = offsetsFromReadings(b.print, f2, b2);
-      for (const k of Object.keys(again) as (keyof typeof again)[]) expect(Math.abs(again[k] - b.print[k]), k).toBeLessThan(0.06);
+      const again = offsetsFromReadings(profileOf(b.print), f2, b2);
+      for (const k of Object.keys(again) as (keyof typeof again)[]) expect(Math.abs(again[k] - profileOf(b.print)[k]), k).toBeLessThan(0.06);
     });
   }
 
@@ -146,8 +146,8 @@ describe('the calibration finds the offsets: readings from the real alignment sh
     const printer: Printer = { front: { x: 0, y: 0.5 }, back: { x: 0, y: 0.5 }, height: SHEET_H_MM };
     const b = book();
     const [front, back] = await readSheet(b, printer);
-    const next = offsetsFromReadings(b.print, { ...front, bottom: null }, { ...back, bottom: null });
-    Object.assign(b.print, next);
+    const next = offsetsFromReadings(profileOf(b.print), { ...front, bottom: null }, { ...back, bottom: null });
+    setPrint(b.print, next);
     const after = await landed(b, printer);
     expect(after.front.top).toBeCloseTo(GRID_Y_MM, 1);
     expect(after.back.top).toBeCloseTo(GRID_Y_MM, 1);

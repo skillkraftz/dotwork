@@ -43,16 +43,16 @@ describe('what an apply would change', () => {
 });
 
 describe('the contents', () => {
-  it('lists the covers alone and folds runs of the same design into one row', () => {
+  it('lists the four covers alone and folds runs of the same design into one row', () => {
     const b = emptyBook(8);
     fillSlots(b, 2, 5, page('Daily'));
     setSlot(b, 7, page('Notes'));
     setSlot(b, 0, page('Front'));
     const rows = contentsRows(b).map((r) => `${r.from}-${r.to} ${r.name}`);
-    expect(rows).toEqual(['0-0 Front', '1-1 Blank', '2-5 Daily', '6-6 Blank', '7-7 Notes', '8-8 Blank', '9-9 Blank']);
+    expect(rows).toEqual(['-1--1 Blank', '0-0 Front', '1-1 Blank', '2-5 Daily', '6-6 Blank', '7-7 Notes', '8-8 Blank', '9-9 Blank', '10-10 Blank']);
   });
   it('folds a wholly blank book into one row between the covers', () => {
-    expect(contentsRows(emptyBook(8)).map((r) => `${r.from}-${r.to}`)).toEqual(['0-0', '1-8', '9-9']);
+    expect(contentsRows(emptyBook(8)).map((r) => `${r.from}-${r.to}`)).toEqual(['-1--1', '0-0', '1-8', '9-9', '10-10']);
   });
 });
 

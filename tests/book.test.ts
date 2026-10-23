@@ -20,7 +20,12 @@ describe('a book', () => {
     expect(b.page_numbers).toBe(true);
     expect(b.print).toEqual({
       creep_per_sheet_mm: 0.3, fore_edge_shift_mm: 2, cover_fore_edge_shift_mm: 2.2, target_fore_edge_margin_mm: 3.5,
-      front_offset_x_mm: 1.7, front_offset_y_mm: -0.05, back_offset_x_mm: 1.5, back_offset_y_mm: 0.05, signatures: 1,
+      sheet_layout: 'half_letter',
+      layouts: {
+        half_letter: { front_offset_x_mm: 1.7, front_offset_y_mm: -0.05, back_offset_x_mm: 1.5, back_offset_y_mm: 0.05, scale_x_pct: 100, scale_y_pct: 100 },
+        letter_two_up: { front_offset_x_mm: 0, front_offset_y_mm: 0, back_offset_x_mm: 0, back_offset_y_mm: 0, scale_x_pct: 100, scale_y_pct: 100 },
+      },
+      signatures: 1,
       shade_light_pct: 6.3, shade_medium_pct: 13.7, shade_dark_pct: 25.9, gray_text_pct: 49.8,
     });
   });

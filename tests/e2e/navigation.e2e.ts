@@ -510,7 +510,7 @@ describe('the export window', () => {
     const all = await download(app);
     expect(all.suggestedFilename()).toBe('untitled-book-print.zip');
     const text = (await bytes(all)).toString('latin1');
-    for (const f of ['pages.pdf', 'cover.pdf', 'print-first.pdf', 'print-second.pdf', 'preview.png', 'summary.txt', 'book.json']) expect(text, f).toContain(f);
+    for (const f of ['pages.pdf', 'cover-outside.pdf', 'cover-inside.pdf', 'print-first.pdf', 'print-second.pdf', 'preview.png', 'summary.txt', 'book.json']) expect(text, f).toContain(f);
 
     // pages only: still a zip, with the book's JSON beside the PDF
     await box('cover').uncheck();
@@ -519,7 +519,7 @@ describe('the export window', () => {
     expect(pages.suggestedFilename()).toBe('untitled-book-print.zip');
     const only = (await bytes(pages)).toString('latin1');
     for (const f of ['pages.pdf', 'book.json']) expect(only, f).toContain(f);
-    expect(only).not.toContain('cover.pdf');
+    expect(only).not.toContain('cover-outside.pdf');
 
     // the print files and the cover, without pages.pdf
     await box('pages').uncheck();
@@ -528,7 +528,7 @@ describe('the export window', () => {
     const rest = await download(app);
     expect(rest.suggestedFilename()).toBe('untitled-book-print.zip');
     const some = (await bytes(rest)).toString('latin1');
-    for (const f of ['cover.pdf', 'print-first.pdf', 'print-second.pdf']) expect(some, f).toContain(f);
+    for (const f of ['cover-outside.pdf', 'cover-inside.pdf', 'print-first.pdf', 'print-second.pdf']) expect(some, f).toContain(f);
     expect(some).not.toContain('pages.pdf');
 
     // nothing chosen: nothing to download

@@ -57,7 +57,11 @@ async function flow(app: App, device: string) {
   await click(app, page.getByRole('button', { name: 'Previous page' }));
   await click(app, page.getByRole('button', { name: 'Previous page' }));
   expect(await page.locator('.where strong').innerText()).toBe('Inside front cover');
+  await click(app, page.getByRole('button', { name: 'Previous page' }));
+  expect(await page.locator('.where strong').innerText()).toBe('Outside front cover');
   expect(await page.getByRole('button', { name: 'Previous page' }).isDisabled()).toBe(true);
+  await click(app, page.getByRole('button', { name: 'Next page' }));
+  expect(await page.locator('.where strong').innerText()).toBe('Inside front cover');
   if (app.touch) {
     const s = (await box(app, '.book-stage'))!, y = s.y + s.height / 2;
     await touch(app, 'touchStart', [{ x: s.x + s.width * 0.8, y }]);
@@ -92,7 +96,9 @@ async function flow(app: App, device: string) {
   await click(app, page.getByRole('button', { name: /^Apply to \d+ pages$/ }));
   if (app.touch) { await click(app, page.getByRole('button', { name: 'Contents', exact: true })); }
   const rows = page.locator('.book-contents .crow');
-  expect(await rows.first().innerText()).toContain('Inside front cover');
+  expect(await rows.first().innerText()).toContain('Outside front cover');
+  expect(await rows.nth(1).innerText()).toContain('Inside front cover');
+  expect(await rows.last().innerText()).toContain('Outside back cover');
   const run = page.locator('.book-contents .crow', { hasText: 'Pages 1–30' });
   expect(await run.innerText()).toContain('Lined page');
   expect(await page.locator('.book-contents .crow', { hasText: 'Pages 31–52' }).innerText()).toContain('Blank');

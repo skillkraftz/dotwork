@@ -11,10 +11,10 @@
 //    Both edges read: move up by half of (top - bottom). That centres the page, so a sheet cut a little tall or short
 //    (the cut dimension is the sheet's height) cancels out. One edge read: that margin is brought back to GRID_Y.
 import { GRID_Y_MM } from '../format/types';
-import { PRINT_LIMITS } from './book';
-import type { PrintSettings } from './impose';
+import { LAYOUT_LIMITS } from './book';
+import type { LayoutProfile } from './impose';
 
-export type Offsets = Pick<PrintSettings, 'front_offset_x_mm' | 'front_offset_y_mm' | 'back_offset_x_mm' | 'back_offset_y_mm'>;
+export type Offsets = Pick<LayoutProfile, 'front_offset_x_mm' | 'front_offset_y_mm' | 'back_offset_x_mm' | 'back_offset_y_mm'>;
 
 /** What was read on one side of the sheet; null (or left empty) for a reading that wasn't made. */
 export interface SideReadings {
@@ -27,7 +27,7 @@ export interface SideReadings {
 export const NO_READINGS: SideReadings = { fold: null, top: null, bottom: null };
 
 const round = (v: number) => Math.round(v * 100) / 100;
-const limit = (v: number) => Math.min(PRINT_LIMITS.front_offset_x_mm.max, Math.max(PRINT_LIMITS.front_offset_x_mm.min, v));
+const limit = (v: number) => Math.min(LAYOUT_LIMITS.front_offset_x_mm.max, Math.max(LAYOUT_LIMITS.front_offset_x_mm.min, v));
 
 /** The new x offset of a side: the old one plus the crease's reading. */
 export const xFromReading = (old: number, fold: number | null) => limit(round(fold === null ? old : old + fold));
@@ -48,4 +48,14 @@ export function offsetsFromReadings(printed: Offsets, front: SideReadings, back:
     back_offset_x_mm: xFromReading(printed.back_offset_x_mm, back.fold),
     back_offset_y_mm: yFromReadings(printed.back_offset_y_mm, back.top, back.bottom),
   };
+}
+
+// ---- size ----------------------------------------------------------------------------------------------------------
+// The size sheet prints a line that should measure 100.0 mm across and another down. Printed at `printed` percent, a printer that
+// is true would give `printed` mm; measuring m instead means it sizes by m / printed, so the scale that cancels it is 100 x printed / m.
+
+/** The scale (%) a measured 100 mm line asks for, kept within the limits; the old one if nothing was measured. */
+export function scaleFromReading(old: number, printed: number, measured: number | null): number {
+  if (measured === null || !(measured > 0)) return old;
+  return Math.min(LAYOUT_LIMITS.scale_x_pct.max, Math.max(LAYOUT_LIMITS.scale_x_pct.min, Math.round((10000 * printed) / measured) / 100));
 }

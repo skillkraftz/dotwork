@@ -22,6 +22,35 @@ export const FOLD_X_MM = SHEET_W_MM / 2;
 /** The strip at each side of the sheet that is trimmed away after binding. */
 export const TRIM_ZONE_MM = FOLD_X_MM - PAGE_W_MM;
 
+/**
+ * How the sheets are laid on the paper. A half-letter sheet is the paper cut in half (5.5" x 8.5"), one book's sheet per paper
+ * sheet. Letter two-up puts two half-letter sheets on one portrait letter sheet, a top book and a bottom book, so the printer can
+ * duplex automatically; each half is laid out exactly as a half-letter sheet is.
+ */
+export type SheetLayout = 'half_letter' | 'letter_two_up';
+export const SHEET_LAYOUTS: readonly SheetLayout[] = ['half_letter', 'letter_two_up'];
+export const LAYOUT_NAMES: Record<SheetLayout, string> = { half_letter: 'Half letter', letter_two_up: 'Letter, two-up' };
+
+/** How the owner's printer is set for a layout (page scaling and paper size): in summary.txt and in the Calibrate wizard's Size step. */
+export const PAPER_SETTINGS: Record<SheetLayout, string> = {
+  half_letter: 'page scaling None (Actual size), paper size Statement (Borderless)',
+  letter_two_up: 'page scaling None (Actual size), paper size Letter (not borderless)',
+};
+
+/**
+ * What a layout needs to cancel what the printer does to it, measured against the paper. Offsets: +x moves right and +y moves up, as
+ * seen on that side. The front takes the first pass (print-first, print-duplex fronts, cover-outside and the front calibration
+ * page); the back takes the second. Scale: percent of the true size, about the sheet's centre, on both sides.
+ */
+export interface LayoutProfile {
+  front_offset_x_mm: number;
+  front_offset_y_mm: number;
+  back_offset_x_mm: number;
+  back_offset_y_mm: number;
+  scale_x_pct: number;
+  scale_y_pct: number;
+}
+
 /** What the printer and paper need. The defaults are the owner's measured printer and paper. */
 export interface PrintSettings {
   /**
@@ -36,15 +65,10 @@ export interface PrintSettings {
   cover_fore_edge_shift_mm: number;
   /** The fore-edge margin (content box to the trimmed edge) the creep test aims for. Used by the Calibrate wizard and marked on the test's rulers. */
   target_fore_edge_margin_mm: number;
-  /**
-   * Added to everything on one side of the sheet, to cancel what the printer does to it. Measured against the paper (the fold
-   * at its centre, the margins even), not against the other side. +x moves right and +y moves up, as seen on that side.
-   * The front takes print-first.pdf, cover.pdf and the front calibration page; the back takes print-second.pdf.
-   */
-  front_offset_x_mm: number;
-  front_offset_y_mm: number;
-  back_offset_x_mm: number;
-  back_offset_y_mm: number;
+  /** The sheet layout the files are made for. */
+  sheet_layout: SheetLayout;
+  /** The offsets and the scale of each layout: a printer places and sizes each paper size and mode differently. */
+  layouts: Record<SheetLayout, LayoutProfile>;
   /** How many signatures to split the book into. */
   signatures: number;
   /**
@@ -64,7 +88,12 @@ export interface PrintSettings {
  */
 export const DEFAULT_PRINT: PrintSettings = {
   creep_per_sheet_mm: 0.30, fore_edge_shift_mm: 2.0, cover_fore_edge_shift_mm: 2.2, target_fore_edge_margin_mm: 3.5,
-  front_offset_x_mm: 1.7, front_offset_y_mm: -0.05, back_offset_x_mm: 1.5, back_offset_y_mm: 0.05, signatures: 1,
+  sheet_layout: 'half_letter',
+  layouts: {
+    half_letter: { front_offset_x_mm: 1.7, front_offset_y_mm: -0.05, back_offset_x_mm: 1.5, back_offset_y_mm: 0.05, scale_x_pct: 100, scale_y_pct: 100 },
+    letter_two_up: { front_offset_x_mm: 0, front_offset_y_mm: 0, back_offset_x_mm: 0, back_offset_y_mm: 0, scale_x_pct: 100, scale_y_pct: 100 },
+  },
+  signatures: 1,
   shade_light_pct: 6.3, shade_medium_pct: 13.7, shade_dark_pct: 25.9, gray_text_pct: 49.8,
 };
 
@@ -128,9 +157,19 @@ export function duplexOrder(sheets: number): [number[], number[]] {
   return [[...forward].reverse(), forward];
 }
 
+/** A copy of the print settings that shares nothing with the original. */
+export const clonePrint = (p: PrintSettings): PrintSettings => ({ ...p, layouts: { half_letter: { ...p.layouts.half_letter }, letter_two_up: { ...p.layouts.letter_two_up } } });
+
+type Layouts = Pick<PrintSettings, 'sheet_layout' | 'layouts'>;
+
+/** The selected layout's offsets and scale. */
+export const profileOf = (s: Layouts): LayoutProfile => s.layouts[s.sheet_layout];
+
 /** The offset a side of the sheet takes, in mm: +x right, +y up, as seen on that side. */
-export const offsetOf = (s: Pick<PrintSettings, 'front_offset_x_mm' | 'front_offset_y_mm' | 'back_offset_x_mm' | 'back_offset_y_mm'>, side: 'front' | 'back') =>
-  side === 'front' ? { x: s.front_offset_x_mm, y: s.front_offset_y_mm } : { x: s.back_offset_x_mm, y: s.back_offset_y_mm };
+export function offsetOf(s: Layouts, side: 'front' | 'back') {
+  const p = profileOf(s);
+  return side === 'front' ? { x: p.front_offset_x_mm, y: p.front_offset_y_mm } : { x: p.back_offset_x_mm, y: p.back_offset_y_mm };
+}
 
 /**
  * Sheet position (mm) of a page's top-left corner. Pages shift toward the fold by `creep` (the left page right, the right page
@@ -149,7 +188,11 @@ export function checkPrintSettings(s: PrintSettings, sheets: number): string | n
   const numbers = [s.creep_per_sheet_mm, s.fore_edge_shift_mm, s.cover_fore_edge_shift_mm, s.target_fore_edge_margin_mm];
   if (!numbers.every(Number.isFinite)) return 'The creep, shifts and target margin must be numbers.';
   if (s.creep_per_sheet_mm < 0) return 'Creep per sheet must be zero or more.';
-  if (![s.front_offset_x_mm, s.front_offset_y_mm, s.back_offset_x_mm, s.back_offset_y_mm].every(Number.isFinite)) return 'The offsets must be numbers.';
+  for (const layout of SHEET_LAYOUTS) {
+    const l = s.layouts[layout];
+    if (![l.front_offset_x_mm, l.front_offset_y_mm, l.back_offset_x_mm, l.back_offset_y_mm].every(Number.isFinite)) return `The ${LAYOUT_NAMES[layout].toLowerCase()} offsets must be numbers.`;
+    if (![l.scale_x_pct, l.scale_y_pct].every((v) => Number.isFinite(v) && v >= 95 && v <= 105)) return `The ${LAYOUT_NAMES[layout].toLowerCase()} scale must be a percentage from 95 to 105.`;
+  }
   if (!Number.isInteger(s.signatures) || s.signatures < 1) return 'Signatures must be a whole number, at least 1.';
   for (const key of ['shade_light_pct', 'shade_medium_pct', 'shade_dark_pct', 'gray_text_pct'] as const) {
     if (!Number.isFinite(s[key]) || s[key] < 0 || s[key] > 100) return 'Each tone must be a percentage from 0 to 100.';
