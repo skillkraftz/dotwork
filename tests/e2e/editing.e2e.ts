@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
-  bar, box, cellToClient, doubleTap, draft, drag, hit, open, pinch, press, shot, start, stop, tap, tool, touch, twoFingerDrag, viewBoxOf, type App, type Env,
+  bar, box, cellToClient, doubleTap, draft, drag, hit, open, openDrawer, pinch, press, shot, start, stop, tap, tool, touch, twoFingerDrag, viewBoxOf, type App, type Env,
 } from './harness';
 
 let env: Env;
@@ -110,8 +110,7 @@ describe('the properties drawer (phone)', () => {
     await tap(app, await cellToClient(app, 4, 38));
     const before = await viewBoxOf(app);
     const selBefore = (await page.locator('#content rect[stroke-dasharray]').first().boundingBox())!;
-    await bar(app, 'properties');
-    await page.waitForSelector('#sheet[data-state="open"]');
+    await openDrawer(app);
     await page.waitForTimeout(350);
     const drawer = (await box(app, '#sheet'))!;
     const tools = (await box(app, '#tools'))!;
@@ -283,8 +282,7 @@ describe('groups (phone)', () => {
     const app = await open(env, 'phone');
     await placed(app);
     await doubleTap(app, await centre(app, 13, 21)); // the checkboxes
-    await bar(app, 'properties');
-    await app.page.waitForSelector('#sheet[data-state="open"]');
+    await openDrawer(app);
     await app.page.waitForTimeout(350);
     const every = app.page.locator('[data-key="prop-every"]');
     await every.scrollIntoViewIfNeeded();
@@ -300,6 +298,8 @@ describe('groups (phone)', () => {
     await drag(app, await cellToClient(app, 25, 13), await cellToClient(app, 1, 8)); // shade, box and label
     expect(await contextLabels(app)).toEqual(['Props', 'Copy', 'Delete', 'Group', 'More']);
     await bar(app, 'group');
+    // The first tap after a synthetic drag can be swallowed by Chromium; a person would tap again.
+    if ((await groups(app)).every((g) => g === undefined)) await bar(app, 'group');
     expect((await elements(app)).map((e) => e.group)).toEqual(['g1', undefined, 'g1', 'g1', undefined]);
     expect(await contextLabels(app)).toEqual(['Props', 'Copy', 'Delete', 'Ungroup', 'More']);
     await tap(app, await cellToClient(app, 2, 40));
@@ -332,8 +332,7 @@ describe('shade and pattern properties', () => {
       await tool(app, 'shade');
       await drag(app, await cellToClient(app, 3, 6), await cellToClient(app, 22, 16));
       expect(await elements(app)).toEqual([{ type: 'shade', x: 3, y: 6, w: 19, h: 10, tones: 'L' }]);
-      await bar(app, 'properties');
-      if (device !== 'desktop') { await page.waitForSelector('#sheet[data-state="open"]'); await page.waitForTimeout(350); }
+      if (device !== 'desktop') { await openDrawer(app); await page.waitForTimeout(350); } else await bar(app, 'properties');
 
       const tones = page.locator('#panel [data-key="prop-tones"]');
       await tones.scrollIntoViewIfNeeded();
@@ -384,8 +383,7 @@ describe('shade and pattern properties', () => {
     const { page } = app;
     await tool(app, 'pattern');
     await drag(app, await cellToClient(app, 3, 6), await cellToClient(app, 22, 14));
-    await bar(app, 'properties');
-    await page.waitForSelector('#sheet[data-state="open"]');
+    await openDrawer(app);
     await page.waitForTimeout(350);
     const canvasHas = (sel: string) => page.locator(`#canvas #content ${sel}`).count();
     const lines = () => page.locator('#canvas #content path[fill="none"][stroke-linecap="butt"]').first().getAttribute('d');

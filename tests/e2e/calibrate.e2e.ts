@@ -87,10 +87,12 @@ for (const device of ['phone', 'tablet', 'desktop'] as const) {
       expect(layoutLine).toContain('Half letter');
       expect(layoutLine).toContain('Statement (Borderless)');
       expect(await page.locator('dialog.calibrate .cal-how li').count()).toBe(5);
+      expect(await page.locator('dialog.calibrate .cal-how').innerText()).toContain('Fold the sheet top edge to bottom edge, crease hard, open it, and read where the crease crosses each horizontal-fold scale. Then fold left edge to right edge and read the vertical-fold scales.');
+      expect(await page.locator('dialog.calibrate').innerText()).not.toMatch(/edge ruler|edge distance/i);
       expect(await page.locator('dialog.calibrate').innerText()).toMatch(/best quality/);
       expect(await page.locator('dialog.calibrate').innerText()).toMatch(/paper feed/);
       // The inputs are named by the paper's edges, the same words as the sheet.
-      for (const label of ['see-through top x', 'see-through bottom x', 'see-through left y', 'see-through right y', 'edge distance top', 'edge distance bottom', 'edge distance left', 'edge distance right', 'parallel to the 8.5 in edge: should measure 100.0 mm', 'parallel to the 5.5 in edge: should measure 100.0 mm']) {
+      for (const label of ['see-through top x', 'see-through bottom x', 'see-through left y', 'see-through right y', 'horizontal fold, left scale', 'horizontal fold, right scale', 'vertical fold, top scale', 'vertical fold, bottom scale', 'parallel to the 8.5 in edge: should measure 100.0 mm', 'parallel to the 5.5 in edge: should measure 100.0 mm']) {
         expect(await page.locator(`dialog.calibrate input[aria-label="${label}"]`).count(), label).toBe(1);
       }
       expect(await page.locator('dialog.calibrate').innerText()).not.toMatch(/across|\bdown\b/i);
@@ -103,22 +105,22 @@ for (const device of ['phone', 'tablet', 'desktop'] as const) {
       expect(sheet.name).toBe('calibration-sheet.pdf');
       expect((await PDFDocument.load(sheet.bytes)).getPageCount()).toBe(2);
 
-      // The see-through readings, the edge distances and the 100 mm lines of a printer that is off.
+      // The see-through readings, the fold readings and the 100 mm lines of a printer that is off.
       await set(app, 'calibrate', 'calibrate-read-top-x', '-0.4');
       await set(app, 'calibrate', 'calibrate-read-bottom-x', '-0.4');
       await set(app, 'calibrate', 'calibrate-read-left-y', '0.3');
       await set(app, 'calibrate', 'calibrate-read-right-y', '0.3');
-      await set(app, 'calibrate', 'calibrate-read-edge-left', '9.5');
-      await set(app, 'calibrate', 'calibrate-read-edge-right', '6.5');
-      await set(app, 'calibrate', 'calibrate-read-edge-top', '8.5');
-      await set(app, 'calibrate', 'calibrate-read-edge-bottom', '7.5');
+      await set(app, 'calibrate', 'calibrate-read-vfold-top', '-1.5'); // the crease is left of the zero: the back is 1.5 mm too far right
+      await set(app, 'calibrate', 'calibrate-read-vfold-bottom', '-1.5');
+      await set(app, 'calibrate', 'calibrate-read-hfold-left', '0.5'); // the crease is above the zero: the back is 0.5 mm too low
+      await set(app, 'calibrate', 'calibrate-read-hfold-right', '0.5');
       await set(app, 'calibrate', 'calibrate-read-line-x', '99.5');
       await set(app, 'calibrate', 'calibrate-read-line-y', '99.6');
       const result = await page.locator('[data-key="calibrate-sheet-result"]').innerText();
       expect(result).toContain('Front offset x: 0 → 1.1 mm'); // -0.4 against the back + 1.5: the front is what is left
       expect(result).toContain('Front offset y: 0 → 0.2 mm');
-      expect(result).toContain('Back offset x: 0 → -1.5 mm'); // against the paper: (9.5 - 6.5) / 2 the other way
-      expect(result).toContain('Back offset y: 0 → 0.5 mm'); // (7.5 - 8.5) / 2 the other way up
+      expect(result).toContain('Back offset x: 0 → -1.5 mm'); // against the paper: minus the error
+      expect(result).toContain('Back offset y: 0 → 0.5 mm');
       expect(result).toContain('Back rotation: 0 → 0 °');
       expect(result).toContain('Scale along the 8.5 in edge: 100 → 100.5 %');
       expect(result).toContain('Scale along the 5.5 in edge: 100 → 100.4 %');
@@ -130,13 +132,26 @@ for (const device of ['phone', 'tablet', 'desktop'] as const) {
       // The book holds the design only: nothing of this reached it.
       expect(await bookDraft(app)).toBe(BOOK);
       expect(await page.locator('dialog.calibrate .lib-msg').innerText()).toMatch(/Saved as your printer’s settings/);
-      expect(await page.locator('[data-key="calibrate-read-edge-left"]').inputValue()).toBe(''); // the readings are used up
+      expect(await page.locator('[data-key="calibrate-read-vfold-top"]').inputValue()).toBe(''); // the readings are used up
       await hit(app, 'dialog.calibrate [data-key="calibrate-next"]');
 
       // ---- step 2: creep and cover
       expect(await progress(app)).toBe('Step 2 of 3: Creep and cover');
-      expect(await page.locator('dialog.calibrate').innerText()).toContain('pages 1 to 13');
-      expect(await page.locator('dialog.calibrate').innerText()).toContain('pages 14 to 26');
+      expect(await page.locator('dialog.calibrate').innerText()).toContain('pages 1 and 2');
+      expect(await page.locator('dialog.calibrate').innerText()).toContain('then pages 3 and 4');
+      // The page count is the book's (52: 13 sheets, so 11 blank sheets of padding), editable before the download.
+      expect(await page.locator('[data-key="calibrate-pages"]').inputValue()).toBe('52');
+      expect(await page.locator('[data-key="calibrate-padding"]').innerText()).toContain('52 pages is 13 sheets');
+      expect(await page.locator('[data-key="calibrate-padding"]').innerText()).toContain('11 blank sheets');
+      expect(await page.locator('[data-key="calibrate-fold-around"]').innerText()).toBe('Fold the outermost sheet around 11 blank sheets of the same paper, with the innermost sheet in the middle, cover outside. Bind and trim as usual, then read the fore-edge margin on the cover, page 1 and the middle spread.');
+      await set(app, 'calibrate', 'calibrate-pages', '12');
+      expect(await page.locator('[data-key="calibrate-fold-around"]').innerText()).toContain('around 1 blank sheet of the same paper');
+      expect(await page.locator('[data-key="calibrate-printed-pages"]').inputValue()).toBe('12'); // follows until the test is downloaded
+      await set(app, 'calibrate', 'calibrate-pages', '10');
+      expect(await page.locator('[data-key="calibrate-padding"]').innerText()).toContain('multiple of 4');
+      await hit(app, 'dialog.calibrate [data-key="calibrate-download-creep"]');
+      expect(await page.locator('dialog.calibrate .lib-msg').innerText()).toContain('multiple of 4'); // refused, nothing downloaded
+      await set(app, 'calibrate', 'calibrate-pages', '52');
       expect(await missingHelp(app)).toEqual([]);
       if (app.touch) expect(await small(app)).toEqual([]);
       expect(await noOverflow(app)).toBe(true);
@@ -149,11 +164,13 @@ for (const device of ['phone', 'tablet', 'desktop'] as const) {
       expect(zipped.name).toBe('untitled-book-creep-test.zip');
       const files = unzip(zipped.bytes);
       expect([...files.keys()]).toEqual(['calibration-cover.pdf', 'creep-test.pdf', 'calibration.txt', 'book.json']);
-      expect((await PDFDocument.load(files.get('creep-test.pdf')!)).getPageCount()).toBe(26);
+      expect((await PDFDocument.load(files.get('creep-test.pdf')!)).getPageCount()).toBe(4); // the outermost and the innermost sheet, both sides
       expect((await PDFDocument.load(files.get('calibration-cover.pdf')!)).getPageCount()).toBe(2); // the outside, then the inside
       const record = files.get('calibration.txt')!.toString('utf8');
       expect(record).toContain('front offset x 1.1 mm');
       expect(record).toContain('creep per sheet 0.16 mm');
+      expect(record).toContain('the outermost and innermost sheet of a 52-page book (13 sheets)');
+      expect(await page.locator('[data-key="calibrate-printed-pages"]').inputValue()).toBe('52');
       expect(record).toContain('fore-edge shift 0 | cover shift 0 | target margin 3.5 mm');
       // changing the setting after printing doesn't change what the readings start from
       await set(app, 'calibrate', 'book-creep', '0.3');
@@ -173,7 +190,7 @@ for (const device of ['phone', 'tablet', 'desktop'] as const) {
       expect(creep).toContain('Creep per sheet: 0.3 → 0.32 mm');
       expect(creep).toContain('Fore-edge shift: 0 → 2 mm');
       expect(creep).toContain('Cover shift: 0 → 2.2 mm');
-      expect(creep).toContain('cover 3.5, sheet 1 3.5, sheet 13 3.5');
+      expect(creep).toContain('cover 3.5, page 1 3.5, middle spread 3.5');
       expect(creep).toContain('Spine-side margin of the innermost page on the paper: 2.13 mm.');
       expect(await page.locator('[data-key="calibrate-spine"]').getAttribute('class')).not.toContain('warn');
       await page.locator('[data-key="calibrate-use-creep"]').scrollIntoViewIfNeeded();

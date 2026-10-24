@@ -1,8 +1,13 @@
 import type { Book } from './book';
 import { impose, spineMargin, type PrintSettings } from './impose';
 
-/** The sheets in the biggest signature: what creep builds up over, and what the creep test uses. */
+/** The sheets in the biggest signature: what creep builds up over. */
 export const creepSheets = (book: Book, print: PrintSettings) => Math.max(...impose(book.page_count, print, book.print.signatures).map((g) => g.sheets.length));
+
+/** The pages the creep test stands for unless told otherwise: the book's biggest signature (all of the book, for one signature). */
+export const creepPages = (book: Book, print: PrintSettings) => 4 * creepSheets(book, print);
+/** A page count a creep test can be made for: a whole number of sheets, at least one. */
+export const validPages = (pages: number | null): pages is number => pages !== null && Number.isInteger(pages) && pages >= 4 && pages % 4 === 0;
 
 /**
  * The creep model. The owner reads the fore-edge margin on the trimmed book: the box's outer edge to the trimmed edge. For

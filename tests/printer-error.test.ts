@@ -4,7 +4,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { emptyBook } from '../src/book/book';
-import { MARK_FROM_EDGE_MM, NO_READINGS, crosshairs, sheetHeight, sheetResult, type SheetReadings } from '../src/book/alignment';
+import { NO_READINGS, crosshairs, foldScales, sheetHeight, sheetResult, type SheetReadings } from '../src/book/alignment';
 import { SHEET_W_MM, profileOf, type LayoutProfile, type SheetLayout } from '../src/book/impose';
 import { mapPoint, transformOf, type SheetTransform } from '../src/print/sheets';
 import { sheetFile } from '../src/print/calibrate';
@@ -37,14 +37,18 @@ function paper(layout: SheetLayout, profile: LayoutProfile, pr: Printer) {
   return { H, seen, onBack, onFront };
 }
 
-/** What a person would read off the sheet, to 0.1 mm: see-through (+right, +up as seen on the back) and the edge rulers (from the back's own marks to where the paper ends). */
+/**
+ * What a person would read off the sheet, to 0.1 mm: see-through (+right, +up as seen on the back) and, after folding the sheet in two ways, where
+ * the crease (always on the paper's own middle) crosses the fold scales, from each scale's zero (+up on the two across the horizontal centre line, +right on the other two).
+ */
 function read(layout: SheetLayout, profile: LayoutProfile, pr: Printer): SheetReadings {
-  const { H, seen, onBack } = paper(layout, profile, pr), at = crosshairs(layout);
+  const { H, seen, onBack } = paper(layout, profile, pr), at = crosshairs(layout), fold = foldScales(layout);
   const x = (p: { x: number; y: number }) => r1(seen(p).x - onBack(p).x), y = (p: { x: number; y: number }) => r1(-(seen(p).y - onBack(p).y));
   return {
     ...NO_READINGS,
     topX: x(at.top), bottomX: x(at.bottom), leftY: y(at.left), rightY: y(at.right),
-    edgeTop: r1(onBack(at.top).y), edgeBottom: r1(H - onBack(at.bottom).y), edgeLeft: r1(onBack(at.left).x), edgeRight: r1(W - onBack(at.right).x),
+    hFoldLeft: r1(onBack(fold.left).y - H / 2), hFoldRight: r1(onBack(fold.right).y - H / 2),
+    vFoldTop: r1(W / 2 - onBack(fold.top).x), vFoldBottom: r1(W / 2 - onBack(fold.bottom).x),
   };
 }
 
@@ -53,15 +57,16 @@ const printers: [string, Printer][] = [
   ['the back turned counter-clockwise', { front: { x: 0, y: 0, deg: 0 }, back: { x: 0, y: 0, deg: 0.4 } }],
   ['the back turned clockwise, and shifted', { front: { x: 0.3, y: 0.2, deg: 0 }, back: { x: 1.1, y: -0.6, deg: -0.3 } }],
   ['a bit of everything', { front: { x: -1.2, y: -0.6, deg: 0 }, back: { x: 2.1, y: 0.9, deg: 0.25 } }],
+  ['a printer that prints everything 1.1 mm low', { front: { x: 0, y: -1.1, deg: 0 }, back: { x: 0, y: -1.1, deg: 0 } }],
 ];
 const layouts = ['half_letter', 'letter_two_up'] as const;
 const start = (layout: SheetLayout): LayoutProfile => ({ ...profileOf(layout === 'letter_two_up' ? flatTwoUp() : FLAT) });
 
 describe('reading the sheet: signs, from the geometry', () => {
   const none: PassError = { x: 0, y: 0, deg: 0 };
-  it('a back printed to the right of where it should be reads negative on x (the front shows through to the left of the scale), and its left edge is farther', () => {
+  it('a back printed to the right of where it should be reads negative on x (the front shows through to the left of the scale), and the crease is left of the vertical-fold scales’ zero', () => {
     const r = read('half_letter', start('half_letter'), { front: none, back: { x: 1, y: 0, deg: 0 } });
-    expect([r.topX, r.bottomX, r.edgeLeft, r.edgeRight]).toEqual([-1, -1, 9, 7]);
+    expect([r.topX, r.bottomX, r.vFoldTop, r.vFoldBottom]).toEqual([-1, -1, -1, -1]);
   });
   it('a back printed above where it should be reads negative on y; a front printed above reads positive', () => {
     expect(read('half_letter', start('half_letter'), { front: none, back: { x: 0, y: 1, deg: 0 } }).leftY).toBe(-1);
@@ -77,13 +82,16 @@ describe('reading the sheet: signs, from the geometry', () => {
     expect(r.leftY!).toBeGreaterThan(0.4);
     expect(r.rightY!).toBeLessThan(-0.4);
   });
-  it('the edges: a back printed too low has a top edge farther than 8.0 and a bottom edge nearer', () => {
-    const r = read('half_letter', start('half_letter'), { front: none, back: { x: 0, y: -0.5, deg: 0 } });
-    expect([r.edgeTop, r.edgeBottom]).toEqual([8.5, 7.5]);
+  it('a back printed 1.1 mm too low has the crease 1.1 above the horizontal-fold scales’ zero, and the vertical ones read 0', () => {
+    const r = read('half_letter', start('half_letter'), { front: none, back: { x: 0, y: -1.1, deg: 0 } });
+    expect([r.hFoldLeft, r.hFoldRight, r.vFoldTop, r.vFoldBottom]).toEqual([1.1, 1.1, 0, 0]);
   });
-  it('turning the back does not move its edge distances, so they measure the translation only', () => {
+  it('a back turned counter-clockwise reads the right horizontal-fold scale more negative than the left (it is raised more), and the vertical ones the other way', () => {
     const r = read('letter_two_up', start('letter_two_up'), { front: none, back: { x: 0, y: 0, deg: 0.5 } });
-    expect([r.edgeTop, r.edgeBottom, r.edgeLeft, r.edgeRight]).toEqual([8, 8, 8, 8]);
+    expect(r.hFoldRight!).toBeLessThan(r.hFoldLeft!);
+    expect(r.hFoldLeft! + r.hFoldRight!).toBeCloseTo(0, 1); // the turn cancels in the mean
+    expect(r.vFoldTop!).toBeGreaterThan(r.vFoldBottom!);
+    expect(r.vFoldTop! + r.vFoldBottom!).toBeCloseTo(0, 1);
   });
 });
 
@@ -98,7 +106,7 @@ for (const layout of layouts) {
         // After it: every see-through reading is 0 (to what a person can read), and every edge is at 8.0.
         const after = read(layout, next, pr);
         for (const k of ['topX', 'bottomX', 'leftY', 'rightY'] as const) expect(Math.abs(after[k]!), `${k}`).toBeLessThan(0.2);
-        for (const k of ['edgeTop', 'edgeBottom', 'edgeLeft', 'edgeRight'] as const) expect(Math.abs(after[k]! - MARK_FROM_EDGE_MM), k).toBeLessThan(0.2);
+        for (const k of ['hFoldLeft', 'hFoldRight', 'vFoldTop', 'vFoldBottom'] as const) expect(Math.abs(after[k]!), k).toBeLessThan(0.25);
         // And the front is on the paper too: its crosshairs land where they were drawn for.
         const { onFront } = paper(layout, next, pr);
         for (const p of Object.values(crosshairs(layout))) {
@@ -127,15 +135,35 @@ for (const layout of layouts) {
       for (const k of ['topX', 'bottomX', 'leftY', 'rightY'] as const) expect(Math.abs(after[k]!), k).toBeLessThan(0.2);
     });
 
-    it('with only the edge rulers read, the back goes to the paper’s centre and the front and rotation stay', () => {
+    it('with only the fold read, the back goes onto the paper’s middle and the front and rotation stay', () => {
       const pr: Printer = { front: { x: 0.8, y: 0.5, deg: 0 }, back: { x: -0.4, y: 0.3, deg: 0 } };
       const printed = start(layout);
       const r = read(layout, printed, pr);
-      const next = sheetResult(layout, printed, { ...NO_READINGS, edgeTop: r.edgeTop, edgeBottom: r.edgeBottom, edgeLeft: r.edgeLeft, edgeRight: r.edgeRight });
+      const next = sheetResult(layout, printed, { ...NO_READINGS, hFoldLeft: r.hFoldLeft, hFoldRight: r.hFoldRight, vFoldTop: r.vFoldTop, vFoldBottom: r.vFoldBottom });
       expect(next.front_offset_x_mm).toBe(printed.front_offset_x_mm);
       expect(next.back_rotation_deg).toBe(printed.back_rotation_deg);
       const after = read(layout, next, pr);
-      for (const k of ['edgeTop', 'edgeBottom', 'edgeLeft', 'edgeRight'] as const) expect(Math.abs(after[k]! - MARK_FROM_EDGE_MM), k).toBeLessThan(0.1);
+      for (const k of ['hFoldLeft', 'hFoldRight', 'vFoldTop', 'vFoldBottom'] as const) expect(Math.abs(after[k]!), k).toBeLessThan(0.1);
+    });
+
+    it('a printer that prints 1.1 mm low, starting from no offsets: both sides move up 1.1 mm, x is left alone', () => {
+      const pr: Printer = { front: { x: 0, y: -1.1, deg: 0 }, back: { x: 0, y: -1.1, deg: 0 } };
+      const printed = start(layout);
+      const next = sheetResult(layout, printed, read(layout, printed, pr));
+      expect(next.front_offset_y_mm).toBeCloseTo(1.1, 2);
+      expect(next.back_offset_y_mm).toBeCloseTo(1.1, 2);
+      expect([next.front_offset_x_mm, next.back_offset_x_mm]).toEqual([0, 0]);
+    });
+
+    it('the owner’s case: content 1.1 mm too low on both sides moves both y offsets up by 1.1 (front -2.7 -> -1.6, back 0 -> 1.1)', () => {
+      // Printed at front y -2.7, back y 0; the printer's own error makes the front land 1.1 low in all (error +1.6) and the back 1.1 low (error -1.1).
+      const printed = { ...start(layout), front_offset_y_mm: -2.7, back_offset_y_mm: 0 };
+      const pr: Printer = { front: { x: 0, y: 1.6, deg: 0 }, back: { x: 0, y: -1.1, deg: 0 } };
+      const next = sheetResult(layout, printed, read(layout, printed, pr));
+      expect(next.front_offset_y_mm).toBeCloseTo(-1.6, 2);
+      expect(next.back_offset_y_mm).toBeCloseTo(1.1, 2);
+      const after = read(layout, next, pr);
+      for (const k of ['topX', 'bottomX', 'leftY', 'rightY', 'hFoldLeft', 'hFoldRight', 'vFoldTop', 'vFoldBottom'] as const) expect(Math.abs(after[k]!), k).toBeLessThan(0.1);
     });
 
     it('nothing read changes nothing', () => {
@@ -149,7 +177,7 @@ for (const layout of layouts) {
       const next = sheetResult(layout, printed, read(layout, printed, pr));
       const after = read(layout, next, pr);
       for (const k of ['topX', 'bottomX', 'leftY', 'rightY'] as const) expect(Math.abs(after[k]!), k).toBeLessThan(0.2);
-      for (const k of ['edgeTop', 'edgeBottom', 'edgeLeft', 'edgeRight'] as const) expect(Math.abs(after[k]! - MARK_FROM_EDGE_MM), k).toBeLessThan(0.2);
+      for (const k of ['hFoldLeft', 'hFoldRight', 'vFoldTop', 'vFoldBottom'] as const) expect(Math.abs(after[k]!), k).toBeLessThan(0.25);
       expect(next.back_rotation_deg).toBeCloseTo(-pr.back.deg, 1);
     });
   });

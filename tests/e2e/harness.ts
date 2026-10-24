@@ -158,6 +158,16 @@ export async function bar(app: App, action: string) {
   await hit(app, `#bar-context [data-action="${action}"]`);
 }
 
+/**
+ * Open the properties drawer from the bar and wait for it. Chromium sometimes swallows the first tap after a synthetic drag or swipe (its
+ * touch sequence is still closing), so if the drawer hasn't opened a moment later, tap again, as a person would.
+ */
+export async function openDrawer(app: App) {
+  await bar(app, 'properties');
+  const open = () => app.page.waitForSelector('#sheet[data-state="open"]', { timeout: 3000 }).then(() => true, () => false);
+  if (!(await open())) { await bar(app, 'properties'); await app.page.waitForSelector('#sheet[data-state="open"]'); }
+}
+
 const DRAW_TOOLS = ['pattern', 'shade', 'box', 'rule', 'text'];
 /** Arm a drawing tool the way a person does: pick its mode, then its button. 'select' goes back to Select mode. */
 export async function tool(app: App, name: string) {

@@ -4,10 +4,13 @@
 //   calibration-sheet.pdf  one double-sided sheet per layout on the WHOLE paper (the half sheet, or the whole letter sheet for two-up: no halves,
 //       labels or cut marks): page 1 = the front, page 2 = the back; print them the way print-first and print-second are printed. Five
 //       marks, 8 mm in from the edges and at the centre. Side 1: a fine + at each, and the gray ramp, sample text, dots, lines and
-//       hairlines at least 10 mm from every mark. Side 2 (all measuring): at the four edge marks a see-through scale and an edge ruler,
-//       at the centre a +, and two 100 mm lines. See src/book/alignment.ts for what the readings mean.
-//   creep-test.pdf             every sheet of the book's biggest signature, both sides, in manual-duplex order: pages 1 to N are
-//       the fronts (last sheet first), pages N+1 to 2N the backs (first sheet first). Margin rulers on every page.
+//       hairlines at least 10 mm from every mark. Side 2 (all measuring): at the four edge marks a see-through scale, at the centre a +,
+//       two 100 mm lines, and four fold scales (two across each centre line) to read where a crease crosses. See src/book/alignment.ts
+//       for what the readings mean.
+//   creep-test.pdf             three sheets stand for a book of any size: the cover sheet (calibration-cover.pdf) and, here, the outermost
+//       and the innermost sheet of a book of `pages` pages (a signature of pages / 4 sheets), both sides, in manual-duplex order: the fronts
+//       (innermost first), then the backs (outermost first). The rest of the book is blank paper of the same kind folded around the
+//       innermost sheet, so the test binds and trims like the book. Margin rulers on every page.
 //   calibration-cover.pdf      the cover sheet as cover-outside.pdf and cover-inside.pdf print it (two passes), with margin rulers
 //   calibration.txt            the settings that made them
 //
@@ -16,13 +19,13 @@
 import { GRID_X_MM, GRID_Y_MM, PAGE_H_MM, PAGE_W_MM, COLS, ROWS, PITCH_MM as P, emptyPage, type Page, type PageElement, type Text } from '../format/types';
 import type { Book } from '../book/book';
 import { SHEET_W_MM, checkPrintSettings, duplexOrder, impose, pageOrigin, type PrintSettings, type Sheet } from '../book/impose';
-import { LINE_MM, MARK_FROM_EDGE_MM, SCALE_RANGE_MM, crosshairs, scaleCaptions, sheetHeight } from '../book/alignment';
+import { FOLD_HOW, LINE_MM, SCALE_RANGE_MM, crosshairs, foldScales, scaleCaptions, sheetHeight, type FoldName } from '../book/alignment';
 import { LINE } from '../render';
 import { degrees } from 'pdf-lib';
 import { color, drawPage, mmToPt, type Fonts } from './draw';
 import { newDocument, type ExportedFile, type FontBytes, type PdfPage } from './export';
 import { drawCutMarks, drawHalfLabel, halfLabel, halfTops, isTwoUp, onSheet, sheetSize, transformOf } from './sheets';
-import { creepSheets } from '../book/creep';
+import { creepPages, creepSheets, validPages } from '../book/creep';
 import { settingsLines } from './settingstext';
 import { grayHex, tonesOf } from './tones';
 
@@ -41,7 +44,10 @@ export const SCALE_MM = SCALE_RANGE_MM;
 /** The fore-edge ruler runs from the box line this far outward: past the trim line, which is GRID_X from it. */
 export const FORE_EDGE_RULER_MM = 7;
 
-export { creepSheets };
+export { creepPages, creepSheets };
+
+/** Which sheets (0 = outermost) of an `n`-sheet signature the creep test prints: the outermost and the innermost. */
+export const testedSheets = (n: number): number[] => (n > 1 ? [0, n - 1] : [0]);
 
 /** Where a page's box starts on the sheet, and its size. */
 const GRID_W = COLS * P, GRID_H = ROWS * P;
@@ -53,15 +59,15 @@ export const CREEP_FILE = 'creep-test.pdf';
 export const COVER_FILE = 'calibration-cover.pdf';
 
 /** The text of calibration.txt, and of every footer: the settings that made the files. */
-export function calibrationText(book: Book, print: PrintSettings, now: Date): string {
-  const n = creepSheets(book, print);
+export function calibrationText(book: Book, print: PrintSettings, now: Date, pages = creepPages(book, print)): string {
+  const n = pages / 4, tested = testedSheets(n).length;
   return [
     'Dotwork calibration',
     '',
     ...settingsLines(print, now),
     '',
     `${SHEET_FILE}: page 1 is the front, page 2 the back; print like print-first and print-second`,
-    `${CREEP_FILE}: ${2 * n} pages in manual-duplex order; print pages 1 to ${n}, put the stack back the same way, print pages ${n + 1} to ${2 * n}`,
+    `${CREEP_FILE}: the outermost and innermost sheet of a ${pages}-page book (${n} sheets), ${2 * tested} pages in manual-duplex order; print pages 1 to ${tested}, put the stack back the same way, print pages ${tested + 1} to ${2 * tested}`,
     `${COVER_FILE}: page 1 is the outside (print it first), page 2 the inside; print like cover-outside and cover-inside`,
     '',
   ].join('\n');
@@ -318,12 +324,11 @@ const tick = (c: Canvas, at: Pt, dir: Pt, len: number) => c.line(at.x - (dir.y *
 
 /**
  * An edge mark on side 2: a see-through scale through the mark (-5 to +5 mm, a tick every 0.5, the numbers in two rows on the side away from the
- * edge so neighbours don't touch) and an edge ruler from the mark to the paper's edge (0 to 8 mm). The captions are in the words of the readings.
+ * edge so neighbours don't touch). The caption is in the words of the reading.
  */
 function edgeMark(g: Half, name: 'top' | 'bottom' | 'left' | 'right', p: Pt, cap: ReturnType<typeof scaleCaptions>) {
   const c = g.c, { out, along } = EDGE_DIRS[name], inner = { x: -out.x, y: -out.y }, horizontal = out.x === 0, size = 1.4;
   const at = (a: number, o: number): Pt => ({ x: p.x + along.x * a + out.x * o, y: p.y + along.y * a + out.y * o });
-  // The see-through scale.
   const [a0, a1] = [at(-SCALE_RANGE_MM - 0.5, 0), at(SCALE_RANGE_MM + 0.5, 0)];
   c.line(a0.x, a0.y, a1.x, a1.y, HAIR_MM);
   for (let half = -2 * SCALE_RANGE_MM; half <= 2 * SCALE_RANGE_MM; half++) {
@@ -338,38 +343,55 @@ function edgeMark(g: Half, name: 'top' | 'bottom' | 'left' | 'right', p: Pt, cap
   const caption = { top: cap.top, bottom: cap.bottom, left: cap.left, right: cap.right }[name];
   if (horizontal) c.text(caption, p.x + 8, p.y + 0.6, CAPTION_MM);
   else c.text(caption, p.x + inner.x * 9, p.y + 0.6, CAPTION_MM, BLACK, inner.x > 0 ? 'start' : 'end');
-  // The edge ruler: 0 at the mark, counting toward the paper's edge, 8.0 where the paper should end.
-  const [r0, r1] = [at(0, 0), at(0, MARK_FROM_EDGE_MM)];
-  c.line(r0.x, r0.y, r1.x, r1.y, HAIR_MM);
-  for (let half = 0; half <= 2 * MARK_FROM_EDGE_MM; half++) {
-    const mm = half / 2, whole = half % 2 === 0, t = at(0, mm);
-    tick(c, t, out, mm === MARK_FROM_EDGE_MM ? 3 : whole ? 1.6 : 0.9);
-    if (whole && mm > 0 && mm < MARK_FROM_EDGE_MM && mm % 2 === 0) {
-      if (horizontal) c.text(String(mm), t.x - 1.2, t.y + size * 0.35, size, BLACK, 'end', true);
-      else c.text(String(mm), t.x, t.y - 1.3, size, BLACK, 'middle', true);
-    }
-  }
-  if (horizontal) c.text(cap.edge, p.x + 2, p.y + (out.y > 0 ? 4 : -3), CAPTION_MM);
-  // On the left and right the label runs up the sheet below the ruler.
-  else c.text(cap.edge, out.x < 0 ? p.x - 2.6 : p.x + 3.6, p.y + 2.4 + c.width(cap.edge, CAPTION_MM), CAPTION_MM, BLACK, 'start', false, true);
 }
 
-/** Side 2: the four edge marks, the centre +, the two 100 mm lines, and how to read them. */
+/**
+ * A fold scale: -5 to +5 mm, a tick every 0.5, 0 longer, counting up the sheet (the two across the horizontal centre line, read after folding the top
+ * edge to the bottom edge) or to the right (the two across the vertical one), as seen on side 2. Its caption is beside it, clear of the centre.
+ */
+function foldScale(g: Half, name: FoldName, p: Pt, caption: string) {
+  const up = name === 'left' || name === 'right';
+  scale(g.c, p, up ? { x: 0, y: -1 } : { x: 1, y: 0 }, -SCALE_RANGE_MM, SCALE_RANGE_MM, { label: (mm) => fmt(mm), mark: { mm: 0, text: '0' } });
+  if (up) g.c.text(caption, p.x - 10, p.y - SCALE_RANGE_MM - 2.3, CAPTION_MM);
+  else g.c.text(caption, p.x - 8, p.y + 0.6, CAPTION_MM, BLACK, 'end');
+}
+
+/** The words on side 2, one paragraph each. */
+const BACK_HOW = [
+  'SIDE 2: MEASURE',
+  'See-through: hold the sheet to a light and read where side 1\'s + shows through each see-through scale. + is right and up, as seen on this side.',
+  `${FOLD_HOW} + is up and right, as seen on this side.`,
+  'Lines: measure each 100 mm line with a ruler, tick to tick.',
+  'Print twice: if the readings differ much, the paper feed twists it; no setting can fix that.',
+];
+
+/** `str` broken into lines no wider than `max` mm at `size`. */
+function wrap(c: Canvas, str: string, max: number, size: number): string[] {
+  const lines: string[] = [];
+  for (const word of str.split(' ')) {
+    const last = lines.length - 1;
+    if (last >= 0 && c.width(`${lines[last]} ${word}`, size) <= max) lines[last] += ` ${word}`; else lines.push(word);
+  }
+  return lines;
+}
+
+/** Side 2: the four see-through scales, the centre +, the four fold scales, the two 100 mm lines, and how to read them. */
 function sheetBack(g: Half, print: PrintSettings) {
-  const layout = print.sheet_layout, cap = scaleCaptions(layout), at = crosshairs(layout), c = g.c, W = SHEET_W_MM, H = sheetHeight(layout);
+  const layout = print.sheet_layout, cap = scaleCaptions(layout), at = crosshairs(layout), fold = foldScales(layout), c = g.c, W = SHEET_W_MM, H = sheetHeight(layout);
   for (const name of ['top', 'bottom', 'left', 'right'] as const) edgeMark(g, name, at[name], cap);
   plus(c, at.centre);
-  const how = [
-    'SIDE 2: MEASURE', '', 'Hold the sheet to a light. Where', 'side 1\'s + shows through, read the', 'see-through scales: + is right and', 'up, as seen on this side.',
-    '', 'Read each edge ruler where the paper', 'ends: it should be at 8.0.', '', 'Measure each 100 mm line with a ruler,', 'tick to tick.',
-    '', 'Print twice: if readings differ much,', 'the paper feed twists it; no setting', 'can fix that.',
-  ];
-  how.forEach((line, i) => c.text(line, W / 2 + 16, H / 2 - 15 + i * 2.7, 1.8));
+  for (const [name, key] of [['left', 'hFoldLeft'], ['right', 'hFoldRight'], ['top', 'vFoldTop'], ['bottom', 'vFoldBottom']] as const) foldScale(g, name, fold[name], cap[key]);
+  // Below the centre, right of the bottom fold scale: clear of the marks, the 100 mm lines and the scales.
+  let y = H / 2 + 17;
+  BACK_HOW.forEach((para, i) => {
+    for (const line of wrap(c, para, 80, 1.8)) { c.text(line, W / 2 + 10, y, 1.8); y += 2.3; }
+    y += i === 0 ? 0.6 : 1.1;
+  });
   // The 100 mm lines, in clear space: one parallel to the 8.5 in edge (the top), one to the other (the left).
-  const y = H / 2 - 25, x0 = (W - LINE_MM) / 2;
-  c.line(x0, y, x0 + LINE_MM, y, PLUS_MM);
-  for (const x of [x0, x0 + LINE_MM]) c.line(x, y - 2.5, x, y + 2.5, PLUS_MM);
-  c.text(cap.longX, x0 + 2, y - 3.2, CAPTION_MM);
+  const ly = H / 2 - 25, x0 = (W - LINE_MM) / 2;
+  c.line(x0, ly, x0 + LINE_MM, ly, PLUS_MM);
+  for (const x of [x0, x0 + LINE_MM]) c.line(x, ly - 2.5, x, ly + 2.5, PLUS_MM);
+  c.text(cap.longX, x0 + 2, ly - 3.2, CAPTION_MM);
   const x = W / 2 - 58, y0 = H / 2 - LINE_MM / 2;
   c.line(x, y0, x, y0 + LINE_MM, PLUS_MM);
   for (const yy of [y0, y0 + LINE_MM]) c.line(x - 2.5, yy, x + 2.5, yy, PLUS_MM);
@@ -393,29 +415,32 @@ async function sheetPdf(print: PrintSettings, fontBytes: FontBytes, now: Date): 
 // ---- creep test and cover ----------------------------------------------------------------------------------
 
 /**
- * creep-test.pdf: both sides of every sheet of the biggest signature, shifted by their creep, the fore-edge shift and their side's offset, in
- * manual-duplex order: the fronts (last sheet first), then the backs (first sheet first). Page ranges are on every page.
+ * creep-test.pdf: both sides of the outermost and the innermost sheet of an `pages`-page book, each shifted by its creep in that book, the
+ * fore-edge shift and its side's offset, in manual-duplex order: the fronts (innermost first), then the backs (outermost first).
  */
-function creepTestPdf(book: Book, print: PrintSettings, fontBytes: FontBytes, now: Date) {
-  const n = creepSheets(book, print);
-  const sheets: Sheet[] = impose(4 * n, print, 1)[0].sheets, shift = print.fore_edge_shift_mm;
+function creepTestPdf(book: Book, print: PrintSettings, fontBytes: FontBytes, now: Date, pages: number) {
+  const n = pages / 4, tested = testedSheets(n), count = tested.length;
+  const sheets: Sheet[] = impose(pages, print, 1)[0].sheets, shift = print.fore_edge_shift_mm;
   const [fronts, backs] = duplexOrder(n);
-  const order: { sheet: number; side: 'front' | 'back' }[] = [...fronts.map((sheet) => ({ sheet, side: 'front' as const })), ...backs.map((sheet) => ({ sheet, side: 'back' as const }))];
+  const order: { sheet: number; side: 'front' | 'back' }[] = [
+    ...fronts.filter((k) => tested.includes(k)).map((sheet) => ({ sheet, side: 'front' as const })),
+    ...backs.filter((k) => tested.includes(k)).map((sheet) => ({ sheet, side: 'back' as const })),
+  ];
   return calibrationPdf(book, print, fontBytes, order.map(({ sheet: k, side }, i): CalPage => ({
     side,
     label: [`sheet ${k + 1} of ${n}`, side],
     draw: (g) => {
       const s = sheets[k];
-      const pass = i < n ? `pass 1: print pages 1-${n}` : `pass 2: print pages ${n + 1}-${2 * n}`;
+      const pass = i < count ? `pass 1: print pages 1-${count}` : `pass 2: print pages ${count + 1}-${2 * count}`;
       for (const right of [false, true]) {
         frame(g.c, right, s.creep, shift, false);
         const { x, y } = gridAt(right, s.creep, shift);
         const ref = (right ? s[side].right : s[side].left);
         g.c.text(`SHEET ${k + 1} OF ${n}${k === 0 ? ' (OUTERMOST)' : k === n - 1 ? ' (INNERMOST)' : ''}`, x + 0.8, y + 4, 3.2);
         g.c.text(`${side.toUpperCase()}, ${right ? 'right' : 'left'} page${ref === null ? '' : ` ${ref}`}`, x + 0.8, y + 8, 3.2);
-        g.c.text(`PDF page ${i + 1} of ${2 * n} (${pass})`, x + 0.8, y + 11, 2);
+        g.c.text(`PDF page ${i + 1} of ${2 * count} (${pass})`, x + 0.8, y + 11, 2);
         pageRulers(g.c, print.target_fore_edge_margin_mm, right, s.creep, shift, true);
-        footer(g.c, print, now, right, s.creep, shift, [`creep test, ${s.creep.toFixed(2)} mm toward the fold, ${shift} away`]);
+        footer(g.c, print, now, right, s.creep, shift, [`creep test, ${pages} pages, ${s.creep.toFixed(2)} mm toward the fold, ${shift} away`]);
       }
     },
   })));
@@ -447,24 +472,25 @@ function coverTestPdf(book: Book, print: PrintSettings, fontBytes: FontBytes, no
 const pdf = (name: string, bytes: Uint8Array): ExportedFile => ({ name, bytes, type: 'application/pdf' });
 const txt = (name: string, body: string): ExportedFile => ({ name, bytes: new TextEncoder().encode(body), type: 'text/plain' });
 
-/** Throws if the print settings can't be printed. */
-function check(book: Book, print: PrintSettings) {
-  const problem = checkPrintSettings(print, creepSheets(book, print));
+/** Throws if the print settings can't be printed, or the creep test's page count is not a multiple of 4. */
+function check(print: PrintSettings, pages: number) {
+  if (!validPages(pages)) throw new Error(`The creep test's page count must be a multiple of 4, at least 4, not ${pages}.`);
+  const problem = checkPrintSettings(print, pages / 4);
   if (problem) throw new Error(problem);
 }
 
 /** The calibration step: calibration-sheet.pdf. */
 export async function sheetFile(book: Book, print: PrintSettings, fontBytes: FontBytes, now = new Date()): Promise<ExportedFile> {
-  check(book, print);
+  check(print, creepPages(book, print));
   return pdf(SHEET_FILE, await sheetPdf(print, fontBytes, now));
 }
 
-/** The creep step: the cover sheet and the creep test, with calibration.txt. */
-export async function creepFiles(book: Book, print: PrintSettings, fontBytes: FontBytes, now = new Date()): Promise<ExportedFile[]> {
-  check(book, print);
+/** The creep step: the cover sheet and the creep test for a book of `pages` pages (the book's biggest signature by default), with calibration.txt. */
+export async function creepFiles(book: Book, print: PrintSettings, fontBytes: FontBytes, now = new Date(), pages = creepPages(book, print)): Promise<ExportedFile[]> {
+  check(print, pages);
   return [
     pdf(COVER_FILE, await coverTestPdf(book, print, fontBytes, now)),
-    pdf(CREEP_FILE, await creepTestPdf(book, print, fontBytes, now)),
-    txt('calibration.txt', calibrationText(book, print, now)),
+    pdf(CREEP_FILE, await creepTestPdf(book, print, fontBytes, now, pages)),
+    txt('calibration.txt', calibrationText(book, print, now, pages)),
   ];
 }

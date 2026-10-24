@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LINE_MM, MARK_FROM_EDGE_MM, NO_READINGS, backAgainstPaper, crosshairs, fromCentre, scaleCaptions, scaleFromReading, seeThrough, sheetHeight, sheetResult } from '../src/book/alignment';
+import { FOLD_FROM_CENTRE_MM, FOLD_HOW, LINE_MM, MARK_FROM_EDGE_MM, NO_READINGS, backAgainstPaper, crosshairs, foldScales, fromCentre, scaleCaptions, scaleFromReading, seeThrough, sheetHeight, sheetResult } from '../src/book/alignment';
 import { DEFAULT_PRINT, SHEET_H_MM, SHEET_W_MM, type LayoutProfile } from '../src/book/impose';
 
 const ZERO: LayoutProfile = { front_offset_x_mm: 0, front_offset_y_mm: 0, back_offset_x_mm: 0, back_offset_y_mm: 0, scale_x_pct: 100, scale_y_pct: 100, back_rotation_deg: 0 };
@@ -24,11 +24,10 @@ describe('where the sheet puts things', () => {
   it('has two 100 mm lines for every layout', () => {
     expect(LINE_MM).toBe(100);
   });
-  it('names its scales, rulers and lines by the paper’s edges, in the words of the readings', () => {
+  it('names its scales and lines by the paper’s edges, in the words of the readings', () => {
     const half = scaleCaptions('half_letter'), two = scaleCaptions('letter_two_up');
     expect([half.top, half.bottom, half.left, half.right]).toEqual(['see-through top x', 'see-through bottom x', 'see-through left y', 'see-through right y']);
-    expect([half.edgeTop, half.edgeBottom, half.edgeLeft, half.edgeRight]).toEqual(['edge distance top', 'edge distance bottom', 'edge distance left', 'edge distance right']);
-    expect(half.edge).toBe('edge should be at 8.0');
+    expect([half.hFoldLeft, half.hFoldRight, half.vFoldTop, half.vFoldBottom]).toEqual(['horizontal fold, left scale', 'horizontal fold, right scale', 'vertical fold, top scale', 'vertical fold, bottom scale']);
     expect(half.longX).toBe('parallel to the 8.5 in edge: should measure 100.0 mm');
     expect(half.longY).toBe('parallel to the 5.5 in edge: should measure 100.0 mm');
     expect(two.longY).toBe('parallel to the 11 in edge: should measure 100.0 mm');
@@ -62,27 +61,48 @@ describe('the see-through readings', () => {
   });
 });
 
-describe('the edge rulers', () => {
-  it('a back printed to the right of where it should be makes the left edge farther and the right one nearer', () => {
-    expect(backAgainstPaper({ ...NO_READINGS, edgeLeft: 8.5, edgeRight: 7.5 }).x).toBe(0.5);
-    expect(backAgainstPaper({ ...NO_READINGS, edgeLeft: 7.5, edgeRight: 8.5 }).x).toBe(-0.5);
+describe('the fold scales', () => {
+  it('sit across the two centre lines, each pair on opposite sides of the centre and at least 25 mm from its +', () => {
+    expect(FOLD_FROM_CENTRE_MM).toBeGreaterThanOrEqual(25);
+    for (const layout of ['half_letter', 'letter_two_up'] as const) {
+      const W = SHEET_W_MM, H = sheetHeight(layout), f = foldScales(layout);
+      expect(f.left).toEqual({ x: W / 2 - FOLD_FROM_CENTRE_MM, y: H / 2 });
+      expect(f.right).toEqual({ x: W / 2 + FOLD_FROM_CENTRE_MM, y: H / 2 });
+      expect(f.top).toEqual({ x: W / 2, y: H / 2 - FOLD_FROM_CENTRE_MM });
+      expect(f.bottom).toEqual({ x: W / 2, y: H / 2 + FOLD_FROM_CENTRE_MM });
+    }
   });
-  it('a back printed too high makes the top edge nearer and the bottom one farther', () => {
-    expect(backAgainstPaper({ ...NO_READINGS, edgeTop: 7.5, edgeBottom: 8.5 }).y).toBe(0.5);
-    expect(backAgainstPaper({ ...NO_READINGS, edgeTop: 8.5, edgeBottom: 7.5 }).y).toBe(-0.5);
+  it('are told to be read by folding top edge to bottom edge, then left edge to right edge', () => {
+    expect(FOLD_HOW).toBe('Fold the sheet top edge to bottom edge, crease hard, open it, and read where the crease crosses each horizontal-fold scale. Then fold left edge to right edge and read the vertical-fold scales.');
   });
-  it('a sheet cut a little big or small cancels out with both edges of a pair, but not with one', () => {
-    expect(backAgainstPaper({ ...NO_READINGS, edgeTop: 8.4, edgeBottom: 8.4 }).y).toBe(0);
-    expect(backAgainstPaper({ ...NO_READINGS, edgeTop: 8.4 }).y).toBeCloseTo(-0.4, 9);
+  it('a back printed 1.1 mm too low has the crease 1.1 mm above the scales’ zero (+ up), so the back is 1.1 mm low', () => {
+    for (const layout of ['half_letter', 'letter_two_up'] as const) {
+      expect(backAgainstPaper(layout, { ...NO_READINGS, hFoldLeft: 1.1, hFoldRight: 1.1 }).y).toBeCloseTo(-1.1, 9);
+      expect(backAgainstPaper(layout, { ...NO_READINGS, hFoldLeft: -0.4, hFoldRight: -0.4 }).y).toBeCloseTo(0.4, 9);
+    }
   });
-  it('with one edge of a pair, is that edge against 8.0: top, bottom, left, right', () => {
-    expect(backAgainstPaper({ ...NO_READINGS, edgeTop: 8.3 }).y).toBeCloseTo(-0.3, 9);
-    expect(backAgainstPaper({ ...NO_READINGS, edgeBottom: 8.3 }).y).toBeCloseTo(0.3, 9);
-    expect(backAgainstPaper({ ...NO_READINGS, edgeLeft: 8.3 }).x).toBeCloseTo(0.3, 9);
-    expect(backAgainstPaper({ ...NO_READINGS, edgeRight: 8.3 }).x).toBeCloseTo(-0.3, 9);
+  it('a back printed to the right has the crease left of the scales’ zero (+ right), so a negative reading is a back too far right', () => {
+    expect(backAgainstPaper('half_letter', { ...NO_READINGS, vFoldTop: -0.6, vFoldBottom: -0.6 }).x).toBeCloseTo(0.6, 9);
+  });
+  it('a turned back cancels in the mean of a pair, and the two readings differ by the turn', () => {
+    const phi = 0.2 * DEG, q = FOLD_FROM_CENTRE_MM;
+    // Back moved up by 0.5 and turned counter-clockwise: the right scale (q.x > 0) is raised more, the left one less.
+    const h = { ...NO_READINGS, hFoldLeft: -(0.5 - phi * q), hFoldRight: -(0.5 + phi * q) };
+    expect(backAgainstPaper('half_letter', h).y!).toBeCloseTo(0.5, 9);
+    expect((h.hFoldLeft - h.hFoldRight) / (2 * q)).toBeCloseTo(phi, 9);
+    // Top scale (q.y > 0): a counter-clockwise turn moves it left.
+    const v = { ...NO_READINGS, vFoldTop: -(-0.3 - phi * q), vFoldBottom: -(-0.3 + phi * q) };
+    expect(backAgainstPaper('half_letter', v).x!).toBeCloseTo(-0.3, 9);
+  });
+  it('with one scale of a pair, the turn from the see-through is taken out', () => {
+    const phi = 0.2 * DEG, q = FOLD_FROM_CENTRE_MM;
+    expect(backAgainstPaper('half_letter', { ...NO_READINGS, hFoldRight: -(0.5 + phi * q) }, phi).y!).toBeCloseTo(0.5, 9);
+    expect(backAgainstPaper('half_letter', { ...NO_READINGS, hFoldLeft: -(0.5 - phi * q) }, phi).y!).toBeCloseTo(0.5, 9);
+    expect(backAgainstPaper('half_letter', { ...NO_READINGS, vFoldTop: 0.3 + phi * q }, phi).x!).toBeCloseTo(-0.3, 9);
+    expect(backAgainstPaper('half_letter', { ...NO_READINGS, hFoldLeft: 0.7 }).y).toBeCloseTo(-0.7, 9); // no turn known: none assumed
   });
   it('nothing read is null', () => {
-    expect(backAgainstPaper(NO_READINGS)).toEqual({ x: null, y: null });
+    expect(backAgainstPaper('half_letter', NO_READINGS)).toEqual({ x: null, y: null });
   });
 });
 
@@ -132,9 +152,9 @@ describe('the result', () => {
     expect(next.front_offset_x_mm).toBe(1);
   });
   it('moves the front too once the back is read against the paper: the front is what is left', () => {
-    // Back perfect against the paper (every edge at 8.0), front shows through 0.4 mm left of the scale and 0.3 mm above it: the
+    // Back perfect against the paper (every fold reads 0), front shows through 0.4 mm left of the scale and 0.3 mm above it: the
     // front is 0.4 right of where it should be (the sheet is turned over) and 0.3 too high.
-    const next = sheetResult('half_letter', DEFAULT_PRINT.layouts.half_letter, { ...NO_READINGS, topX: -0.4, bottomX: -0.4, leftY: 0.3, rightY: 0.3, edgeLeft: 8, edgeRight: 8, edgeTop: 8, edgeBottom: 8 });
+    const next = sheetResult('half_letter', DEFAULT_PRINT.layouts.half_letter, { ...NO_READINGS, topX: -0.4, bottomX: -0.4, leftY: 0.3, rightY: 0.3, hFoldLeft: 0, hFoldRight: 0, vFoldTop: 0, vFoldBottom: 0 });
     const was = DEFAULT_PRINT.layouts.half_letter;
     expect(next.front_offset_x_mm).toBeCloseTo(was.front_offset_x_mm - 0.4, 9);
     expect(next.front_offset_y_mm).toBeCloseTo(was.front_offset_y_mm - 0.3, 9);

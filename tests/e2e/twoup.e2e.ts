@@ -24,6 +24,19 @@ const download = async (app: App, selector: string) => {
 const pickLayout = async (app: App, dialog: string, layout: string) => {
   await app.page.locator(`dialog.${dialog} [data-key="book-sheet-layout"]`).selectOption(layout);
 };
+/** A saved printer profile with no two-up offsets, so these walks start from simple numbers (the app's own two-up defaults are the owner's calibration, which sits close to the paper's edge). */
+const startZeroTwoUp = async (app: App) => {
+  const none = { front_offset_x_mm: 0, front_offset_y_mm: 0, back_offset_x_mm: 0, back_offset_y_mm: 0, scale_x_pct: 100, scale_y_pct: 100, back_rotation_deg: 0 };
+  await app.page.evaluate((zero) => {
+    localStorage.setItem('dotwork.printer', JSON.stringify({
+      creep_per_sheet_mm: 0.3, fore_edge_shift_mm: 2, cover_fore_edge_shift_mm: 2.2, target_fore_edge_margin_mm: 3.5, sheet_layout: 'half_letter',
+      layouts: { half_letter: { ...zero, front_offset_x_mm: 1.7, front_offset_y_mm: -0.05, back_offset_x_mm: 1.5, back_offset_y_mm: 0.05 }, letter_two_up: zero },
+      shade_light_pct: 6.3, shade_medium_pct: 13.7, shade_dark_pct: 25.9, gray_text_pct: 49.8,
+    }));
+  }, none);
+  await app.page.reload();
+  await app.page.waitForSelector('#canvas');
+};
 const openPdfTab = async (app: App) => {
   await hit(app, '#export');
   await hit(app, 'dialog.export [data-tab="pdf"]');
@@ -35,6 +48,7 @@ for (const device of ['phone', 'tablet', 'desktop'] as const) {
     it('picks the layout on the PDF tab: the fields show that layout’s values, two-up asks for the bottom book, and the zip has print-duplex.pdf', async () => {
       const app = await open(env, device);
       const { page } = app;
+      await startZeroTwoUp(app);
       await openPdfTab(app);
       const value = (key: string) => page.locator(`dialog.export [data-key="${key}"]`).inputValue();
       expect(await value('book-sheet-layout')).toBe('half_letter');
@@ -84,6 +98,7 @@ for (const device of ['phone', 'tablet', 'desktop'] as const) {
     it('refuses a two-up offset that would print closer than 3 mm to the edge, with the reason', async () => {
       const app = await open(env, device);
       const { page } = app;
+      await startZeroTwoUp(app);
       await openPdfTab(app);
       await pickLayout(app, 'export', 'letter_two_up');
       await type(app, 'dialog.export [data-key="book-front-offset-y"]', '2');
@@ -97,6 +112,7 @@ for (const device of ['phone', 'tablet', 'desktop'] as const) {
     it('calibrates a layout from the one sheet: the long lines become its scale, and the other layout is left alone', async () => {
       const app = await open(env, device);
       const { page } = app;
+      await startZeroTwoUp(app);
       await openPdfTab(app);
       await pickLayout(app, 'export', 'letter_two_up');
       await hit(app, 'dialog.export [data-key="calibrate-open"]');
