@@ -13,13 +13,13 @@ import { SHADE_TONES, TEXT_COLORS } from '../src/render';
 import { drawPage, mmToPt } from '../src/print/draw';
 import { PRINT_TIPS, exportBookFiles, newDocument, summary, type ExportedFile } from '../src/print/export';
 import {
-  COVER_FILE, CREEP_FILE, FORE_EDGE_RULER_MM, HAIRLINE_WIDTHS, RAMP_STEPS, SCALE_MM, SHEET_FILE, calibrationPages, calibrationText, creepFiles, creepPages, creepSheets, sheetFile,
+  COVER_FILE, CREEP_FILE, FORE_EDGE_RULER_MM, HAIRLINE_WIDTHS, LADDER_MM, LADDER_PCT, PAIR_WIDTHS, RAMP_STEPS, SCALE_MM, SHEET_FILE, calibrationPages, calibrationText, creepFiles, creepPages, creepSheets, sheetFile,
 } from '../src/print/calibrate';
 import { PRINT_LABELS, settingsLines } from '../src/print/settingstext';
 import { grayHex, tonesOf } from '../src/print/tones';
 import { APP_VERSION } from '../src/version';
 import { FLAT, flatTwoUp, setPrint } from './flat';
-import { readPdf, textPositions } from './pdf-text';
+import { readPdf, segments, strokes, textPositions } from './pdf-text';
 
 const fontBytes = {
   regular: readFileSync('src/fonts/CourierPrime-Regular.ttf'),
@@ -47,10 +47,13 @@ const tonedBook = (tweak: (b: Book) => void = () => {}) => {
   tweak(b);
   return b;
 };
-/** The 81 x 132 mm content-area boxes a sheet draws (drawn as a path inside a translated space), in sheet mm from the top left. */
-const contentBoxes = (content: string) => [...content.matchAll(/1 0 0 1 ([\d.]+) ([\d.]+) cm\n1 0 0 1 0 0 cm\n1 0 0 1 0 0 cm\n0 0 m\n0 ([\d.]+) l\n([\d.]+) [\d.]+ l/g)]
-  .map((m) => ({ x: +m[1] / PT, w: +m[4] / PT, h: +m[3] / PT, y: SHEET_H_MM - (+m[2] + +m[3]) / PT }))
-  .filter((b) => Math.abs(b.w - 81) < 0.01 && Math.abs(b.h - 132) < 0.01);
+/** The 81 x 132 mm content-area boxes a sheet draws (four strokes), in sheet mm from the top left: found by their top edge and the left edge under it. */
+const contentBoxes = (content: string, height = SHEET_H_MM) => {
+  const segs = segments(content, height);
+  return segs.filter((h) => Math.abs(h.y1 - h.y2) < 0.001 && Math.abs(Math.abs(h.x2 - h.x1) - 81) < 0.01)
+    .map((h) => ({ x: Math.min(h.x1, h.x2), y: h.y1, w: 81, h: 132 }))
+    .filter((b) => segs.some((v) => Math.abs(v.x1 - b.x) < 0.001 && Math.abs(v.x2 - b.x) < 0.001 && Math.abs(Math.abs(v.y2 - v.y1) - 132) < 0.01 && Math.abs(Math.min(v.y1, v.y2) - b.y) < 0.001));
+};
 /** The fill colors a page's content stream sets, as written (pdf-lib writes "r g b rg"). */
 const fills = (content: string) => new Set([...content.matchAll(/([\d.]+) ([\d.]+) ([\d.]+) rg/g)].map((m) => m[0]));
 const rgOf = (hex: string) => {
@@ -154,9 +157,6 @@ describe('summary.txt in a book export', () => {
 
 const margins = (strings: string[]) => ({ top: strings.filter((t) => t === '3.85').length, fore: strings.filter((t) => t === String(FORE_EDGE_RULER_MM)).length });
 
-/** Straight segments a page draws, in sheet mm from the top left (the page must have no transform). */
-const segments = (content: string, height: number) => [...content.matchAll(/([\d.-]+) ([\d.-]+) m\n([\d.-]+) ([\d.-]+) l\nS/g)]
-  .map((m) => ({ x1: +m[1] / PT, y1: height - +m[2] / PT, x2: +m[3] / PT, y2: height - +m[4] / PT }));
 const near = (a: number, b: number) => Math.abs(a - b) < 0.01;
 
 for (const layout of ['half_letter', 'letter_two_up'] as const) {
@@ -202,6 +202,43 @@ for (const layout of ['half_letter', 'letter_two_up'] as const) {
       expect(front.strings.filter((t) => t === 'Gray text')).toHaveLength(21);
       expect(back.strings).not.toContain('Gray text');
       expect(HAIRLINE_WIDTHS).toContain(0.12);
+    });
+
+    it('has, on side 1, pairs of identical lines at 0.12, 0.25 and 0.35 mm, one along each paper edge and labelled, and a ladder beside a 0.35 mm line along the other edge', () => {
+      expect(PAIR_WIDTHS).toEqual([0.12, 0.25, 0.35]);
+      expect(LADDER_PCT).toEqual([85, 90, 95, 100]);
+      expect(LADDER_MM).toBe(0.35);
+      const front = sheets[0], all = strokes(front.content, H), horizontal = all.filter((s) => Math.abs(s.y1 - s.y2) < 0.001), vertical = all.filter((s) => Math.abs(s.x1 - s.x2) < 0.001);
+      expect(front.strings).toContain('LINE WEIGHT BY DIRECTION');
+      expect(front.strings).toContain(twoUp ? '11 in' : '5.5 in'); // the paper's edges, named
+      expect(front.strings).toContain('8.5 in');
+      for (const w of PAIR_WIDTHS) {
+        expect(front.strings, `${w}`).toContain(`${w.toFixed(2)} mm`);
+        const along = horizontal.filter((s) => near(s.w, w)), across = vertical.filter((s) => near(s.w, w));
+        // A pair: one stroke along the 8.5 in edge and one across, identical but for their direction.
+        expect(along.some((a) => across.some((b) => Math.abs(Math.abs(a.x2 - a.x1) - 11) < 0.01 && Math.abs(Math.abs(b.y2 - b.y1) - 8) < 0.01)), `pair ${w}`).toBe(true);
+      }
+      // The ladder: 85, 90, 95 and 100 % of 0.35 mm along the 8.5 in edge, each labelled, and one 0.35 mm line along the other.
+      for (const pct of LADDER_PCT) {
+        expect(front.strings).toContain(`${pct}%`);
+        expect(horizontal.some((s) => Math.abs(s.w - (LADDER_MM * pct) / 100) < 0.0005 && Math.abs(Math.abs(s.x2 - s.x1) - 11) < 0.01), `ladder ${pct}`).toBe(true);
+      }
+      expect(vertical.some((s) => near(s.w, LADDER_MM) && Math.abs(Math.abs(s.y2 - s.y1) - 17) < 0.01)).toBe(true);
+      expect(front.strings.some((t) => t.startsWith('LADDER'))).toBe(true);
+    });
+
+    it('draws the pairs with the line weight setting but never the ladder, so the ladder always shows the same steps', async () => {
+      const own = clonePrint(print);
+      own.layouts[layout].line_weight_x_pct = 90;
+      const [front] = await readPdf((await sheetFile(emptyBook(52), own, fontBytes, NOW)).bytes);
+      const all = strokes(front.content, H);
+      const along = (w: number) => all.some((s) => Math.abs(s.y1 - s.y2) < 0.001 && Math.abs(Math.abs(s.x2 - s.x1) - 11) < 0.01 && Math.abs(s.w - w) < 0.0005);
+      const across = (w: number) => all.some((s) => Math.abs(s.x1 - s.x2) < 0.001 && Math.abs(Math.abs(s.y2 - s.y1) - 8) < 0.01 && Math.abs(s.w - w) < 0.0005);
+      for (const w of PAIR_WIDTHS) {
+        expect(along(w * 0.9), `along ${w}`).toBe(true); // thinned by the setting
+        expect(across(w), `across ${w}`).toBe(true); // as drawn
+      }
+      for (const pct of LADDER_PCT) expect(along((LADDER_MM * pct) / 100), `ladder ${pct}`).toBe(true);
     });
 
     it('has designed pages that follow the page format', () => {
@@ -357,9 +394,14 @@ for (const layout of ['half_letter', 'letter_two_up'] as const) {
 }
 
 describe('the back rotation', () => {
-  /** The matrix a page's content is drawn under, the first one in it: [a b c d e f]. A page with no turn has b = c = 0 (its content's own translations). */
-  const matrixOf = (content: string) => { const m = content.match(/q\n(\S+) (\S+) (\S+) (\S+) (\S+) (\S+) cm\n/); return m ? m.slice(1).map(Number) : null; };
-  const isTurned = (content: string) => { const m = matrixOf(content); return m !== null && Math.abs(m[1]) > 1e-9; };
+  /** How far the first straight stroke on a page (a clip edge or a line, which are drawn along the sheet's axes) is turned, in degrees counter-clockwise from the nearest axis, 0 to 90. */
+  const turnOf = (content: string, height: number) => {
+    const s = segments(content, height).concat(clipEdges(content, height))[0];
+    const deg = (Math.atan2(-(s.y2 - s.y1), s.x2 - s.x1) * 180) / Math.PI; // y is down on the sheet: up is positive
+    return ((deg % 90) + 90) % 90;
+  };
+  const clipEdges = (content: string, height: number) => [...content.matchAll(/(-?[\d.]+) (-?[\d.]+) m\n(-?[\d.]+) (-?[\d.]+) l\n/g)].slice(0, 1).map((m) => ({ x1: +m[1] / PT, y1: height - +m[2] / PT, x2: +m[3] / PT, y2: height - +m[4] / PT }));
+  const isTurned = (turn: number) => turn > 1e-6 && turn < 90 - 1e-6;
   const turned = (deg: number, layout: 'half_letter' | 'letter_two_up' = 'half_letter') => {
     const p = clonePrint(layout === 'letter_two_up' ? flatTwoUp() : FLAT);
     p.layouts[layout].back_rotation_deg = deg;
@@ -370,32 +412,27 @@ describe('the back rotation', () => {
   it('turns the back pass of the print files, the covers and the calibration PDFs, and never the front', async () => {
     for (const layout of ['half_letter', 'letter_two_up'] as const) {
       // A two-up sheet turns about the letter sheet's centre, so a degree swings its corners past the 3 mm the printer needs.
-      const deg = layout === 'half_letter' ? 1 : 0.3, sin = Math.sin((deg * Math.PI) / 180), cos = Math.cos((deg * Math.PI) / 180);
+      const deg = layout === 'half_letter' ? 1 : 0.3, H = sheetHeight(layout);
       const print = turned(deg, layout);
       const files = await exportBookFiles(book(), print, fontBytes);
       for (const f of files.filter((f) => f.name.endsWith('.pdf') && f.name !== 'pages.pdf')) {
         const pages = await readPdf(f.bytes);
         pages.forEach((page, i) => {
-          const m = matrixOf(page.content);
           const back = f.name === 'print-duplex.pdf' ? i % 2 === 1 : /second|inside/.test(f.name);
-          if (back) {
-            expect(isTurned(page.content), `${layout} ${f.name} ${i}`).toBe(true);
-            expect(m![0]).toBeCloseTo(cos, 9);
-            expect(m![1]).toBeCloseTo(sin, 9); // + is counter-clockwise: the PDF's axes point up, where that is +sin in b
-            expect(m![2]).toBeCloseTo(-sin, 9);
-            expect(m![3]).toBeCloseTo(cos, 9);
-          } else expect(isTurned(page.content), `${layout} ${f.name} ${i} is a front`).toBe(false);
+          const turn = turnOf(page.content, H);
+          // + is counter-clockwise as seen on the back.
+          if (back) expect(turn, `${layout} ${f.name} ${i}`).toBeCloseTo(deg, 4); else expect(isTurned(turn), `${layout} ${f.name} ${i} is a front`).toBe(false);
         });
       }
       const sheet = await readPdf((await sheetFile(book(), print, fontBytes, NOW)).bytes);
-      expect(isTurned(sheet[0].content)).toBe(false);
-      expect(matrixOf(sheet[1].content)![1]).toBeCloseTo(sin, 9);
+      expect(isTurned(turnOf(sheet[0].content, H))).toBe(false);
+      expect(turnOf(sheet[1].content, H)).toBeCloseTo(deg, 4);
       const made = await creepFiles(book(), print, fontBytes, NOW);
       const creep = await readPdf(file(made, CREEP_FILE).bytes), cover = await readPdf(file(made, COVER_FILE).bytes);
       const n = creep.length / 2;
-      creep.forEach((page, i) => expect(isTurned(page.content), `creep page ${i}`).toBe(i >= n));
-      expect(isTurned(cover[0].content)).toBe(false);
-      expect(matrixOf(cover[1].content)![1]).toBeCloseTo(sin, 9);
+      creep.forEach((page, i) => expect(isTurned(turnOf(page.content, H)), `creep page ${i}`).toBe(i >= n));
+      expect(isTurned(turnOf(cover[0].content, H))).toBe(false);
+      expect(turnOf(cover[1].content, H)).toBeCloseTo(deg, 4);
     }
   });
 
@@ -404,10 +441,10 @@ describe('the back rotation', () => {
       const print = turned(0.2, layout);
       setPrint(print, { back_offset_x_mm: 0.5, back_offset_y_mm: -0.25 });
       const { w, h } = sheetSize(layout);
-      const [m] = [matrixOf((await readPdf(file(await exportBookFiles(book(), print, fontBytes), 'print-second.pdf').bytes))[0].content)!];
-      const [a, b, c, d, e, f] = m;
-      expect((a * (w / 2) * PT + c * (h / 2) * PT + e) / PT).toBeCloseTo(w / 2 + 0.5, 6);
-      expect((b * (w / 2) * PT + d * (h / 2) * PT + f) / PT).toBeCloseTo(h / 2 - 0.25, 6);
+      // The + at the centre of side 2: both its strokes are centred on it.
+      const [, back] = await readPdf((await sheetFile(book(), print, fontBytes, NOW)).bytes);
+      const plus = segments(back.content, h).filter((s) => Math.abs(Math.hypot(s.x2 - s.x1, s.y2 - s.y1) - 6) < 0.01 && Math.hypot((s.x1 + s.x2) / 2 - w / 2 - 0.5, (s.y1 + s.y2) / 2 - h / 2 - 0.25) < 0.001);
+      expect(plus, layout).toHaveLength(2);
     }
   });
 

@@ -191,6 +191,7 @@ const PRINT_FIELDS: Record<PrintFieldKey, { label: string; help: string; step: n
   back_rotation_deg: { label: 'Back rotation (°)', help: 'book-back-rotation', step: 0.01 },
   scale_x_pct: { label: 'Scale along the 8.5 in edge (%)', help: 'book-scale-x', step: 0.1 },
   scale_y_pct: { label: 'Scale along the 5.5 in edge (%)', help: 'book-scale-y', step: 0.1 },
+  line_weight_x_pct: { label: 'Line weight along the 8.5 in edge (%)', help: 'book-line-weight', step: 1 },
   shade_light_pct: { label: 'Light shade (% black)', help: 'book-tone-light', step: 1 },
   shade_medium_pct: { label: 'Medium shade (% black)', help: 'book-tone-medium', step: 1 },
   shade_dark_pct: { label: 'Dark shade (% black)', help: 'book-tone-dark', step: 1 },
@@ -254,8 +255,8 @@ export function printFields(printer: () => PrintSettings, edit: EditPrinter, boo
   const field = (key: PrintFieldKey) => printField(printer, edit, key);
   return [
     field('creep_per_sheet_mm'), field('fore_edge_shift_mm'), field('cover_fore_edge_shift_mm'), field('target_fore_edge_margin_mm'), signaturesField(book, editBook),
-    field('front_offset_x_mm'), field('front_offset_y_mm'), field('back_offset_x_mm'), field('back_offset_y_mm'), field('back_rotation_deg'), field('scale_x_pct'), field('scale_y_pct'),
-    h('p', { class: 'hint' }, 'Creep moves each sheet’s pages toward the fold by the sheets outside it × the creep per sheet (often more than the paper’s thickness; the Calibrate page finds it). The fore-edge shifts move every page away from the fold, so the trimmed fore-edge margin lands on the target. The front offset moves everything printed first (print-first.pdf, the fronts of print-duplex.pdf, cover-outside.pdf), the back offset everything printed second (+x right, +y up, as seen on that side), to cancel what your printer does to each side; the back rotation turns the back about the sheet’s centre (+ is counter-clockwise as seen on the back). The scale sizes everything on the sheet about its centre, to cancel a printer that enlarges or shrinks it. The Calibrate page finds all of these.'),
+    field('front_offset_x_mm'), field('front_offset_y_mm'), field('back_offset_x_mm'), field('back_offset_y_mm'), field('back_rotation_deg'), field('scale_x_pct'), field('scale_y_pct'), field('line_weight_x_pct'),
+    h('p', { class: 'hint' }, 'Creep moves each sheet’s pages toward the fold by the sheets outside it × the creep per sheet (often more than the paper’s thickness; the Calibrate page finds it). The fore-edge shifts move every page away from the fold, so the trimmed fore-edge margin lands on the target. The front offset moves everything printed first (print-first.pdf, the fronts of print-duplex.pdf, cover-outside.pdf), the back offset everything printed second (+x right, +y up, as seen on that side), to cancel what your printer does to each side; the back rotation turns the back about the sheet’s centre (+ is counter-clockwise as seen on the back). The scale moves everything on the sheet about its centre, to cancel a printer that enlarges or shrinks it; it never stretches lines, dots or letters. The line weight is only for a printer that draws lines along the 8.5 in edge thicker than lines along the other edge; the Calibrate page’s line pairs show it. The Calibrate page finds all of these.'),
     field('shade_light_pct'), field('shade_medium_pct'), field('shade_dark_pct'), field('gray_text_pct'),
     h('p', { class: 'hint' }, 'Tones are how dark the light, medium and dark shades and the gray text print: 0 is white, 100 is black. They change the PDFs only, not the editor or PNGs. The Calibrate page helps you choose them.'),
   ];

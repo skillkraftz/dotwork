@@ -11,10 +11,10 @@ import { emptyPage, GRID_X_MM, GRID_Y_MM, PAGE_H_MM, PAGE_W_MM, type Page } from
 import { exportBookFiles, type ExportedFile } from '../src/print/export';
 import { SHEET_FILE, sheetFile, creepFiles, COVER_FILE, CREEP_FILE } from '../src/print/calibrate';
 import {
-  EDGE_MM, LETTER_H_MM, LETTER_W_MM, backPoint, backRegion, edgeProblem, halfTops, mapPoint, sheetSize, transformOf, trimZoneBoxes,
+  EDGE_MM, LETTER_H_MM, LETTER_W_MM, backPoint, backRegion, halfTops, mapPoint, sheetSize, transformOf, trimZoneBoxes,
 } from '../src/print/sheets';
 import { FLAT, flatTwoUp, setPrint } from './flat';
-import { readPdf, textPositions, type PageInfo } from './pdf-text';
+import { readPdf, segments, textPositions, type PageInfo } from './pdf-text';
 
 const fonts = { regular: readFileSync('src/fonts/CourierPrime-Regular.ttf'), bold: readFileSync('src/fonts/CourierPrime-Bold.ttf') };
 const PT = 72 / 25.4;
@@ -48,8 +48,8 @@ describe('the sheet layouts', () => {
 
   it('keeps a separate offset and scale for each layout, and the half-letter values are the owner’s', () => {
     expect(DEFAULT_PRINT.sheet_layout).toBe('half_letter');
-    expect(DEFAULT_PRINT.layouts.half_letter).toEqual({ front_offset_x_mm: 1.7, front_offset_y_mm: -0.05, back_offset_x_mm: 1.5, back_offset_y_mm: 0.05, scale_x_pct: 100, scale_y_pct: 100, back_rotation_deg: 0 });
-    expect(DEFAULT_PRINT.layouts.letter_two_up).toEqual({ front_offset_x_mm: -0.75, front_offset_y_mm: -1.6, back_offset_x_mm: 0, back_offset_y_mm: 1.1, scale_x_pct: 100, scale_y_pct: 101.01, back_rotation_deg: -0.169 });
+    expect(DEFAULT_PRINT.layouts.half_letter).toEqual({ front_offset_x_mm: 1.7, front_offset_y_mm: -0.05, back_offset_x_mm: 1.5, back_offset_y_mm: 0.05, scale_x_pct: 100, scale_y_pct: 100, back_rotation_deg: 0, line_weight_x_pct: 100 });
+    expect(DEFAULT_PRINT.layouts.letter_two_up).toEqual({ front_offset_x_mm: -0.25, front_offset_y_mm: -1.55, back_offset_x_mm: -0.4, back_offset_y_mm: 1, scale_x_pct: 100, scale_y_pct: 101.01, back_rotation_deg: -0.183, line_weight_x_pct: 100 });
     const p = clonePrint(DEFAULT_PRINT);
     p.layouts.letter_two_up.front_offset_x_mm = 0.8;
     p.layouts.letter_two_up.front_offset_y_mm = 0;
@@ -57,8 +57,8 @@ describe('the sheet layouts', () => {
     expect(offsetOf(p, 'front')).toEqual({ x: 1.7, y: -0.05 }); // half letter is selected
     p.sheet_layout = 'letter_two_up';
     expect(offsetOf(p, 'front')).toEqual({ x: 0.8, y: 0 });
-    expect(offsetOf(p, 'back')).toEqual({ x: 0, y: 0 });
-    expect(DEFAULT_PRINT.layouts.letter_two_up.front_offset_x_mm).toBe(-0.75); // the defaults are not shared with the copy
+    expect(offsetOf(p, 'back')).toEqual({ x: -0.4, y: 0 });
+    expect(DEFAULT_PRINT.layouts.letter_two_up.front_offset_x_mm).toBe(-0.25); // the defaults are not shared with the copy
   });
 
   it('shares creep, shifts, target margin and tones between the layouts, and keeps both layouts’ settings in the one printer profile', () => {
@@ -250,39 +250,78 @@ describe('two-up files', () => {
 
 describe('the 3 mm edge check', () => {
   const two = (change: Parameters<typeof setPrint>[1]) => { const p = clonePrint(TWO); setPrint(p, change); return p; };
-  const top = () => book(8, 'A', 'letter_two_up');
+  /** A book whose pages have a band of shade in the first row (the header row) and in the last, so there is content at both edges. */
+  const edgy = (prefix: string, name?: string): Book => {
+    const b = book(8, prefix, 'letter_two_up', name);
+    for (let n = 1; n <= 8; n++) {
+      setSlot(b, n, { ...emptyPage(), identity: '', name: `${prefix}${n}`, elements: [{ type: 'shade', tones: 'L', x: 0, y: 0, w: 27, h: 1 }, { type: 'shade', tones: 'L', x: 0, y: 43, w: 27, h: 1 }] });
+    }
+    return b;
+  };
 
-  it('passes the defaults, and refuses an offset that moves content closer than 3 mm to the letter sheet’s edge, with the reason', async () => {
-    await expect(exportBookFiles(top(), two({}), fonts)).resolves.toBeDefined();
+  it('passes the flat defaults without a warning', async () => {
+    const files = await exportBookFiles(edgy('A'), two({}), fonts);
+    expect(files.warnings).toEqual([]);
+    expect(decode(file(files, 'summary.txt'))).not.toContain('Warnings:');
+  });
+
+  it('warns, naming the book, page and row, when content would print closer than 3 mm to the sheet’s edge, and still makes the files', async () => {
     // The grid starts 3.85 mm below the top of the top half: 1 mm up leaves 2.85.
-    await expect(exportBookFiles(top(), two({ front_offset_y_mm: 1 }), fonts)).rejects.toThrow(/On the front of the letter sheet a page’s content would be 2\.85 mm from the top edge; printers need at least 3 mm/);
-    await expect(exportBookFiles(top(), two({ back_offset_y_mm: -1 }), fonts)).rejects.toThrow(/On the back .* from the bottom edge/);
-    await expect(exportBookFiles(top(), two({ front_offset_x_mm: -10 }), fonts)).rejects.toThrow(/3 mm/); // the label and the cut mark
-    await expect(exportBookFiles(top(), two({ front_offset_y_mm: 0.8 }), fonts)).resolves.toBeDefined(); // 3.05 mm left
+    const files = await exportBookFiles(edgy('A'), two({ front_offset_y_mm: 1 }), fonts);
+    expect(files.warnings).toHaveLength(1);
+    expect(files.warnings[0]).toMatch(/^Book 1, page \d+, row 0 \(the header\): on the front of the letter sheet it prints 2\.85 mm from the top edge\. The print driver may cut it off; check by printing that page\./);
+    expect(files.warnings[0]).toMatch(/ about as close\.$/); // the other pages with content that close
+    expect(files.map((f) => f.name)).toEqual(expect.arrayContaining(['print-first.pdf', 'print-second.pdf', 'print-duplex.pdf', 'cover-outside.pdf', 'cover-inside.pdf', 'pages.pdf', 'summary.txt']));
+    const summaryText = decode(file(files, 'summary.txt'));
+    expect(summaryText).toContain('Warnings:');
+    expect(summaryText).toContain(files.warnings[0]);
   });
 
-  it('counts the scale: it grows content away from the centre', () => {
-    const print = clonePrint(flatTwoUp());
-    print.layouts.letter_two_up.scale_y_pct = 100.5;
-    expect(edgeProblem({ print, toward: [0] })).toBeNull();
-    print.layouts.letter_two_up.scale_y_pct = 101;
-    expect(edgeProblem({ print, toward: [0] })).toMatch(/top edge/);
+  it('names the book and row of the bottom edge, which the bottom book is nearest to', async () => {
+    const files = await exportBookFiles(edgy('A'), two({ back_offset_y_mm: -1 }), fonts);
+    // The back moves 1 mm toward the bottom: the last row of Book 2 prints 2.85 mm from the sheet's bottom edge.
+    expect(files.warnings.find((w) => /on the back/.test(w))).toMatch(/^Book 2, page \d+, row 43: on the back of the letter sheet it prints 2\.85 mm from the bottom edge\./);
+    expect(files.warnings.some((w) => /^Book 1/.test(w) && /on the back/.test(w))).toBe(false);
   });
 
-  it('counts the back’s rotation: turning it about the letter sheet’s centre swings the corners toward an edge', () => {
-    const print = clonePrint(flatTwoUp());
-    expect(edgeProblem({ print, toward: [0] })).toBeNull();
-    print.layouts.letter_two_up.back_rotation_deg = 1.5;
-    expect(edgeProblem({ print, toward: [0] })).toMatch(/On the back/);
+  it('is about what is drawn: a book with nothing near the edge gets no warning, whatever the offset', async () => {
+    expect((await exportBookFiles(book(8, 'A', 'letter_two_up'), two({ front_offset_y_mm: 1 }), fonts)).warnings).toEqual([]);
+    // Book 2 alone has content at the edge.
+    const files = await exportBookFiles(book(8, 'A', 'letter_two_up'), two({ back_offset_y_mm: -1 }), fonts, {}, edgy('B'));
+    expect(files.warnings.filter((w) => /^Book 2/.test(w))).toHaveLength(1);
+    expect(files.warnings.filter((w) => /^Book 1/.test(w))).toEqual([]);
+  });
+
+  it('warns about the labels and the cut marks too when they come within 3 mm', async () => {
+    const files = await exportBookFiles(book(8, 'A', 'letter_two_up'), two({ front_offset_x_mm: -10 }), fonts);
+    expect(files.warnings.some((w) => /a label|a cut mark/.test(w) && /mm from the left edge/.test(w))).toBe(true);
+    expect((await exportBookFiles(edgy('A'), two({ front_offset_y_mm: 0.8 }), fonts)).warnings).toEqual([]); // 3.05 mm left
+  });
+
+  it('counts the scale: it grows content away from the centre', async () => {
+    expect((await exportBookFiles(edgy('A'), two({ scale_y_pct: 100.5 }), fonts)).warnings).toEqual([]);
+    expect((await exportBookFiles(edgy('A'), two({ scale_y_pct: 101 }), fonts)).warnings.join('\n')).toMatch(/row 0 \(the header\).*top edge/);
+  });
+
+  it('counts the back’s rotation: turning it about the letter sheet’s centre swings the corners toward an edge', async () => {
+    expect((await exportBookFiles(edgy('A'), two({}), fonts)).warnings).toEqual([]);
+    expect((await exportBookFiles(edgy('A'), two({ back_rotation_deg: 1.5 }), fonts)).warnings.join('\n')).toMatch(/on the back of the letter sheet/);
+  });
+
+  it('warns the owner’s two-up defaults too: their back already prints the first row near the top edge', async () => {
+    const files = await exportBookFiles(edgy('A'), { ...clonePrint(DEFAULT_PRINT), sheet_layout: 'letter_two_up', fore_edge_shift_mm: 0, cover_fore_edge_shift_mm: 0, creep_per_sheet_mm: 0.14 }, fonts);
+    expect(files.warnings.join('\n')).toMatch(/on the back of the letter sheet it prints 1\.\d\d mm from the top edge/);
+    expect(files.length).toBeGreaterThan(5);
   });
 
   it('does not apply to half letter, which prints borderless', async () => {
     const p = clonePrint(HALF);
     setPrint(p, { front_offset_y_mm: 3, scale_y_pct: 105 });
-    await expect(exportBookFiles(book(8, 'A', 'half_letter'), p, fonts)).resolves.toBeDefined();
+    const files = await exportBookFiles(edgy('A'), p, fonts);
+    expect(files.warnings).toEqual([]);
   });
 
-  it('checks the creep for both books on the sheet', async () => {
+  it('still refuses settings that put content past the fold, for both books on the sheet', async () => {
     const p = clonePrint(TWO);
     p.creep_per_sheet_mm = 0.5;
     await expect(exportBookFiles(book(8, 'A', 'letter_two_up'), p, fonts, {}, book(52, 'B', 'letter_two_up'))).rejects.toThrow(/^Book 2: .*past the fold/);
@@ -318,30 +357,40 @@ describe('size correction', () => {
     expect(b.y - a.y).toBeCloseTo(99, 9);
   });
 
-  const scaleOf = (content: string) => content.match(/q\n(\S+) 0 0 (\S+) (\S+) (\S+) cm\n/)!.slice(1).map(Number);
-
-  it('applies the layout’s scale to every print PDF, the covers and the calibration sheets, about the sheet’s centre', async () => {
+  it('moves every position of every print PDF, the covers and the calibration sheets as mapPoint says: scaled about the sheet’s centre, then moved by the offset of the side', async () => {
     for (const layout of ['half_letter', 'letter_two_up'] as const) {
-      const b = book(8, 'A', layout), print = printFor(layout);
+      const b = book(8, 'A', layout), flat = printFor(layout), print = printFor(layout);
       setPrint(print, { scale_x_pct: 101, scale_y_pct: 99.5, front_offset_x_mm: 0.6, front_offset_y_mm: 0.4, back_offset_x_mm: -0.6, back_offset_y_mm: -0.4 });
       const { w, h } = sheetSize(layout);
-      const sheets = [
-        ...(await exportBookFiles(b, print, fonts)).filter((f) => f.name.endsWith('.pdf') && f.name !== 'pages.pdf').map((f) => [f.name, f.bytes] as const),
-        [SHEET_FILE, (await sheetFile(b, print, fonts)).bytes] as const,
-        ...(await creepFiles(b, print, fonts)).filter((f) => f.name.endsWith('.pdf')).map((f) => [f.name, f.bytes] as const),
+      const build = async (p: typeof print) => [
+        ...(await exportBookFiles(b, p, fonts)).filter((f) => f.name.endsWith('.pdf') && f.name !== 'pages.pdf').map((f) => [f.name, f.bytes] as const),
+        [SHEET_FILE, (await sheetFile(b, p, fonts)).bytes] as const,
+        ...(await creepFiles(b, p, fonts)).filter((f) => f.name.endsWith('.pdf')).map((f) => [f.name, f.bytes] as const),
       ];
-      expect(sheets.length).toBeGreaterThan(6);
-      for (const [name, bytes] of sheets) {
-        for (const [i, page] of (await readPdf(bytes)).entries()) {
-          const [sx, sy, e, f] = scaleOf(page.content);
-          expect([sx, sy], `${layout} ${name}`).toEqual([1.01, 0.995]);
-          // The centre of the sheet lands on the centre plus the offset of the side that page is printed on.
-          const cx = (w / 2) * PT, cy = (h / 2) * PT;
-          const landed = { x: (sx * cx + e) / PT, y: (sy * cy + f) / PT }; // PDF coordinates, y up
+      const [was, now] = [await build(flat), await build(print)];
+      expect(now.length).toBeGreaterThan(6);
+      for (const [n, [name, bytes]] of now.entries()) {
+        expect(was[n][0]).toBe(name);
+        const [pagesWas, pagesNow] = [await readPdf(was[n][1]), await readPdf(bytes)];
+        for (const [i, page] of pagesNow.entries()) {
           const side = (name === 'print-duplex.pdf' ? i % 2 === 1 : name === SHEET_FILE ? i === 1 : name === CREEP_FILE ? i >= 2 : name === COVER_FILE ? i === 1 : /second|inside/.test(name)) ? 'back' : 'front';
-          const off = offsetOf(print, side);
-          expect(landed.x, `${layout} ${name} page ${i + 1}`).toBeCloseTo(w / 2 + off.x, 3);
-          expect(landed.y, `${layout} ${name} page ${i + 1}`).toBeCloseTo(h / 2 + off.y, 3);
+          const t = transformOf(print, side);
+          const [a, b2] = [segments(pagesWas[i].content, h), segments(page.content, h)];
+          expect(b2.length, `${layout} ${name} page ${i + 1}`).toBe(a.length);
+          a.forEach((s, k) => {
+            const p1 = mapPoint(t, w, h, { x: s.x1, y: s.y1 }), p2 = mapPoint(t, w, h, { x: s.x2, y: s.y2 });
+            [b2[k].x1, b2[k].y1, b2[k].x2, b2[k].y2].forEach((v, c) => expect(v, `${layout} ${name} page ${i + 1} stroke ${k}`).toBeCloseTo([p1.x, p1.y, p2.x, p2.y][c], 2));
+          });
+          // The book's own text is left-aligned (it starts at its anchor), so it lands where the anchor does; and is not stretched.
+          if (name !== SHEET_FILE && name !== CREEP_FILE && name !== COVER_FILE) {
+            const [ta, tb] = [textPositions(pagesWas[i]), textPositions(page)];
+            expect(tb.length).toBe(ta.length);
+            ta.forEach((s, k) => {
+              const p = mapPoint(t, w, h, { x: s.x, y: s.y });
+              expect(tb[k].x).toBeCloseTo(p.x, 2);
+              expect(tb[k].y).toBeCloseTo(p.y, 2);
+            });
+          }
         }
       }
     }

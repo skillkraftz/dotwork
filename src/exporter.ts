@@ -230,13 +230,16 @@ export class ExportDialog {
     const include: Include = { ...this.pdf };
     this.say('Building the PDFs…');
     let files: ExportedFile[] = [];
+    let warnings: string[] = [];
     let failure: unknown;
     try {
       // The PDF code is loaded only when it is needed.
       const [{ exportBookFiles }, fontBytes] = await Promise.all([import('./print/export'), loadFontBytes()]);
       // A two-up sheet's bottom book: the one chosen from the Library, else the book itself.
       const bottom = print.sheet_layout === 'letter_two_up' && this.bottomId ? (await this.host.savedBooks()).find((b) => b.id === this.bottomId)?.book : undefined;
-      files = await exportBookFiles(book, print, fontBytes, include, bottom);
+      const made = await exportBookFiles(book, print, fontBytes, include, bottom);
+      files = made;
+      warnings = made.warnings;
       if (include.signatures) {
         const sheet = contactSheet(book, FONT_CSS);
         const px = (mm: number) => Math.round((mm / 25.4) * PREVIEW_DPI);
@@ -260,7 +263,8 @@ export class ExportDialog {
     }
     // The PDFs were built from the book as it is, so say so on screen too if it breaks the format.
     const check = readBook(book);
-    if (check.ok) this.say(null);
+    // Content near the sheet's edge is not a failure: the files were made, and the owner checks by printing that page.
+    if (check.ok) this.say(warnings.length ? ['The files were made. The print driver may cut off content near the sheet’s edge: check these by printing the page first.', ...warnings] : null);
     else this.say(issuesProblem('The files were made, but the book breaks the book format. The zip has an error.txt with the reasons.', check.issues));
   }
 

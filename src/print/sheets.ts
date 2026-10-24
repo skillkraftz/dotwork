@@ -7,11 +7,10 @@
 //   is (whose left page is the one behind the front's right page). The back never needs to be mirrored.
 //
 // Positions are millimeters from the PDF page's top left, y down.
-import { type PDFFont, concatTransformationMatrix, popGraphicsState, pushGraphicsState, degrees } from 'pdf-lib';
-import { COLS, GRID_X_MM, GRID_Y_MM, PITCH_MM, ROWS } from '../format/types';
-import { SHEET_H_MM, SHEET_W_MM, offsetOf, pageOrigin, profileOf, type PrintSettings, type SheetLayout } from '../book/impose';
-import { color, mmToPt, type Fonts } from './draw';
-import type { PdfPage } from './export';
+import type { PDFFont } from 'pdf-lib';
+import { SHEET_H_MM, SHEET_W_MM, offsetOf, profileOf, type PrintSettings, type SheetLayout } from '../book/impose';
+import { mmToPt } from './draw';
+import type { Item } from './display';
 
 export const LETTER_W_MM = SHEET_W_MM; // 8.5 in
 export const LETTER_H_MM = 2 * SHEET_H_MM; // 11 in
@@ -34,7 +33,7 @@ export const backRegion = (half: number) => ({ y: halfTops('letter_two_up')[half
 
 /**
  * What is done to everything on one side of a sheet: scaled about the sheet's centre, turned about it (`rot`, radians, + counter-clockwise
- * as seen on that side; only the back is turned), then moved by the offset (dy is +down).
+ * as seen on that side; only the back is turned), then moved by the offset (dy is +down). It moves positions only (see correct.ts).
  */
 export interface SheetTransform { sx: number; sy: number; rot: number; dx: number; dy: number }
 
@@ -44,25 +43,14 @@ export function transformOf(print: Pick<PrintSettings, 'sheet_layout' | 'layouts
   return { sx: p.scale_x_pct / 100, sy: p.scale_y_pct / 100, rot: side === 'back' ? (p.back_rotation_deg * Math.PI) / 180 : 0, dx: off.x, dy: -off.y };
 }
 
+/** The line weight along the 8.5 in edge of the selected layout, as a factor (1 is as drawn). */
+export const lineWeightOf = (print: Pick<PrintSettings, 'sheet_layout' | 'layouts'>) => profileOf(print).line_weight_x_pct / 100;
+
 /** Where a point on a w x h sheet (x right, y down) lands. */
 export function mapPoint(t: SheetTransform, w: number, h: number, p: { x: number; y: number }) {
   const u = t.sx * (p.x - w / 2), v = t.sy * (p.y - h / 2), c = Math.cos(t.rot), s = Math.sin(t.rot);
   // With y down, a counter-clockwise turn as seen on the sheet takes (u, v) to (u cos + v sin, -u sin + v cos).
   return { x: w / 2 + u * c + v * s + t.dx, y: h / 2 - u * s + v * c + t.dy };
-}
-
-/**
- * Draw a whole PDF page under a transform. `draw` gets the offset to add to its coordinates: the offset when the scale is 100% and
- * there is no rotation (so that output is exactly what it was before they existed), else 0 and the page's matrix does the work.
- */
-export function onSheet(pdf: PdfPage, w: number, h: number, t: SheetTransform, draw: (dx: number, dy: number) => void) {
-  if (t.sx === 1 && t.sy === 1 && t.rot === 0) { draw(t.dx, t.dy); return; }
-  // The PDF's own axes point up, where the same counter-clockwise turn is the usual [cos sin -sin cos].
-  const c = Math.cos(t.rot), s = Math.sin(t.rot), a = t.sx * c, b = t.sx * s, cc = -t.sy * s, d = t.sy * c;
-  const cx = w / 2, cy = h / 2;
-  pdf.pushOperators(pushGraphicsState(), concatTransformationMatrix(a, b, cc, d, mmToPt(cx - (a * cx + cc * cy) + t.dx), mmToPt(cy - (b * cx + d * cy) - t.dy)));
-  draw(0, 0);
-  pdf.pushOperators(popGraphicsState());
 }
 
 // ---- cut marks and labels (two-up) ---------------------------------------------------------------------------------
@@ -78,59 +66,22 @@ export function halfLabel(font: PDFFont, slot: 0 | 1, ...rest: string[]): string
   return text === full ? full : text.trimEnd() + '…';
 }
 
-/** The marks where to cut, drawn once on the middle line of a two-up page, on both sides; and one label along the left trim zone of each half. */
-export function drawCutMarks(pdf: PdfPage, dx: number, dy: number) {
-  const y = mmToPt(LETTER_H_MM - (SHEET_H_MM + dy));
-  for (const [a, b] of [[MARK_FROM_MM, MARK_TO_MM], [LETTER_W_MM - MARK_TO_MM, LETTER_W_MM - MARK_FROM_MM]]) {
-    pdf.drawLine({ start: { x: mmToPt(a + dx), y }, end: { x: mmToPt(b + dx), y }, thickness: mmToPt(MARK_W_MM), color: color('#000000') });
-  }
+/** The marks where to cut, drawn once on the middle line of a two-up page, on both sides. */
+export function cutMarks(): Item[] {
+  return [[MARK_FROM_MM, MARK_TO_MM], [LETTER_W_MM - MARK_TO_MM, LETTER_W_MM - MARK_FROM_MM]].map(([a, b]): Item => (
+    { k: 'line', x1: a, y1: SHEET_H_MM, x2: b, y2: SHEET_H_MM, w: MARK_W_MM, c: '#000000', cap: 'butt' }));
 }
 
 /** The label text, running up the left trim zone of the half whose top is `top`, readable from the left. */
-export function drawHalfLabel(pdf: PdfPage, fonts: Fonts, text: string, top: number, dx: number, dy: number) {
-  const y = LETTER_H_MM - (top + SHEET_H_MM - LABEL_FROM_Y_MM + dy);
-  pdf.drawText(text, { x: mmToPt(LABEL_BASE_X_MM + dx), y: mmToPt(y), size: mmToPt(LABEL_SIZE_MM), font: fonts.regular, color: color('#000000'), rotate: degrees(90) });
+export function halfLabelItem(text: string, top: number): Item {
+  return { k: 'text', str: text, x: LABEL_BASE_X_MM, y: top + SHEET_H_MM - LABEL_FROM_Y_MM, size: LABEL_SIZE_MM, font: 'regular', c: '#000000', align: 'start', rot: 90 };
 }
 
-/** The boxes (x, y, w, h) a two-up page draws that are not book pages: the marks and the labels. Used by the edge check. */
+/** The boxes (x, y, w, h) a two-up page draws that are not book pages: the marks and the labels. Used by the edge check (edge.ts). */
 export function trimZoneBoxes(): { name: string; x: number; y: number; w: number; h: number }[] {
   return [
     { name: 'a cut mark', x: MARK_FROM_MM, y: SHEET_H_MM - MARK_W_MM / 2, w: MARK_TO_MM - MARK_FROM_MM, h: MARK_W_MM },
     { name: 'a cut mark', x: LETTER_W_MM - MARK_TO_MM, y: SHEET_H_MM - MARK_W_MM / 2, w: MARK_TO_MM - MARK_FROM_MM, h: MARK_W_MM },
     ...halfTops('letter_two_up').map((top) => ({ name: 'a label', x: LABEL_BASE_X_MM - LABEL_SIZE_MM, y: top + SHEET_H_MM - LABEL_FROM_Y_MM - LABEL_MAX_MM, w: LABEL_SIZE_MM, h: LABEL_MAX_MM })),
   ];
-}
-
-// ---- the 3 mm edge check -------------------------------------------------------------------------------------------
-
-/** What is on the sheet, to be kept off its edges: the content boxes of the pages at the extremes of creep and shift. */
-export interface EdgeInput {
-  print: Pick<PrintSettings, 'sheet_layout' | 'layouts'>;
-  /** How far each page moves toward the fold, mm, at its extremes (creep minus shift; negative is away from the fold). */
-  toward: number[];
-}
-
-/** Why a two-up page would print closer than 3 mm to the letter sheet's edge, or null if it is fine (or the layout is half letter). */
-export function edgeProblem({ print, toward }: EdgeInput): string | null {
-  if (!isTwoUp(print.sheet_layout)) return null;
-  const boxes = [...trimZoneBoxes()];
-  const gridW = COLS * PITCH_MM, gridH = ROWS * PITCH_MM;
-  for (const t of toward) {
-    for (const isRight of [false, true]) {
-      const o = pageOrigin(isRight, t);
-      for (const top of halfTops('letter_two_up')) boxes.push({ name: 'a page’s content', x: o.x + GRID_X_MM, y: top + o.y + GRID_Y_MM, w: gridW, h: gridH });
-    }
-  }
-  for (const side of ['front', 'back'] as const) {
-    const t = transformOf(print, side);
-    for (const b of boxes) {
-      const corners = [[b.x, b.y], [b.x + b.w, b.y], [b.x, b.y + b.h], [b.x + b.w, b.y + b.h]].map(([x, y]) => mapPoint(t, LETTER_W_MM, LETTER_H_MM, { x, y }));
-      const gaps: [string, number][] = [['left', Math.min(...corners.map((p) => p.x))], ['right', LETTER_W_MM - Math.max(...corners.map((p) => p.x))], ['top', Math.min(...corners.map((p) => p.y))], ['bottom', LETTER_H_MM - Math.max(...corners.map((p) => p.y))]];
-      const [edge, gap] = gaps.reduce((m, g) => (g[1] < m[1] ? g : m));
-      if (gap < EDGE_MM) {
-        return `On the ${side} of the letter sheet ${b.name} would be ${Math.max(0, gap).toFixed(2)} mm from the ${edge} edge; printers need at least ${EDGE_MM} mm. Lower the ${side} offset or the scale of the two-up layout.`;
-      }
-    }
-  }
-  return null;
 }

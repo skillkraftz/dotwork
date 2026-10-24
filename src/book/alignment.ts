@@ -138,6 +138,22 @@ export function backAgainstPaper(layout: SheetLayout, r: SheetReadings, phi = 0)
 }
 
 /**
+ * The twist of the print against the paper, from a fold pair: the right scale's reading minus the left's (horizontal fold), or the bottom's minus
+ * the top's (vertical fold), mm, and the distance between the two scales it is over. Null if either reading of the pair is missing. Information
+ * only: nothing is changed from it (the back's turn comes from the see-through readings).
+ */
+export function foldTwist(r: SheetReadings): { horizontal: { mm: number; over: number } | null; vertical: { mm: number; over: number } | null } {
+  const over = 2 * FOLD_FROM_CENTRE_MM;
+  return {
+    horizontal: known(r.hFoldLeft) && known(r.hFoldRight) ? { mm: round(r.hFoldRight - r.hFoldLeft), over } : null,
+    vertical: known(r.vFoldTop) && known(r.vFoldBottom) ? { mm: round(r.vFoldBottom - r.vFoldTop), over } : null,
+  };
+}
+
+/** The twist as the sheet's wizard says it. */
+export const twistText = (t: { mm: number; over: number }) => `twist against the paper: ${t.mm} mm over ${t.over} mm`;
+
+/**
  * What the sheet and the Calibrate step call each scale and line, in the same words: the paper's edges of the layout, never across and
  * down, and directions as seen on side 2.
  */

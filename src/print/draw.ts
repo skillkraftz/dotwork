@@ -1,232 +1,134 @@
-// Draws a page into a PDF as vectors and real text. Mirrors src/render.ts (the SVG);
-// the sizes, weights and grays come from there so the screen, the PNG and the PDF match.
+// The PDF stage: draws a display list (see display.ts) into a PDF as vectors and real text. It does exactly what the list says,
+// at the sizes and positions it gives; correcting for a printer is done before this (correct.ts).
 import {
-  appendBezierCurve, clip, closePath, concatTransformationMatrix, degrees, drawObject, endPath, fill, LineCapStyle, moveTo,
-  popGraphicsState, pushGraphicsState, rectangle, rgb, setFillingColor,
+  appendBezierCurve, clip, closePath, concatTransformationMatrix, degrees, drawObject, endPath, fill, fillAndStroke, LineCapStyle, lineTo, moveTo,
+  popGraphicsState, pushGraphicsState, rgb, setFillingColor, setLineCap, setLineWidth, setStrokingColor, stroke,
   type PDFDocument, type PDFFont, type PDFPage, type PDFRef,
 } from 'pdf-lib';
-import {
-  DEFAULTS, GRID_X_MM, GRID_Y_MM, PAGE_H_MM, PAGE_W_MM, PITCH_MM as P,
-  type Art, type Box, type Checkboxes, type Page, type PageElement, type Pattern, type Rule, type Shade, type Sequence, type Text,
-} from '../format/types';
-import { TEXT_INSET_MM, TEXT_SIZE_MM } from '../format/bounds';
-import {
-  BASELINE_MM, DOT_MM, artColor, GRAY_DOT, HEADER_BASELINE_MM, HEADER_COLOR, LINE, TEXT_COLORS, headerItems, iconPlacement, itemCenter, ticks,
-} from '../render';
-import { shadeRects } from '../format/shade';
-import { artPaths } from '../format/art';
-import { isIcons, itemSize, sequenceItems } from '../format/sequence';
-import { ICONS } from '../icons/icons';
-import { SCREEN_TONES, type PrintTones } from './tones';
+import type { Page } from '../format/types';
+import { dotsAsSet, type Cap, type Item, type Pt } from './display';
+import { layoutPage, type PageLayoutOptions } from './layout';
 
 export const MM_TO_PT = 72 / 25.4;
 export const mmToPt = (mm: number) => mm * MM_TO_PT;
 
 export interface Fonts { regular: PDFFont; bold: PDFFont }
 
-export interface PageDrawOptions {
-  /** Where the page's top-left corner lands on the PDF page, in mm from the top-left of that page. */
-  x: number;
-  y: number;
-  /** Total height of the PDF page in mm, to turn y-down mm into PDF's y-up points. */
-  sheetHeight: number;
-  fonts: Fonts;
-  pageNumber: string | null;
-  expand: (text: string) => string;
-  /** The grays of shade tones and gray text. Defaults to the fixed grays of the screen. */
-  tones?: PrintTones;
-}
-
 export const color = (hex: string) => {
-  const v = parseInt(hex.slice(1), 16);
+  // "#fff" is "#ffffff" (art's black and white are written short).
+  const v = parseInt(hex.length === 4 ? hex.slice(1).replace(/./g, '$&$&') : hex.slice(1), 16);
   return rgb(((v >> 16) & 255) / 255, ((v >> 8) & 255) / 255, (v & 255) / 255);
 };
 
+const CAPS: Record<Cap, LineCapStyle> = { butt: LineCapStyle.Butt, round: LineCapStyle.Round, square: LineCapStyle.Projecting };
+
 /**
- * A dot grid is about 1,200 circles. Each distinct pattern is written once per PDF as a reusable form, and every page
- * that has it places the form, so the file stays small and the export fast.
+ * A dot grid is about 1,200 circles. Each distinct set of dots is written once per PDF as a reusable form (round dots of the size given,
+ * at the positions given), and every page that has it places the form, so the file stays small and the export fast.
  */
 const dotForms = new WeakMap<PDFDocument, Map<string, PDFRef>>();
 const KAPPA = 0.5522847498;
 
-function dotForm(doc: PDFDocument, radiusPt: number, cols: number[], rows: number[], rgbColor: ReturnType<typeof rgb>): PDFRef {
-  const key = `${radiusPt}|${cols.join(',')}|${rows.join(',')}|${JSON.stringify(rgbColor)}`;
+function dotForm(doc: PDFDocument, key: string, diameterMm: number, pts: [number, number][], rgbColor: ReturnType<typeof rgb>): PDFRef {
   let forms = dotForms.get(doc);
   if (!forms) dotForms.set(doc, (forms = new Map()));
   const have = forms.get(key);
   if (have) return have;
-  const r = radiusPt, k = r * KAPPA;
-  // Local space: the pattern's top-left corner is the origin, x right and y up (so rows run to negative y).
+  const r = mmToPt(diameterMm) / 2, k = r * KAPPA;
+  // Coordinates are written to 0.01 pt (0.0035 mm, a sixth of a 1200 dpi printer's dot): a corrected (turned) lattice has no tidy numbers,
+  // and written in full they would make the form three times as big.
+  const q = (v: number) => Math.round(v * 100) / 100;
+  // Local space: the set's origin is the pattern's top-left corner, x right and y up (so the mm y of a dot is negated).
   const ops = [setFillingColor(rgbColor)];
-  for (const x of cols) {
-    for (const y of rows) {
-      const cy = -y;
-      ops.push(
-        moveTo(x + r, cy), appendBezierCurve(x + r, cy + k, x + k, cy + r, x, cy + r),
-        appendBezierCurve(x - k, cy + r, x - r, cy + k, x - r, cy), appendBezierCurve(x - r, cy - k, x - k, cy - r, x, cy - r),
-        appendBezierCurve(x + k, cy - r, x + r, cy - k, x + r, cy), closePath(), fill(),
-      );
-    }
+  let x0 = 0, x1 = 0, y0 = 0, y1 = 0;
+  for (const [px, py] of pts) {
+    const x = mmToPt(px), cy = -mmToPt(py);
+    x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, cy); y1 = Math.max(y1, cy);
+    ops.push(
+      moveTo(q(x + r), q(cy)), appendBezierCurve(q(x + r), q(cy + k), q(x + k), q(cy + r), q(x), q(cy + r)),
+      appendBezierCurve(q(x - k), q(cy + r), q(x - r), q(cy + k), q(x - r), q(cy)), appendBezierCurve(q(x - r), q(cy - k), q(x - k), q(cy - r), q(x), q(cy - r)),
+      appendBezierCurve(q(x + k), q(cy - r), q(x + r), q(cy - k), q(x + r), q(cy)), closePath(), fill(),
+    );
   }
-  const lastCol = cols[cols.length - 1] ?? 0, lastRow = rows[rows.length - 1] ?? 0;
-  const ref = doc.context.register(doc.context.formXObject(ops, { BBox: [-r, -lastRow - r, lastCol + r, r] }));
+  const ref = doc.context.register(doc.context.formXObject(ops, { BBox: [x0 - r, y0 - r, x1 + r, y1 + r] }));
   forms.set(key, ref);
   return ref;
-}
-
-/** Draw one page, clipped to its own box so nothing can land outside it. */
-export function drawPage(pdf: PDFPage, page: Page, o: PageDrawOptions): void {
-  // Grid-relative mm (y down) to PDF points.
-  const ox = o.x + GRID_X_MM, oy = o.y + GRID_Y_MM;
-  const X = (mm: number) => mmToPt(ox + mm);
-  const Y = (mm: number) => mmToPt(o.sheetHeight - (oy + mm));
-  const len = (mm: number) => mmToPt(mm);
-  const tones = o.tones ?? SCREEN_TONES;
-  const textColor = (tone: keyof typeof TEXT_COLORS) => (tone === 'gray' ? tones.grayText : TEXT_COLORS[tone]);
-
-  const line = (x1: number, y1: number, x2: number, y2: number, w: number, c: string, cap: LineCapStyle = LineCapStyle.Butt) =>
-    pdf.drawLine({ start: { x: X(x1), y: Y(y1) }, end: { x: X(x2), y: Y(y2) }, thickness: len(w), color: color(c), lineCap: cap });
-  const fillRect = (x: number, y: number, w: number, h: number, c: string) =>
-    pdf.drawRectangle({ x: X(x), y: Y(y + h), width: len(w), height: len(h), color: color(c) });
-  const dots = (x0: number, y0: number, cols: number[], rows: number[], radius: number) => {
-    if (!cols.length || !rows.length) return;
-    const form = dotForm(pdf.doc, len(radius), cols.map((x) => len(x - x0)), rows.map((y) => len(y - y0)), color(GRAY_DOT));
-    pdf.pushOperators(pushGraphicsState(), concatTransformationMatrix(1, 0, 0, 1, X(x0), Y(y0)), drawObject(pdf.node.newXObject('Dots', form)), popGraphicsState());
-  };
-
-  const text = (str: string, size: number, font: PDFFont, c: string, at: { x: number; y: number }, align: 'start' | 'middle' | 'end', rotate: 0 | 90 | 270) => {
-    const safe = printable(str, font);
-    if (!safe) return;
-    const width = font.widthOfTextAtSize(safe, len(size));
-    const back = align === 'start' ? 0 : align === 'middle' ? width / 2 : width;
-    const angle = rotate === 90 ? Math.PI / 2 : rotate === 270 ? -Math.PI / 2 : 0;
-    // Step back along the text's own direction to its start.
-    pdf.drawText(safe, {
-      x: X(at.x) - back * Math.cos(angle), y: Y(at.y) - back * Math.sin(angle),
-      size: len(size), font, color: color(c), rotate: degrees((angle * 180) / Math.PI),
-    });
-  };
-
-  const shade = (e: Shade) => {
-    for (const r of shadeRects(e)) fillRect(r.x * P, r.y * P, r.w * P, r.h * P, tones.shade[r.tone]);
-  };
-
-  const pattern = (e: Pattern) => {
-    const step = e.every ?? DEFAULTS.every;
-    const x0 = e.x * P, x1 = (e.x + e.w) * P, y0 = e.y * P, y1 = (e.y + e.h) * P;
-    const first = e.first === true;
-    const rows = (start: boolean) => ticks(e.y, e.h, step, start).map((y) => y * P);
-    const cols = (start: boolean) => ticks(e.x, e.w, step, start).map((x) => x * P);
-    const l = LINE[e.weight ?? DEFAULTS.patternWeight];
-    const hs = (start: boolean) => rows(start).forEach((y) => line(x0, y, x1, y, l.w, l.c));
-    const vs = (start: boolean) => cols(start).forEach((x) => line(x, y0, x, y1, l.w, l.c));
-    switch (e.pattern) {
-      case 'lines': hs(first); break;
-      case 'vlines': vs(first); break;
-      case 'grid': hs(true); vs(true); break;
-      case 'dots': dots(x0, y0, cols(true), rows(true), DOT_MM[e.dots ?? DEFAULTS.dots] / 2); break;
-    }
-  };
-
-  const box = (e: Box) => {
-    const w = LINE[e.weight ?? DEFAULTS.boxWeight].w;
-    const x0 = e.x * P, x1 = (e.x + e.w) * P, y0 = e.y * P, y1 = (e.y + e.h) * P;
-    const seg = { top: [x0, y0, x1, y0], bottom: [x0, y1, x1, y1], left: [x0, y0, x0, y1], right: [x1, y0, x1, y1] } as const;
-    for (const s of e.sides ?? ['top', 'bottom', 'left', 'right']) line(...seg[s], w, '#000000', LineCapStyle.Projecting);
-  };
-
-  const rule = (e: Rule) => {
-    const l = LINE[e.weight ?? DEFAULTS.ruleWeight];
-    line(e.x1 * P, e.y1 * P, e.x2 * P, e.y2 * P, l.w, l.c, e.weight === 'hair' ? LineCapStyle.Butt : LineCapStyle.Projecting);
-  };
-
-  const checkboxes = (e: Checkboxes) => {
-    const size = (e.size ?? DEFAULTS.checkSize) * P;
-    const every = e.every ?? DEFAULTS.every;
-    const across = (e.direction ?? DEFAULTS.direction) === 'across';
-    const w = LINE[e.weight ?? DEFAULTS.boxWeight].w;
-    for (let i = 0; i < e.count; i++) {
-      const cx = (e.x + (across ? i * every : 0)) * P, cy = (e.y + (across ? 0 : i * every)) * P;
-      pdf.drawRectangle({
-        x: X(cx + (P - size) / 2), y: Y(cy + (P - size) / 2 + size), width: len(size), height: len(size),
-        borderWidth: len(w), borderColor: color('#000000'),
-      });
-    }
-  };
-
-  const label = (e: Text) => {
-    const size = TEXT_SIZE_MM[e.size ?? DEFAULTS.textSize];
-    const align = e.align ?? DEFAULTS.align;
-    const dx = align === 'left' ? TEXT_INSET_MM : align === 'right' ? -TEXT_INSET_MM : 0;
-    const rotate = e.rotate ?? DEFAULTS.rotate;
-    // The text's own frame has its origin at the anchor, x along the text and y down the one-cell band (see render.ts).
-    const base = P - BASELINE_MM;
-    const at = rotate === 90 ? { x: e.x * P + base, y: e.y * P - dx } : rotate === 270 ? { x: e.x * P - base, y: e.y * P + dx } : { x: e.x * P + dx, y: e.y * P + base };
-    const font = (e.style ?? DEFAULTS.style) === 'bold' ? o.fonts.bold : o.fonts.regular;
-    text(o.expand(e.text), size, font, textColor(e.tone ?? DEFAULTS.textTone), at, align === 'left' ? 'start' : align === 'center' ? 'middle' : 'end', rotate);
-  };
-
-  const sequence = (e: Sequence) => {
-    const c = textColor(e.tone ?? DEFAULTS.sequenceTone);
-    const rotate = e.rotate ?? DEFAULTS.rotate;
-    sequenceItems(e).forEach((item, i) => {
-      const center = itemCenter(e, i);
-      if (isIcons(e)) {
-        const shape = ICONS[item];
-        if (!shape) return;
-        const { x, y, scale, stroke } = iconPlacement(e, i);
-        // An icon turns about its own center, but PDF turns a path about its origin, so the origin moves to where
-        // the icon's top-left corner lands: the bottom-left for 90 and the top-right for 270.
-        const half = (itemSize(e) * P) / 2;
-        const origin = rotate === 90 ? { x: center.x - half, y: center.y + half } : rotate === 270 ? { x: center.x + half, y: center.y - half } : { x, y };
-        const at = { x: X(origin.x), y: Y(origin.y), scale: len(scale), rotate: degrees(rotate === 90 ? 90 : rotate === 270 ? -90 : 0) };
-        if (shape.fill) pdf.drawSvgPath(shape.fill, { ...at, color: color(c) });
-        pdf.drawSvgPath(shape.stroke, { ...at, borderColor: color(c), borderWidth: len(stroke), borderLineCap: LineCapStyle.Round });
-        return;
-      }
-      // The baseline's midpoint, turned about the cell's center for a rotated run (see render.ts).
-      const down = P - BASELINE_MM - P / 2;
-      const at = rotate === 90 ? { x: center.x + down, y: center.y } : rotate === 270 ? { x: center.x - down, y: center.y } : { x: center.x, y: center.y + down };
-      text(item, TEXT_SIZE_MM.label, o.fonts.regular, c, at, 'middle', rotate);
-    });
-  };
-
-  // The paths are in mm from the grid's corner, the same ones the screen draws; the scale turns mm into points and, being
-  // inside the path's transform, leaves each stroke width (in mm) as it is.
-  const CAPS = { butt: LineCapStyle.Butt, round: LineCapStyle.Round, square: LineCapStyle.Projecting } as const;
-  const art = (e: Art) => {
-    for (const p of artPaths(e)) {
-      pdf.drawSvgPath(p.d, {
-        x: X(0), y: Y(0), scale: len(1),
-        ...(p.fill === 'none' ? {} : { color: color(artColor(p.fill, tones)) }),
-        ...(p.stroke === 'none' ? {} : { borderColor: color(artColor(p.stroke, tones)), borderWidth: p.stroke_mm, borderLineCap: CAPS[p.linecap] }),
-      });
-    }
-  };
-
-  const element = (e: PageElement) => {
-    switch (e.type) {
-      case 'sequence': return sequence(e);
-      case 'pattern': return pattern(e);
-      case 'shade': return shade(e);
-      case 'box': return box(e);
-      case 'rule': return rule(e);
-      case 'checkboxes': return checkboxes(e);
-      case 'text': return label(e);
-      case 'art': return art(e);
-    }
-  };
-
-  pdf.pushOperators(pushGraphicsState(), rectangle(mmToPt(o.x), mmToPt(o.sheetHeight - o.y - PAGE_H_MM), mmToPt(PAGE_W_MM), mmToPt(PAGE_H_MM)), clip(), endPath());
-  for (const e of page.elements) element(e);
-  for (const item of headerItems(page, o.pageNumber, o.expand)) {
-    text(item.text, TEXT_SIZE_MM.label, item.bold ? o.fonts.bold : o.fonts.regular, HEADER_COLOR, { x: item.x, y: HEADER_BASELINE_MM }, item.anchor === 'end' ? 'end' : 'start', 0);
-  }
-  pdf.pushOperators(popGraphicsState());
 }
 
 /** The text with any character the font has no glyph for replaced by "?", so a stray symbol can't stop an export. */
 function printable(str: string, font: PDFFont): string {
   const have = new Set(font.getCharacterSet());
   return [...str].map((ch) => (have.has(ch.codePointAt(0)!) ? ch : '?')).join('').replace(/[\r\n]+/g, ' ');
+}
+
+/** Draw a display list on a PDF page `sheetHeight` mm tall (to turn y-down mm into PDF's y-up points). */
+export function drawItems(pdf: PDFPage, items: readonly Item[], fonts: Fonts, sheetHeight: number): void {
+  const X = (mm: number) => mmToPt(mm), Y = (mm: number) => mmToPt(sheetHeight - mm);
+  const trace = (pts: readonly Pt[]) => [moveTo(X(pts[0].x), Y(pts[0].y)), ...pts.slice(1).map((p) => lineTo(X(p.x), Y(p.y))), closePath()];
+
+  for (const i of items) {
+    switch (i.k) {
+      case 'line':
+        pdf.drawLine({ start: { x: X(i.x1), y: Y(i.y1) }, end: { x: X(i.x2), y: Y(i.y2) }, thickness: mmToPt(i.w), color: color(i.c), lineCap: CAPS[i.cap] });
+        break;
+      case 'rect':
+        pdf.drawRectangle({ x: X(i.x), y: Y(i.y + i.h), width: mmToPt(i.w), height: mmToPt(i.h), color: color(i.c) });
+        break;
+      case 'poly':
+        pdf.pushOperators(pushGraphicsState(), setFillingColor(color(i.c)), ...trace(i.pts), fill(), popGraphicsState());
+        break;
+      case 'dots':
+      case 'dotset': {
+        const set = i.k === 'dots' ? dotsAsSet(i) : i;
+        if (!set.pts.length) break;
+        const form = dotForm(pdf.doc, set.key, set.d, set.pts, color(set.c));
+        pdf.pushOperators(pushGraphicsState(), concatTransformationMatrix(1, 0, 0, 1, X(set.x), Y(set.y)), drawObject(pdf.node.newXObject('Dots', form)), popGraphicsState());
+        break;
+      }
+      case 'text': {
+        const font = i.font === 'bold' ? fonts.bold : fonts.regular, safe = printable(i.str, font);
+        if (!safe) break;
+        const size = mmToPt(i.size), width = font.widthOfTextAtSize(safe, size);
+        const back = i.align === 'start' ? 0 : i.align === 'middle' ? width / 2 : width, angle = (i.rot * Math.PI) / 180;
+        // Step back along the text's own direction to its start.
+        pdf.drawText(safe, { x: X(i.x) - back * Math.cos(angle), y: Y(i.y) - back * Math.sin(angle), size, font, color: color(i.c), rotate: degrees(i.rot) });
+        break;
+      }
+      case 'path': {
+        const [first, ...rest] = i.segs;
+        if (!first) break;
+        const ops = [pushGraphicsState()];
+        if (i.fill !== undefined) ops.push(setFillingColor(color(i.fill)));
+        if (i.stroke) ops.push(setLineWidth(mmToPt(i.stroke.w)), setLineCap(CAPS[i.stroke.cap]), setStrokingColor(color(i.stroke.c)));
+        for (const s of [first, ...rest]) {
+          if (s[0] === 'M') ops.push(moveTo(X(s[1]), Y(s[2])));
+          else if (s[0] === 'L') ops.push(lineTo(X(s[1]), Y(s[2])));
+          else if (s[0] === 'C') ops.push(appendBezierCurve(X(s[1]), Y(s[2]), X(s[3]), Y(s[4]), X(s[5]), Y(s[6])));
+          else ops.push(closePath());
+        }
+        ops.push(i.fill !== undefined && i.stroke ? fillAndStroke() : i.fill !== undefined ? fill() : stroke(), popGraphicsState());
+        pdf.pushOperators(...ops);
+        break;
+      }
+      case 'clip':
+        pdf.pushOperators(pushGraphicsState(), ...trace(i.pts), clip(), endPath());
+        break;
+      case 'unclip':
+        pdf.pushOperators(popGraphicsState());
+        break;
+    }
+  }
+}
+
+export interface PageDrawOptions extends PageLayoutOptions {
+  /** Total height of the PDF page in mm, to turn y-down mm into PDF's y-up points. */
+  sheetHeight: number;
+  fonts: Fonts;
+}
+
+/** Lay out one page and draw it as it is, with no printer correction (pages.pdf and the tests). */
+export function drawPage(pdf: PDFPage, page: Page, o: PageDrawOptions): void {
+  const items: Item[] = [];
+  layoutPage(page, o, items);
+  drawItems(pdf, items, o.fonts, o.sheetHeight);
 }

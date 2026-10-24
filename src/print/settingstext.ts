@@ -28,6 +28,7 @@ export const LAYOUT_LABELS: Record<keyof LayoutProfile, string> = {
   back_rotation_deg: 'back rotation',
   scale_x_pct: 'scale x',
   scale_y_pct: 'scale y',
+  line_weight_x_pct: 'line weight x',
 };
 
 /** 'YYYY-MM-DD' in the local time zone. */
@@ -39,7 +40,7 @@ export function settingsLines(p: PrintSettings, now: Date, signatures?: number):
   return [
     `Dotwork ${APP_VERSION} | ${isoDay(now)} | page ${PAGE_W_MM} x ${PAGE_H_MM} mm`,
     `${L.sheet_layout} ${LAYOUT_NAMES[p.sheet_layout]} | ${A.scale_x_pct} ${l.scale_x_pct}% | ${A.scale_y_pct} ${l.scale_y_pct}%`,
-    `${L.creep_per_sheet_mm} ${p.creep_per_sheet_mm} mm${signatures === undefined ? '' : ` | ${L.signatures} ${signatures}`}`,
+    `${L.creep_per_sheet_mm} ${p.creep_per_sheet_mm} mm${signatures === undefined ? '' : ` | ${L.signatures} ${signatures}`} | ${A.line_weight_x_pct} ${l.line_weight_x_pct}%`,
     `${L.fore_edge_shift_mm} ${p.fore_edge_shift_mm} | ${L.cover_fore_edge_shift_mm} ${p.cover_fore_edge_shift_mm} | ${L.target_fore_edge_margin_mm} ${p.target_fore_edge_margin_mm} mm`,
     `${A.front_offset_x_mm} ${l.front_offset_x_mm} mm | ${A.front_offset_y_mm} ${l.front_offset_y_mm} mm`,
     `${A.back_offset_x_mm} ${l.back_offset_x_mm} mm | ${A.back_offset_y_mm} ${l.back_offset_y_mm} mm | ${A.back_rotation_deg} ${l.back_rotation_deg}°`,

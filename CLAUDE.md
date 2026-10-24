@@ -143,4 +143,5 @@ Dotwork's print export follows the same physical rules as journal-system
 17. Printing two books per letter sheet (Letter, two-up, with print-duplex.pdf, cut marks and labels), a layout picker with offsets
     and scale kept per layout, a Size step in Calibrate, and the outside covers (cover-outside.pdf, cover-inside.pdf) (done).
 18. Books hold the design only (every printer and calibration setting is in the printer profile, so old books always open), one double-sided calibration sheet per layout with a back rotation and a scale per paper edge, and the outside covers in preview.png and Flip through (done).
-19. Later: dials and other components, color, sharing, a page gallery.
+19. Print pipeline in stages (layout, then the printer's positions-only correction, then the PDF), so a stretched sheet never stretches lines, dots or glyphs; line weight by direction with a pairs-and-ladder block on the calibration sheet; the 3 mm edge check as a warning; fold twist readout (done; see `docs/print-pipeline.md`).
+20. Later: dials and other components, color, sharing, a page gallery.

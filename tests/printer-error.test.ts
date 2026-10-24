@@ -8,13 +8,12 @@ import { NO_READINGS, crosshairs, foldScales, sheetHeight, sheetResult, type She
 import { SHEET_W_MM, profileOf, type LayoutProfile, type SheetLayout } from '../src/book/impose';
 import { mapPoint, transformOf, type SheetTransform } from '../src/print/sheets';
 import { sheetFile } from '../src/print/calibrate';
-import { readPdf } from './pdf-text';
+import { readPdf, segments } from './pdf-text';
 import { FLAT, flatTwoUp } from './flat';
 import { clonePrint } from '../src/book/impose';
 
 const fontBytes = { regular: readFileSync('src/fonts/CourierPrime-Regular.ttf'), bold: readFileSync('src/fonts/CourierPrime-Bold.ttf') };
 const W = SHEET_W_MM;
-const PT = 72 / 25.4;
 
 /** What a printer does to one pass: turns the image about the sheet's centre (degrees, + counter-clockwise as seen on that side) and moves it (+x right, +y up). */
 interface PassError { x: number; y: number; deg: number }
@@ -184,20 +183,24 @@ for (const layout of layouts) {
 }
 
 describe('the PDF is drawn under the same transform the model uses', () => {
-  it('maps points exactly as mapPoint does, for the back of each layout, rotated, scaled and moved', async () => {
+  it('moves every stroke’s endpoints exactly as mapPoint does, for the back of each layout, rotated, scaled and moved', async () => {
     for (const layout of layouts) {
-      const print = clonePrint(layout === 'letter_two_up' ? flatTwoUp() : FLAT);
+      const flat = clonePrint(layout === 'letter_two_up' ? flatTwoUp() : FLAT);
+      const print = clonePrint(flat);
       Object.assign(print.layouts[layout], { back_rotation_deg: 0.35, scale_x_pct: 100.4, scale_y_pct: 99.7, back_offset_x_mm: 0.6, back_offset_y_mm: -0.4 });
-      const [, back] = await readPdf((await sheetFile(emptyBook(52), print, fontBytes)).bytes);
-      const m = back.content.match(/q\n(\S+) (\S+) (\S+) (\S+) (\S+) (\S+) cm\n/)!.slice(1).map(Number);
+      const [, before] = await readPdf((await sheetFile(emptyBook(52), flat, fontBytes)).bytes);
+      const [, after] = await readPdf((await sheetFile(emptyBook(52), print, fontBytes)).bytes);
       const H = sheetHeight(layout), t = transformOf(print, 'back');
-      for (const p of [{ x: 10, y: 10 }, { x: W / 2, y: H / 2 }, { x: 150, y: H - 20 }]) {
-        const X = p.x * PT, Y = (H - p.y) * PT;
-        const landed = { x: (m[0] * X + m[2] * Y + m[4]) / PT, y: H - (m[1] * X + m[3] * Y + m[5]) / PT };
-        const model = mapPoint(t, W, H, p);
-        expect(landed.x).toBeCloseTo(model.x, 6);
-        expect(landed.y).toBeCloseTo(model.y, 6);
-      }
+      const was = segments(before.content, H), now = segments(after.content, H);
+      expect(now.length).toBe(was.length);
+      expect(was.length).toBeGreaterThan(100);
+      was.forEach((s, i) => {
+        const a = mapPoint(t, W, H, { x: s.x1, y: s.y1 }), b = mapPoint(t, W, H, { x: s.x2, y: s.y2 });
+        expect(now[i].x1).toBeCloseTo(a.x, 4);
+        expect(now[i].y1).toBeCloseTo(a.y, 4);
+        expect(now[i].x2).toBeCloseTo(b.x, 4);
+        expect(now[i].y2).toBeCloseTo(b.y, 4);
+      });
     }
   });
 });

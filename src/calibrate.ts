@@ -5,7 +5,7 @@ import { withBookJson } from './print/bundle';
 import type { ExportedFile } from './print/export';
 import { loadFontBytes } from './print/fonts';
 import { SPINE_WARN_MM, creepPages, creepResult, innermostSpineMargin, predictedMargins, validPages, type Printed } from './book/creep';
-import { FOLD_HOW, NO_READINGS, scaleCaptions, sheetResult, type SheetReadings } from './book/alignment';
+import { FOLD_HOW, NO_READINGS, foldTwist, scaleCaptions, sheetResult, twistText, type SheetReadings } from './book/alignment';
 import { GRID_Y_MM } from './format/types';
 import { PRINT_LIMITS, type Book } from './book/book';
 import { EDGE_NAMES, LAYOUT_NAMES, PAPER_SETTINGS, profileOf, type LayoutProfile, type PrintSettings, type SheetLayout } from './book/impose';
@@ -194,10 +194,15 @@ export class CalibrateDialog {
   private sheet(): HTMLElement[] {
     const layout = this.layout, twoUp = layout === 'letter_two_up', cap = scaleCaptions(layout);
     const result = h('div', { class: 'cal-result', role: 'status', 'data-key': 'calibrate-sheet-result' });
+    const twist = h('p', { class: 'hint', 'data-key': 'calibrate-fold-twist', 'data-help': 'calibrate-fold-twist' });
     const num_ = (k: keyof SheetFields) => num(this.read.sheet[k]);
     const redraw = () => {
       const r: SheetReadings = { ...NO_READINGS };
       for (const k of Object.keys(EMPTY_SHEET) as (keyof SheetFields)[]) r[k] = num_(k);
+      // Information only: how far the print is turned against the paper's folds, from each pair read.
+      const t = foldTwist(r);
+      twist.replaceChildren(...[['Horizontal fold', t.horizontal], ['Vertical fold', t.vertical]].flatMap(([name, v]) => (v ? [h('span', {}, `${name}, ${twistText(v as { mm: number; over: number })}. `)] : [])));
+      twist.hidden = !t.horizontal && !t.vertical;
       if ((Object.values(r) as (number | null)[]).every((v) => v === null)) { result.replaceChildren(h('p', { class: 'hint' }, 'Enter what you read to see the new settings.')); return; }
       const now = profileOf(this.host.printer.get()), printed = this.printed ?? now;
       const next = sheetResult(layout, printed, r);
@@ -232,10 +237,14 @@ export class CalibrateDialog {
       h('h3', {}, 'Fold, where the crease crosses (mm)'),
       r('hFoldLeft', cap.hFoldLeft, 'calibrate-read-hfold-left'), r('hFoldRight', cap.hFoldRight, 'calibrate-read-hfold-right'),
       r('vFoldTop', cap.vFoldTop, 'calibrate-read-vfold-top'), r('vFoldBottom', cap.vFoldBottom, 'calibrate-read-vfold-bottom'),
+      twist,
       h('h3', {}, '100 mm lines, measured (mm)'),
       r('longX', cap.longX, 'calibrate-read-line-x'), r('longY', cap.longY, 'calibrate-read-line-y'),
       h('h3', {}, 'New settings'),
       result,
+      h('h3', {}, 'Line weight (optional)'),
+      h('p', { class: 'hint' }, `Side 1 has pairs of identical lines, one along each paper edge, and a ladder. The scale only moves things, it never thickens lines, so print the sheet again after setting it. Only set the line weight if the pairs still differ: a printer can draw lines along the ${EDGE_NAMES[layout].x} edge thicker than lines along the ${EDGE_NAMES[layout].y} edge. Then find the ladder step (85 to 100 %) whose line along the ${EDGE_NAMES[layout].x} edge looks as thick as the 0.35 mm line along the ${EDGE_NAMES[layout].y} edge, and enter that percent here. Leave it at 100 if the pairs look the same.`),
+      this.field('line_weight_x_pct'),
     ];
   }
 

@@ -50,6 +50,7 @@ export const LAYOUT_LIMITS = {
   scale_x_pct: { min: 95, max: 105 },
   scale_y_pct: { min: 95, max: 105 },
   back_rotation_deg: { min: -1.5, max: 1.5 },
+  line_weight_x_pct: { min: 80, max: 120 },
 } as const satisfies Record<keyof LayoutProfile, { min: number; max: number }>;
 
 export const DEFAULT_PAGE_COUNT = 52;
