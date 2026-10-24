@@ -19,7 +19,7 @@ import { PRINT_LABELS, settingsLines } from '../src/print/settingstext';
 import { grayHex, tonesOf } from '../src/print/tones';
 import { APP_VERSION } from '../src/version';
 import { FLAT, flatTwoUp, setPrint } from './flat';
-import { readPdf, segments, strokes, textPositions } from './pdf-text';
+import { readPdf, segments, strokes, textMatrices, textPositions } from './pdf-text';
 
 const fontBytes = {
   regular: readFileSync('src/fonts/CourierPrime-Regular.ttf'),
@@ -227,6 +227,27 @@ for (const layout of ['half_letter', 'letter_two_up'] as const) {
       expect(front.strings.some((t) => t.startsWith('LADDER'))).toBe(true);
     });
 
+    it('says the drawn width next to each pair, and 80 % and 90 % give different widths in the PDF', async () => {
+      const at = async (pct: number) => {
+        const own = clonePrint(print);
+        own.layouts[layout].line_weight_x_pct = pct;
+        const [front] = await readPdf((await sheetFile(emptyBook(52), own, fontBytes, NOW)).bytes);
+        const wide = strokes(front.content, H).filter((s) => Math.abs(s.y1 - s.y2) < 0.001 && Math.abs(Math.abs(s.x2 - s.x1) - 11) < 0.01 && s.y1 < 40 && PAIR_WIDTHS.some((w) => Math.abs(s.w - w * pct / 100) < 0.0005)); // the pairs, above the ladder
+        return { front, widths: wide.map((s) => +s.w.toFixed(4)) };
+      };
+      const [a80, a90, a100] = [await at(80), await at(90), await at(100)];
+      expect(a80.widths).toEqual([0.096, 0.2, 0.28]);
+      expect(a90.widths).toEqual([0.108, 0.225, 0.315]);
+      expect(a100.widths).toEqual([0.12, 0.25, 0.35]);
+      expect(a80.widths).not.toEqual(a90.widths);
+      for (const [pct, r] of [[80, a80], [90, a90], [100, a100]] as const) {
+        for (const w of PAIR_WIDTHS) {
+          expect(r.front.strings, `${pct} ${w}`).toContain(`drawn ${(w * pct / 100).toFixed(3)} mm`);
+          expect(r.front.strings).toContain(`other ${w.toFixed(3)} mm`); // the other edge's line is as drawn
+        }
+      }
+    });
+
     it('draws the pairs with the line weight setting but never the ladder, so the ladder always shows the same steps', async () => {
       const own = clonePrint(print);
       own.layouts[layout].line_weight_x_pct = 90;
@@ -394,14 +415,11 @@ for (const layout of ['half_letter', 'letter_two_up'] as const) {
 }
 
 describe('the back rotation', () => {
-  /** How far the first straight stroke on a page (a clip edge or a line, which are drawn along the sheet's axes) is turned, in degrees counter-clockwise from the nearest axis, 0 to 90. */
-  const turnOf = (content: string, height: number) => {
-    const s = segments(content, height).concat(clipEdges(content, height))[0];
-    const deg = (Math.atan2(-(s.y2 - s.y1), s.x2 - s.x1) * 180) / Math.PI; // y is down on the sheet: up is positive
+  /** How far a stroke is turned from the nearest axis, in degrees, 0 to 90. */
+  const turnOf = (s: { x1: number; y1: number; x2: number; y2: number }) => {
+    const deg = (Math.atan2(-(s.y2 - s.y1), s.x2 - s.x1) * 180) / Math.PI;
     return ((deg % 90) + 90) % 90;
   };
-  const clipEdges = (content: string, height: number) => [...content.matchAll(/(-?[\d.]+) (-?[\d.]+) m\n(-?[\d.]+) (-?[\d.]+) l\n/g)].slice(0, 1).map((m) => ({ x1: +m[1] / PT, y1: height - +m[2] / PT, x2: +m[3] / PT, y2: height - +m[4] / PT }));
-  const isTurned = (turn: number) => turn > 1e-6 && turn < 90 - 1e-6;
   const turned = (deg: number, layout: 'half_letter' | 'letter_two_up' = 'half_letter') => {
     const p = clonePrint(layout === 'letter_two_up' ? flatTwoUp() : FLAT);
     p.layouts[layout].back_rotation_deg = deg;
@@ -409,30 +427,27 @@ describe('the back rotation', () => {
   };
   const book = () => { const b = emptyBook(8); setSlot(b, 1, toned()); return b; };
 
-  it('turns the back pass of the print files, the covers and the calibration PDFs, and never the front', async () => {
+  it('places the back pass of the print files, the covers and the calibration PDFs by the rotation, and never turns a stroke or a glyph; the front is never rotated', async () => {
     for (const layout of ['half_letter', 'letter_two_up'] as const) {
-      // A two-up sheet turns about the letter sheet's centre, so a degree swings its corners past the 3 mm the printer needs.
       const deg = layout === 'half_letter' ? 1 : 0.3, H = sheetHeight(layout);
       const print = turned(deg, layout);
       const files = await exportBookFiles(book(), print, fontBytes);
-      for (const f of files.filter((f) => f.name.endsWith('.pdf') && f.name !== 'pages.pdf')) {
-        const pages = await readPdf(f.bytes);
-        pages.forEach((page, i) => {
-          const back = f.name === 'print-duplex.pdf' ? i % 2 === 1 : /second|inside/.test(f.name);
-          const turn = turnOf(page.content, H);
-          // + is counter-clockwise as seen on the back.
-          if (back) expect(turn, `${layout} ${f.name} ${i}`).toBeCloseTo(deg, 4); else expect(isTurned(turn), `${layout} ${f.name} ${i} is a front`).toBe(false);
-        });
-      }
-      const sheet = await readPdf((await sheetFile(book(), print, fontBytes, NOW)).bytes);
-      expect(isTurned(turnOf(sheet[0].content, H))).toBe(false);
-      expect(turnOf(sheet[1].content, H)).toBeCloseTo(deg, 4);
       const made = await creepFiles(book(), print, fontBytes, NOW);
-      const creep = await readPdf(file(made, CREEP_FILE).bytes), cover = await readPdf(file(made, COVER_FILE).bytes);
-      const n = creep.length / 2;
-      creep.forEach((page, i) => expect(isTurned(turnOf(page.content, H)), `creep page ${i}`).toBe(i >= n));
-      expect(isTurned(turnOf(cover[0].content, H))).toBe(false);
-      expect(turnOf(cover[1].content, H)).toBeCloseTo(deg, 4);
+      const all = [...files, ...made].filter((f) => f.name.endsWith('.pdf') && f.name !== 'pages.pdf').concat([await sheetFile(book(), print, fontBytes, NOW)]);
+      for (const f of all) {
+        for (const [i, page] of (await readPdf(f.bytes)).entries()) {
+          for (const s of segments(page.content, H)) {
+            const turn = turnOf(s);
+            expect(Math.min(turn, 90 - turn), `${layout} ${f.name} ${i}`).toBeLessThan(1e-4); // exactly horizontal or vertical
+          }
+          for (const m of textMatrices(page.content)) expect(Math.abs(m[1]) === 0 || Math.abs(m[1]) === 1, `${layout} ${f.name} ${i} glyphs`).toBe(true);
+        }
+      }
+      // The back differs from the unrotated one: the strokes sit where the rotation puts them.
+      const flat = await readPdf((await sheetFile(book(), turned(0, layout), fontBytes, NOW)).bytes);
+      const rot = await readPdf((await sheetFile(book(), print, fontBytes, NOW)).bytes);
+      expect(segments(rot[1].content, H)[0].y1).not.toBeCloseTo(segments(flat[1].content, H)[0].y1, 4);
+      expect(segments(rot[0].content, H)[0]).toEqual(segments(flat[0].content, H)[0]); // the front is not rotated
     }
   });
 

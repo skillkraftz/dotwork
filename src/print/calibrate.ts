@@ -26,7 +26,7 @@ import type { Item } from './display';
 import { layoutPage } from './layout';
 import { printSide } from './correct';
 import { newDocument, type ExportedFile, type FontBytes } from './export';
-import { cutMarks, halfLabel, halfLabelItem, halfTops, isTwoUp, sheetSize } from './sheets';
+import { cutMarks, halfLabel, halfLabelItem, halfTops, isTwoUp, lineWeightOf, sheetSize } from './sheets';
 import { creepPages, creepSheets, validPages } from '../book/creep';
 import { settingsLines } from './settingstext';
 import { grayHex, tonesOf } from './tones';
@@ -270,9 +270,9 @@ function hairlines(c: Canvas) {
  * Line weight by direction, on the left page's free right-hand side: pairs of identical lines, one along each paper edge, so a printer
  * that draws one direction thicker shows; and a ladder of lines along the 8.5 in edge at 85 to 100 % of 0.35 mm beside a 0.35 mm line along
  * the other edge, so the step that matches it can be picked. The ladder is exempt from the line weight setting (`fixed`), so its steps
- * are the same whatever that is set to; the pairs are not, so they show what the setting does.
+ * are the same whatever that is set to; the pairs are not, so they show what the setting does, and say the width each is drawn at.
  */
-function lineWeights(c: Canvas, layout: SheetLayout) {
+function lineWeights(c: Canvas, layout: SheetLayout, print: PrintSettings) {
   const { x, y } = gridAt(false, 0);
   const x0 = x + 43, hx0 = x0 + 9, hx1 = hx0 + 11, vx = hx1 + 5, edges = EDGE_NAMES[layout];
   c.text('LINE WEIGHT BY DIRECTION', x0, y + 4.2, 1.8);
@@ -283,6 +283,9 @@ function lineWeights(c: Canvas, layout: SheetLayout) {
     c.text(`${w.toFixed(2)} mm`, x0, at + 0.6, 1.8);
     c.line(hx0, at, hx1, at, w);
     c.line(vx, at - 4, vx, at + 4, w);
+    // The widths as drawn (after the line weight setting), so its effect can be read even where the printer can't show it.
+    c.text(`drawn ${(w * lineWeightOf(print)).toFixed(3)} mm`, hx0, at + 2.6, 1.3);
+    c.text(`other ${w.toFixed(3)} mm`, hx0, at + 4.3, 1.3);
   });
   const top = y + 39.2;
   c.text(`LADDER: ${LADDER_MM} mm`, x0, top, 1.8);
@@ -340,7 +343,7 @@ function sheetFront(g: Half, print: PrintSettings, now: Date) {
   content(g, print, frontRight(), true);
   ramp(g.c);
   hairlines(g.c);
-  lineWeights(g.c, print.sheet_layout);
+  lineWeights(g.c, print.sheet_layout, print);
   const { x, y } = gridAt(false, 0);
   const lines = ['SIDE 1 (FRONT)', ...settingsLines(print, now)];
   lines.forEach((line, i) => g.c.text(line, x + 0.8, y + 114 - (lines.length - 1 - i) * 1.7, 1.4));

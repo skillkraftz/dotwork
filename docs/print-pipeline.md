@@ -40,19 +40,29 @@ correction it is that page.
 ## 2. Printer
 
 `correct(items, transform, sheetWidth, sheetHeight, lineWeight)` applies one side's correction (`transformOf` in `sheets.ts`): the **scale
-per axis** about the sheet's centre, the **rotation** (the back only) about it, and the **offset**. It moves **positions only**:
+per axis** about the sheet's centre, the **rotation** (the back only) about it, and the **offset**. It moves **positions only**, and it
+**places** items rather than turning them. Every position lands where `mapPoint(transform, w, h, p)` says, but each item goes there by its
+centre and keeps its own shape:
 
-* line endpoints, rectangle corners (a rotated rectangle becomes a `poly`), dot centres, text anchors, path points (control points too),
-  clip polygons;
-* **never** widths, dot diameters, font sizes or glyph shapes. A printer that stretches one axis moves where things go; it does not make
-  lines in one direction thicker, dots oval or letters tall. Text turns with the sheet's rotation (the sheet's angle is added to the
-  text's) but is never stretched.
+* a **line** is placed at its rotated midpoint; a horizontal or vertical line stays exactly horizontal or vertical, an angled one keeps
+  its angle, and the length is the same (times the scale);
+* a **rect** is placed at its rotated centre and stays axis-aligned;
+* a **text** anchor moves; the glyphs stay upright (no rotation in the text matrix) and keep the rotation the design gave them;
+* **dots** each move to their rotated centre, round and the same size;
+* a **path** (art, icons) is placed at the rotated centre of its points, not turned; clip polygons likewise.
 
-Every position lands where `mapPoint(transform, w, h, p)` says. With a scale of 100 % and no rotation the list is the layout list moved
-by the offset.
+Why: the back's rotation is tiny (at most 1.5°), but a printer draws a slightly turned line as a long staircase, which shows as blotchy
+thin lines. Turning where things are, not what they are, keeps every line a clean horizontal or vertical. Within one page the rotation
+therefore shifts items slightly relative to each other (at most 0.0032 rad × the distance, about 0.2 mm across a page) instead of turning
+the page as a whole.
+
+* **never** widths, dot diameters, font sizes or glyph shapes are scaled. A printer that stretches one axis moves where things go and how
+  far apart; it does not make lines in one direction thicker, dots oval or letters tall.
+
+With a scale of 100 % and no rotation the list is the layout list moved by the offset.
 
 One width can change, on purpose: the **line weight along the 8.5 in edge** (`line_weight_x_pct` of the layout). A stroke's width is
-multiplied by `1 + (p − 1) · cos²θ`, where *p* is the setting as a factor and θ the stroke's angle to the 8.5 in edge on the paper: a
+multiplied by `1 + (p − 1) · cos²θ`, where *p* is the setting as a factor and θ the stroke's angle to the 8.5 in edge: a
 stroke along it by *p*, a stroke across it by 1, in between by angle. Dots, text, fills and paths are unaffected. It is for a printer that
 draws lines in one direction thicker; the calibration sheet's line pairs show it.
 

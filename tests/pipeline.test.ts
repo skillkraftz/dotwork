@@ -97,7 +97,7 @@ describe('the printer stage moves positions and nothing else', () => {
     expect(new Set(x.entries().map(([, ref]) => String(ref))).size).toBe(1); // ...of one form
   });
 
-  it('draws glyphs at the size they were given, and turns text without stretching it', async () => {
+  it('draws glyphs at the size they were given, never stretched or turned, and moves only their anchors', async () => {
     const text: Item = { k: 'text', str: 'Hello', x: 40, y: 50, size: 2.4, font: 'regular', c: '#000000', align: 'start', rot: 0 };
     const was = await printed([text], clonePrint(flatTwoUp()));
     const print = clonePrint(flatTwoUp());
@@ -111,58 +111,67 @@ describe('the printer stage moves positions and nothing else', () => {
     // The anchor moved as mapPoint says.
     expect(m[4] / PT).toBeCloseTo(mapPoint(transformOf(print, 'front'), W, H, { x: 40, y: 50 }).x, 4);
     expect(stretched.h - m[5] / PT).toBeCloseTo(mapPoint(transformOf(print, 'front'), W, H, { x: 40, y: 50 }).y, 4);
-    // On the back, which is turned: text turns with it, still unstretched.
+    // On the back, which is rotated: the anchor moves, the glyphs stay upright.
     setPrint(print, { back_rotation_deg: 0.5 });
     const back = await printed([text], print, 'back');
-    const [r] = textMatrices(back.page.content), a = (0.5 * Math.PI) / 180;
-    expect(r.slice(0, 4).map((v) => +v.toFixed(9))).toEqual([Math.cos(a), Math.sin(a), -Math.sin(a), Math.cos(a)].map((v) => +v.toFixed(9)));
+    const [r] = textMatrices(back.page.content);
+    expect(r.slice(0, 4)).toEqual([1, 0, 0, 1]);
+    const moved = mapPoint(transformOf(print, 'back'), W, H, { x: 40, y: 50 });
+    expect(r[4] / PT).toBeCloseTo(moved.x, 4);
+    expect(back.h - r[5] / PT).toBeCloseTo(moved.y, 4);
   });
 
-  it('puts every position where mapPoint says: line ends, rectangle corners, dot centres, text anchors and path points; scaled, moved and rotated', () => {
+  it('places every item where mapPoint says its centre goes, scaled but never turned: line, rectangle, dots, text, path and clip; with scale, offset and rotation', () => {
     for (const tf of [t({ sx: 1.01, sy: 0.99, dx: 0.5, dy: -0.25 }), t({ sx: 1, sy: 1.0101, rot: (0.4 * Math.PI) / 180, dx: -1, dy: 0.7 }), t({ rot: (-0.183 * Math.PI) / 180, sy: 1.0101 })]) {
       const at = (x: number, y: number) => mapPoint(tf, W, H, { x, y });
+      const near = (a: { x: number; y: number }, b: { x: number; y: number }) => { expect(a.x).toBeCloseTo(b.x, 9); expect(a.y).toBeCloseTo(b.y, 9); };
       const items: Item[] = [
         line(10, 20, 150, 220),
+        line(10, 20, 150, 20),
+        line(10, 20, 10, 220),
         { k: 'rect', x: 30, y: 40, w: 50, h: 60, c: '#efefef' },
         { k: 'dots', x: 20, y: 30, cols: [0, 3, 9], rows: [0, 6], d: 0.6, c: '#808080' },
         { k: 'text', str: 'x', x: 100, y: 110, size: 2, font: 'bold', c: '#000000', align: 'end', rot: 90 },
         { k: 'path', segs: [['M', 5, 6], ['C', 7, 8, 9, 10, 11, 12], ['L', 13, 14], ['Z']], fill: '#000000', stroke: { w: 0.3, c: '#000000', cap: 'round' } },
         { k: 'clip', pts: [{ x: 1, y: 2 }, { x: 80, y: 2 }, { x: 80, y: 90 }, { x: 1, y: 90 }] },
       ];
-      const out = correct(items, tf, W, H);
-      const near = (a: { x: number; y: number }, b: { x: number; y: number }) => { expect(a.x).toBeCloseTo(b.x, 9); expect(a.y).toBeCloseTo(b.y, 9); };
-      const [l, r, d, tx, p, c] = out as [Extract<Item, { k: 'line' }>, Extract<Item, { k: 'rect' | 'poly' }>, Extract<Item, { k: 'dotset' }>, Extract<Item, { k: 'text' }>, Extract<Item, { k: 'path' }>, Extract<Item, { k: 'clip' }>];
-      near({ x: l.x1, y: l.y1 }, at(10, 20));
-      near({ x: l.x2, y: l.y2 }, at(150, 220));
-      if (tf.rot === 0) {
-        expect(r.k).toBe('rect');
-        const q = r as Extract<Item, { k: 'rect' }>, [a, b] = [at(30, 40), at(80, 100)];
-        near({ x: q.x, y: q.y }, a);
-        near({ x: q.x + q.w, y: q.y + q.h }, b);
-      } else {
-        expect(r.k).toBe('poly'); // a rotated rectangle is a polygon
-        const q = r as Extract<Item, { k: 'poly' }>;
-        [[30, 40], [80, 40], [80, 100], [30, 100]].forEach(([x, y], i) => near(q.pts[i], at(x, y)));
-      }
-      // Dot centres: the set's origin, plus each offset carried by the same turn and scale.
+      const [angled, hor, ver, r, d, tx, p, c] = correct(items, tf, W, H) as [Extract<Item, { k: 'line' }>, Extract<Item, { k: 'line' }>, Extract<Item, { k: 'line' }>, Extract<Item, { k: 'rect' }>, Extract<Item, { k: 'dotset' }>, Extract<Item, { k: 'text' }>, Extract<Item, { k: 'path' }>, Extract<Item, { k: 'clip' }>];
+      const mid = (l: Extract<Item, { k: 'line' }>) => ({ x: (l.x1 + l.x2) / 2, y: (l.y1 + l.y2) / 2 });
+      // Lines: the midpoint goes where mapPoint says, the extent is scaled, and a line is never turned.
+      near(mid(angled), at(80, 120));
+      expect([angled.x2 - angled.x1, angled.y2 - angled.y1].map((v) => +v.toFixed(9))).toEqual([140 * tf.sx, 200 * tf.sy].map((v) => +v.toFixed(9)));
+      near(mid(hor), at(80, 20));
+      expect(hor.y1).toBe(hor.y2); // exactly horizontal
+      near(mid(ver), at(10, 120));
+      expect(ver.x1).toBe(ver.x2); // exactly vertical
+      // Rectangle: axis-aligned, its centre placed, its size scaled.
+      near({ x: r.x + r.w / 2, y: r.y + r.h / 2 }, at(55, 70));
+      expect([r.w, r.h].map((v) => +v.toFixed(9))).toEqual([50 * tf.sx, 60 * tf.sy].map((v) => +v.toFixed(9)));
+      // Dot centres: each where it goes; the diameter untouched.
       const centres = d.pts.map(([x, y]) => ({ x: d.x + x, y: d.y + y }));
-      [[0, 0], [0, 6], [3, 0], [3, 6], [9, 0], [9, 6]].forEach(([x, y], i) => {
-        const want = at(20 + x, 30 + y), got = centres.find((_, k) => k === i)!;
-        near(got, want);
-      });
-      expect(d.d).toBe(0.6); // diameter untouched
+      [[0, 0], [0, 6], [3, 0], [3, 6], [9, 0], [9, 6]].forEach(([x, y], i) => near(centres[i], at(20 + x, 30 + y)));
+      expect(d.d).toBe(0.6);
+      // Text: the anchor moves; nothing about the glyphs does, the rotation included.
       near({ x: tx.x, y: tx.y }, at(100, 110));
-      expect([tx.size, tx.font, tx.align]).toEqual([2, 'bold', 'end']);
-      expect(tx.rot).toBeCloseTo(90 + (tf.rot * 180) / Math.PI, 9);
-      [[5, 6], [11, 12], [13, 14]].forEach(([x, y], i) => {
-        const seg = p.segs[i];
-        near({ x: seg[seg.length - 2] as number, y: seg[seg.length - 1] as number }, at(x, y));
-      });
-      const curve = p.segs[1] as ['C', ...number[]];
-      near({ x: curve[1], y: curve[2] }, at(7, 8)); // control points move like any other point
-      near({ x: curve[3], y: curve[4] }, at(9, 10));
-      expect(p.stroke).toEqual({ w: 0.3, c: '#000000', cap: 'round' }); // the width stays
-      near(c.pts[2], at(80, 90));
+      expect([tx.size, tx.font, tx.align, tx.rot]).toEqual([2, 'bold', 'end', 90]);
+      // Path: its bounding-box centre is placed, its points keep their shape (scaled), stroke width stays.
+      const pts = [[5, 6], [11, 12], [13, 14]], centre = { x: (5 + 13) / 2, y: (6 + 14) / 2 };
+      const c0 = p.segs[0] as ['M', number, number], cl = p.segs[2] as ['L', number, number];
+      const m = at(centre.x, centre.y);
+      near({ x: c0[1], y: c0[2] }, { x: m.x + tf.sx * (pts[0][0] - centre.x), y: m.y + tf.sy * (pts[0][1] - centre.y) });
+      near({ x: cl[1], y: cl[2] }, { x: m.x + tf.sx * (pts[2][0] - centre.x), y: m.y + tf.sy * (pts[2][1] - centre.y) });
+      expect(p.stroke).toEqual({ w: 0.3, c: '#000000', cap: 'round' });
+      near({ x: (c.pts[0].x + c.pts[2].x) / 2, y: (c.pts[0].y + c.pts[2].y) / 2 }, at(40.5, 46));
+      expect(c.pts[0].y).toBe(c.pts[1].y); // the page's box stays a box
+    }
+  });
+
+  it('keeps every stroke at its designed angle under the back’s rotation, whatever the angle', () => {
+    const rot = (0.183 * Math.PI) / 180;
+    for (const [x2, y2] of [[100, 0], [0, 100], [60, 35], [-40, 80], [100, 100]]) {
+      const [l] = lines(correct([line(30, 40, 30 + x2, 40 + y2)], t({ rot }), W, H));
+      expect(Math.atan2(l.y2 - l.y1, l.x2 - l.x1)).toBeCloseTo(Math.atan2(y2, x2), 12);
+      expect(Math.hypot(l.x2 - l.x1, l.y2 - l.y1)).toBeCloseTo(Math.hypot(x2, y2), 9); // same length
     }
   });
 
@@ -217,9 +226,9 @@ describe('line weight by direction', () => {
     expect(out[7]).toEqual(items[7]);
   });
 
-  it('follows the paper, not the drawing: a stroke turned by the back rotation is weighed by its direction on the paper', () => {
-    const out = correct([line(10, 20, 60, 20, 0.35)], t({ rot: Math.PI / 2 }), W, H, 0.8);
-    expect(lines(out)[0].w).toBeCloseTo(0.35, 6); // turned a quarter, it now runs across
+  it('weighs a stroke by its own direction: the back’s rotation does not turn it, so a horizontal line stays along the 8.5 in edge', () => {
+    const out = correct([line(10, 20, 60, 20, 0.35)], t({ rot: 0.01 }), W, H, 0.8);
+    expect(lines(out)[0].w).toBeCloseTo(0.28, 9);
   });
 
   it('is a per-layout printer setting, 100 % by default, applied to every PDF the layout prints', async () => {

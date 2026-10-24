@@ -183,7 +183,7 @@ for (const layout of layouts) {
 }
 
 describe('the PDF is drawn under the same transform the model uses', () => {
-  it('moves every stroke’s endpoints exactly as mapPoint does, for the back of each layout, rotated, scaled and moved', async () => {
+  it('places every stroke at the midpoint mapPoint says, for the back of each layout, rotated, scaled and moved, without turning it', async () => {
     for (const layout of layouts) {
       const flat = clonePrint(layout === 'letter_two_up' ? flatTwoUp() : FLAT);
       const print = clonePrint(flat);
@@ -194,12 +194,14 @@ describe('the PDF is drawn under the same transform the model uses', () => {
       const was = segments(before.content, H), now = segments(after.content, H);
       expect(now.length).toBe(was.length);
       expect(was.length).toBeGreaterThan(100);
+      const sx = t.sx, sy = t.sy;
       was.forEach((s, i) => {
-        const a = mapPoint(t, W, H, { x: s.x1, y: s.y1 }), b = mapPoint(t, W, H, { x: s.x2, y: s.y2 });
-        expect(now[i].x1).toBeCloseTo(a.x, 4);
-        expect(now[i].y1).toBeCloseTo(a.y, 4);
-        expect(now[i].x2).toBeCloseTo(b.x, 4);
-        expect(now[i].y2).toBeCloseTo(b.y, 4);
+        // Each stroke is placed at its rotated midpoint and keeps its direction (scaled): it is not turned.
+        const mid = mapPoint(t, W, H, { x: (s.x1 + s.x2) / 2, y: (s.y1 + s.y2) / 2 });
+        expect((now[i].x1 + now[i].x2) / 2).toBeCloseTo(mid.x, 3);
+        expect((now[i].y1 + now[i].y2) / 2).toBeCloseTo(mid.y, 3);
+        expect(now[i].x2 - now[i].x1).toBeCloseTo(sx * (s.x2 - s.x1), 3);
+        expect(now[i].y2 - now[i].y1).toBeCloseTo(sy * (s.y2 - s.y1), 3);
       });
     }
   });

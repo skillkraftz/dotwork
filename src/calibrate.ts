@@ -241,7 +241,7 @@ export class CalibrateDialog {
       h('h3', {}, '100 mm lines, measured (mm)'),
       r('longX', cap.longX, 'calibrate-read-line-x'), r('longY', cap.longY, 'calibrate-read-line-y'),
       h('h3', {}, 'Line weight ladder (optional, %)'),
-      h('p', { class: 'hint' }, `Only if the pairs of lines on side 1 still differ once the scale is right (a printer can draw lines along the ${EDGE_NAMES[layout].x} edge thicker than lines along the ${EDGE_NAMES[layout].y} edge): pick the ladder step whose line looks as thick as the 0.35 mm line along the ${EDGE_NAMES[layout].y} edge. The scale never thickens lines, so print the sheet again after setting it. Leave it empty if the pairs look the same.`),
+      h('p', { class: 'hint' }, `Only if the pairs of lines on side 1 still differ once the scale is right (a printer can draw lines along the ${EDGE_NAMES[layout].x} edge thicker than lines along the ${EDGE_NAMES[layout].y} edge): pick the ladder step whose line looks as thick as the 0.35 mm line along the ${EDGE_NAMES[layout].y} edge. The scale never thickens lines, so print the sheet again after setting it. Each pair says the width it is drawn at, so the setting’s effect is there on paper even if the printer can’t show it. Steps smaller than about 0.04 mm may be below what the printer can show: if 100 % and 90 % look the same, keep 100 %. Leave it empty if the pairs look the same.`),
       r('ladder', `ladder step that matches (%)`, 'calibrate-read-ladder'),
       h('h3', {}, 'New settings'),
       result,
