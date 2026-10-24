@@ -49,3 +49,17 @@ export function textPositions(page: PageInfo): { text: string; x: number; y: num
   const at = [...page.content.matchAll(/\S+ \S+ \S+ \S+ (\S+) (\S+) Tm/g)].map((m) => ({ x: +m[1] / PT, y: page.height / PT - +m[2] / PT }));
   return page.strings.map((text, i) => ({ text, ...at[i] }));
 }
+
+const PT = 72 / 25.4;
+const NUM = '(-?[\\d.]+(?:e-?\\d+)?)';
+
+/** Straight segments a page strokes with drawLine, in mm from the top left (y down). `height` is the PDF page's height in mm. */
+export const segments = (content: string, height: number) => [...content.matchAll(new RegExp(`${NUM} ${NUM} m\\n${NUM} ${NUM} l\\nS`, 'g'))]
+  .map((m) => ({ x1: +m[1] / PT, y1: height - +m[2] / PT, x2: +m[3] / PT, y2: height - +m[4] / PT }));
+
+/** Every text matrix on a page: [a b c d e f] of each Tm. */
+export const textMatrices = (content: string) => [...content.matchAll(new RegExp(`${NUM} ${NUM} ${NUM} ${NUM} ${NUM} ${NUM} Tm`, 'g'))].map((m) => m.slice(1).map(Number));
+
+/** The strokes of a page with their widths, in mm (y down from the top of a page `height` mm tall). */
+export const strokes = (content: string, height: number) => [...content.matchAll(new RegExp(`${NUM} w\\n\\[\\] 0 d\\n${NUM} ${NUM} m\\n(?:\\d J\\n)?${NUM} ${NUM} m\\n${NUM} ${NUM} l\\nS`, 'g'))]
+  .map((m) => ({ w: +m[1] / PT, x1: +m[2] / PT, y1: height - +m[3] / PT, x2: +m[6] / PT, y2: height - +m[7] / PT }));

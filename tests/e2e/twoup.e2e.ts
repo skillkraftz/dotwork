@@ -95,18 +95,25 @@ for (const device of ['phone', 'tablet', 'desktop'] as const) {
       expect(app.errors).toEqual([]);
     });
 
-    it('refuses a two-up offset that would print closer than 3 mm to the edge, with the reason', async () => {
+    it('warns about an offset that would print content closer than 3 mm to the edge, naming the page and row, and still makes the files', async () => {
       const app = await open(env, device);
       const { page } = app;
       await startZeroTwoUp(app);
       await openPdfTab(app);
       await pickLayout(app, 'export', 'letter_two_up');
-      await type(app, 'dialog.export [data-key="book-front-offset-y"]', '2');
+      await type(app, 'dialog.export [data-key="book-front-offset-y"]', '3');
       const zipped = await download(app, 'dialog.export [data-key="export-pdf"]');
       const files = zipped.bytes.toString('latin1');
-      expect(files).toContain('error.txt');
-      expect(files).toMatch(/would be 1\.85 mm from the top edge; printers need at least 3 mm/);
-      expect(await page.locator('dialog.export .lib-msg').innerText()).toMatch(/Can’t export/);
+      for (const f of ['print-first.pdf', 'print-second.pdf', 'print-duplex.pdf', 'summary.txt']) expect(files, f).toContain(f);
+      expect(files).not.toContain('error.txt');
+      expect(files).toMatch(/Warnings:\n  - Book 1, page \d+, row 0 \(the header\): on the front of the letter sheet it prints [\d.]+ mm from the top edge/);
+      const message = await page.locator('dialog.export .lib-msg').innerText();
+      await shot(app, `${device}-edge-warning`);
+      expect(message).toMatch(/The files were made/);
+      expect(message).toMatch(/Book 1, page \d+, row 0 \(the header\): on the front of the letter sheet it prints/);
+      expect(message).toMatch(/The print driver may cut it off; check by printing that page/);
+      expect(message).not.toMatch(/Can’t export/);
+      expect(app.errors).toEqual([]);
     });
 
     it('calibrates a layout from the one sheet: the long lines become its scale, and the other layout is left alone', async () => {

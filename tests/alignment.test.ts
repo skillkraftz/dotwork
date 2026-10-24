@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { FOLD_FROM_CENTRE_MM, FOLD_HOW, LINE_MM, MARK_FROM_EDGE_MM, NO_READINGS, backAgainstPaper, crosshairs, foldScales, fromCentre, scaleCaptions, scaleFromReading, seeThrough, sheetHeight, sheetResult } from '../src/book/alignment';
+import { FOLD_FROM_CENTRE_MM, FOLD_HOW, foldTwist, twistText, LINE_MM, MARK_FROM_EDGE_MM, NO_READINGS, backAgainstPaper, crosshairs, foldScales, fromCentre, scaleCaptions, scaleFromReading, seeThrough, sheetHeight, sheetResult } from '../src/book/alignment';
 import { DEFAULT_PRINT, SHEET_H_MM, SHEET_W_MM, type LayoutProfile } from '../src/book/impose';
 
-const ZERO: LayoutProfile = { front_offset_x_mm: 0, front_offset_y_mm: 0, back_offset_x_mm: 0, back_offset_y_mm: 0, scale_x_pct: 100, scale_y_pct: 100, back_rotation_deg: 0 };
+const ZERO: LayoutProfile = { front_offset_x_mm: 0, front_offset_y_mm: 0, back_offset_x_mm: 0, back_offset_y_mm: 0, scale_x_pct: 100, scale_y_pct: 100, back_rotation_deg: 0, line_weight_x_pct: 100 };
 const DEG = Math.PI / 180;
 
 // printer-error.test.ts proves the signs against whole simulated printers; these pin each conversion down on its own.
@@ -163,5 +163,28 @@ describe('the result', () => {
   });
   it('nothing read changes nothing', () => {
     expect(sheetResult('half_letter', ZERO, NO_READINGS)).toEqual(ZERO);
+  });
+});
+
+describe('the twist against the paper', () => {
+  it('is the difference between the two readings of a fold pair over the distance between their scales, for each pair read', () => {
+    const t = foldTwist({ ...NO_READINGS, hFoldLeft: 0.2, hFoldRight: 0.5, vFoldTop: -0.1, vFoldBottom: 0.3 });
+    expect(t.horizontal).toEqual({ mm: 0.3, over: 76 });
+    expect(t.vertical).toEqual({ mm: 0.4, over: 76 });
+    expect(2 * FOLD_FROM_CENTRE_MM).toBe(76);
+    expect(twistText(t.horizontal!)).toBe('twist against the paper: 0.3 mm over 76 mm');
+  });
+  it('is null for a pair with a reading missing, and changes no setting', () => {
+    expect(foldTwist({ ...NO_READINGS, hFoldLeft: 0.2 })).toEqual({ horizontal: null, vertical: null });
+    expect(foldTwist(NO_READINGS)).toEqual({ horizontal: null, vertical: null });
+  });
+});
+
+describe('the line weight from the ladder', () => {
+  it('is the picked step itself, kept within 80 to 120, and unchanged when no step was picked', () => {
+    const printed = { ...ZERO, line_weight_x_pct: 100 };
+    expect(sheetResult('half_letter', printed, { ...NO_READINGS, ladder: 90 }).line_weight_x_pct).toBe(90);
+    expect(sheetResult('half_letter', printed, { ...NO_READINGS, ladder: 500 }).line_weight_x_pct).toBe(120);
+    expect(sheetResult('half_letter', { ...printed, line_weight_x_pct: 95 }, NO_READINGS).line_weight_x_pct).toBe(95);
   });
 });

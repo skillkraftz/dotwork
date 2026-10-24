@@ -3,8 +3,8 @@
 //
 //   calibration-sheet.pdf  one double-sided sheet per layout on the WHOLE paper (the half sheet, or the whole letter sheet for two-up: no halves,
 //       labels or cut marks): page 1 = the front, page 2 = the back; print them the way print-first and print-second are printed. Five
-//       marks, 8 mm in from the edges and at the centre. Side 1: a fine + at each, and the gray ramp, sample text, dots, lines and
-//       hairlines at least 10 mm from every mark. Side 2 (all measuring): at the four edge marks a see-through scale, at the centre a +,
+//       marks, 8 mm in from the edges and at the centre. Side 1: a fine + at each, and the gray ramp, sample text, dots, lines,
+//       hairlines and the line weight by direction (pairs of identical lines along each paper edge, and a ladder) at least 10 mm from every mark. Side 2 (all measuring): at the four edge marks a see-through scale, at the centre a +,
 //       two 100 mm lines, and four fold scales (two across each centre line) to read where a crease crosses. See src/book/alignment.ts
 //       for what the readings mean.
 //   creep-test.pdf             three sheets stand for a book of any size: the cover sheet (calibration-cover.pdf) and, here, the outermost
@@ -18,13 +18,15 @@
 // cut marks; the scale, offsets and rotation of the selected layout apply to the whole page. Covers stay out of the creep test.
 import { GRID_X_MM, GRID_Y_MM, PAGE_H_MM, PAGE_W_MM, COLS, ROWS, PITCH_MM as P, emptyPage, type Page, type PageElement, type Text } from '../format/types';
 import type { Book } from '../book/book';
-import { SHEET_W_MM, checkPrintSettings, duplexOrder, impose, pageOrigin, type PrintSettings, type Sheet } from '../book/impose';
+import { EDGE_NAMES, SHEET_W_MM, checkPrintSettings, duplexOrder, impose, pageOrigin, type PrintSettings, type Sheet, type SheetLayout } from '../book/impose';
 import { FOLD_HOW, LINE_MM, SCALE_RANGE_MM, crosshairs, foldScales, scaleCaptions, sheetHeight, type FoldName } from '../book/alignment';
 import { LINE } from '../render';
-import { degrees } from 'pdf-lib';
-import { color, drawPage, mmToPt, type Fonts } from './draw';
-import { newDocument, type ExportedFile, type FontBytes, type PdfPage } from './export';
-import { drawCutMarks, drawHalfLabel, halfLabel, halfTops, isTwoUp, onSheet, sheetSize, transformOf } from './sheets';
+import { drawItems, mmToPt, type Fonts } from './draw';
+import type { Item } from './display';
+import { layoutPage } from './layout';
+import { printSide } from './correct';
+import { newDocument, type ExportedFile, type FontBytes } from './export';
+import { cutMarks, halfLabel, halfLabelItem, halfTops, isTwoUp, lineWeightOf, sheetSize } from './sheets';
 import { creepPages, creepSheets, validPages } from '../book/creep';
 import { settingsLines } from './settingstext';
 import { grayHex, tonesOf } from './tones';
@@ -37,6 +39,11 @@ const LABEL_MM = 1.5; // the numbers on the scales
 const BLACK = '#000000';
 /** Hairline strip: line widths in mm. 0.12 is the writing lines' weight. */
 export const HAIRLINE_WIDTHS = [0.05, 0.08, 0.1, 0.12, 0.15, 0.2, 0.25, 0.3] as const;
+/** The widths of the line pairs on side 1, mm: each is drawn once along each paper edge. */
+export const PAIR_WIDTHS = [0.12, 0.25, 0.35] as const;
+/** The ladder on side 1: lines along the 8.5 in edge at these percents of LADDER_MM, beside a LADDER_MM line along the other edge. */
+export const LADDER_PCT = [85, 90, 95, 100] as const;
+export const LADDER_MM = 0.35;
 /** The gray ramp's steps, in percent black. */
 export const RAMP_STEPS = Array.from({ length: 21 }, (_, i) => i * 5);
 /** Every mm scale runs -5 to +5 mm in 0.5 mm ticks. */
@@ -77,31 +84,29 @@ export function calibrationText(book: Book, print: PrintSettings, now: Date, pag
 
 type Align = 'start' | 'middle' | 'end';
 
-/** A sheet `height` mm tall to draw on in sheet millimetres (x right, y down from the top left), everything moved by dx, dy. */
-function sheetCanvas(pdf: PdfPage, fonts: Fonts, height: number, dx = 0, dy = 0) {
-  const X = (x: number) => mmToPt(x + dx), Y = (y: number) => mmToPt(height - (y + dy));
+/** A sheet to draw on in sheet millimetres (x right, y down from the top left), everything moved down by dy: it adds display-list items (see display.ts). */
+function sheetCanvas(items: Item[], fonts: Fonts, dy = 0) {
+  const line = (x1: number, y1: number, x2: number, y2: number, w: number, c = BLACK, fixed = false, cap: 'butt' | 'square' = 'butt') =>
+    items.push({ k: 'line', x1, y1: y1 + dy, x2, y2: y2 + dy, w, c, cap, ...(fixed ? { fixed } : {}) });
   return {
-    line: (x1: number, y1: number, x2: number, y2: number, w: number, c = BLACK) =>
-      pdf.drawLine({ start: { x: X(x1), y: Y(y1) }, end: { x: X(x2), y: Y(y2) }, thickness: mmToPt(w), color: color(c) }),
-    dot: (x: number, y: number, r: number, c = BLACK) => pdf.drawCircle({ x: X(x), y: Y(y), size: mmToPt(r), color: color(c) }),
-    ring: (x: number, y: number, r: number, w: number, c = BLACK) => pdf.drawCircle({ x: X(x), y: Y(y), size: mmToPt(r), borderWidth: mmToPt(w), borderColor: color(c) }),
-    rect: (x: number, y: number, w: number, h: number, c: string) =>
-      pdf.drawRectangle({ x: X(x), y: Y(y + h), width: mmToPt(w), height: mmToPt(h), color: color(c) }),
-    outline: (x: number, y: number, w: number, h: number, lw: number, c = BLACK) =>
-      pdf.drawRectangle({ x: X(x), y: Y(y + h), width: mmToPt(w), height: mmToPt(h), borderWidth: mmToPt(lw), borderColor: color(c) }),
+    line,
+    rect: (x: number, y: number, w: number, h: number, c: string) => items.push({ k: 'rect', x, y: y + dy, w, h, c }),
+    /** A box drawn as four strokes with squared ends, so its corners are filled. */
+    outline: (x: number, y: number, w: number, h: number, lw: number, c = BLACK) => {
+      line(x, y, x + w, y, lw, c, false, 'square'); line(x, y + h, x + w, y + h, lw, c, false, 'square');
+      line(x, y, x, y + h, lw, c, false, 'square'); line(x + w, y, x + w, y + h, lw, c, false, 'square');
+    },
     width: (str: string, size: number) => fonts.regular.widthOfTextAtSize(str, mmToPt(size)) / mmToPt(1),
-    /** Text with its baseline at y. */
+    /** Text with its baseline at y. Turned a quarter (`rotate`), it runs up the sheet from its start. */
     text: (str: string, x: number, y: number, size: number, c = BLACK, align: Align = 'start', knockout = false, rotate = false) => {
-      const width = fonts.regular.widthOfTextAtSize(str, mmToPt(size));
-      // Turned a quarter, the text runs up the sheet from its start, so an aligned text starts that much below y.
-      if (rotate) {
-        pdf.drawText(str, { x: X(x), y: Y(y) - (align === 'middle' ? width / 2 : align === 'end' ? width : 0), size: mmToPt(size), font: fonts.regular, color: color(c), rotate: degrees(90) });
-        return;
-      }
-      const left = X(x) - (align === 'middle' ? width / 2 : align === 'end' ? width : 0);
+      const width = fonts.regular.widthOfTextAtSize(str, mmToPt(size)) / mmToPt(1);
+      if (rotate) { items.push({ k: 'text', str, x, y: y + dy, size, font: 'regular', c, align, rot: 90 }); return; }
       // A knocked-out label is on white, so a line running through it doesn't strike it out.
-      if (knockout) pdf.drawRectangle({ x: left - mmToPt(0.1), y: Y(y) - mmToPt(size * 0.2), width: width + mmToPt(0.2), height: mmToPt(size * 0.95), color: color('#ffffff') });
-      pdf.drawText(str, { x: left, y: Y(y), size: mmToPt(size), font: fonts.regular, color: color(c) });
+      if (knockout) {
+        const left = x - (align === 'middle' ? width / 2 : align === 'end' ? width : 0);
+        items.push({ k: 'rect', x: left - 0.1, y: y + dy - size * 0.75, w: width + 0.2, h: size * 0.95, c: '#ffffff' });
+      }
+      items.push({ k: 'text', str, x, y: y + dy, size, font: 'regular', c, align, rot: 0 });
     },
   };
 }
@@ -141,7 +146,7 @@ function footer(c: Canvas, print: PrintSettings, now: Date, isRight: boolean, cr
 /** A designed page goes through drawPage, so tones, dots and lines print exactly as in a book. */
 function content(g: Half, print: PrintSettings, p: Page, isRight: boolean) {
   const o = pageOrigin(isRight, 0);
-  drawPage(g.pdf, p, { x: o.x + g.dx, y: o.y + g.dy, sheetHeight: g.height, fonts: g.fonts, pageNumber: null, expand: (t) => t, tones: tonesOf(print) });
+  layoutPage(p, { x: o.x, y: o.y + g.dy, pageNumber: null, expand: (t) => t, tones: tonesOf(print) }, g.items);
 }
 
 // ---- scales and rulers ---------------------------------------------------------------------------------------
@@ -261,13 +266,45 @@ function hairlines(c: Canvas) {
   });
 }
 
+/**
+ * Line weight by direction, on the left page's free right-hand side: pairs of identical lines, one along each paper edge, so a printer
+ * that draws one direction thicker shows; and a ladder of lines along the 8.5 in edge at 85 to 100 % of 0.35 mm beside a 0.35 mm line along
+ * the other edge, so the step that matches it can be picked. The ladder is exempt from the line weight setting (`fixed`), so its steps
+ * are the same whatever that is set to; the pairs are not, so they show what the setting does, and say the width each is drawn at.
+ */
+function lineWeights(c: Canvas, layout: SheetLayout, print: PrintSettings) {
+  const { x, y } = gridAt(false, 0);
+  const x0 = x + 43, hx0 = x0 + 9, hx1 = hx0 + 11, vx = hx1 + 5, edges = EDGE_NAMES[layout];
+  c.text('LINE WEIGHT BY DIRECTION', x0, y + 4.2, 1.8);
+  c.text(edges.x, hx0, y + 7.7, 1.4);
+  c.text(edges.y, vx - 4, y + 7.7, 1.4);
+  PAIR_WIDTHS.forEach((w, i) => {
+    const at = y + 13.2 + i * 9;
+    c.text(`${w.toFixed(2)} mm`, x0, at + 0.6, 1.8);
+    c.line(hx0, at, hx1, at, w);
+    c.line(vx, at - 4, vx, at + 4, w);
+    // The widths as drawn (after the line weight setting), so its effect can be read even where the printer can't show it.
+    c.text(`drawn ${(w * lineWeightOf(print)).toFixed(3)} mm`, hx0, at + 2.6, 1.3);
+    c.text(`other ${w.toFixed(3)} mm`, hx0, at + 4.3, 1.3);
+  });
+  const top = y + 39.2;
+  c.text(`LADDER: ${LADDER_MM} mm`, x0, top, 1.8);
+  LADDER_PCT.forEach((pct, i) => {
+    const at = top + 4 + i * 4;
+    c.text(`${pct}%`, x0, at + 0.6, 1.8);
+    c.line(hx0, at, hx1, at, (LADDER_MM * pct) / 100, BLACK, true);
+  });
+  c.line(vx, top + 1.5, vx, top + 18.5, LADDER_MM);
+  c.text(`${LADDER_MM} mm`, x0 + 18, top + 21.5, 1.4);
+}
+
 /** The pages of the set that are designed with page elements (the rest is drawn straight on the sheet). */
 export const calibrationPages = (print: PrintSettings): Page[] => [frontLeft(print), frontRight()];
 
 // ---- the pages ---------------------------------------------------------------------------------------------------
 
 /** One half-letter sheet's place on a PDF page (the whole page for half letter): where to draw, and a canvas to draw it with. */
-interface Half { pdf: PdfPage; fonts: Fonts; height: number; dx: number; dy: number; c: Canvas; /** Which half this is, and how many there are. */ index: number; count: number }
+interface Half { items: Item[]; fonts: Fonts; height: number; dy: number; c: Canvas; /** Which half this is, and how many there are. */ index: number; count: number }
 
 /** A page of a calibration PDF: which side it prints, what the trim zone label says after "Book 1 |", how to draw one half, and what to draw once on the whole sheet. */
 interface CalPage { side: 'front' | 'back'; label: string[]; draw: (g: Half) => void; whole?: (g: Half) => void }
@@ -282,15 +319,14 @@ async function calibrationPdf(book: Book, print: PrintSettings, fontBytes: FontB
   const { doc, fonts } = await newDocument(fontBytes);
   const layout = print.sheet_layout, { w, h } = sheetSize(layout), tops = halfTops(layout), twoUp = isTwoUp(layout);
   for (const page of pages) {
-    const pdf = doc.addPage([mmToPt(w), mmToPt(h)]);
-    onSheet(pdf, w, h, transformOf(print, page.side), (dx, dy) => {
-      tops.forEach((top, i) => {
-        page.draw({ pdf, fonts, height: h, dx, dy: dy + top, c: sheetCanvas(pdf, fonts, h, dx, dy + top), index: i, count: tops.length });
-        if (twoUp) drawHalfLabel(pdf, fonts, halfLabel(fonts.regular, i as 0 | 1, bookTitle(book), ...page.label), top, dx, dy);
-      });
-      page.whole?.({ pdf, fonts, height: h, dx, dy, c: sheetCanvas(pdf, fonts, h, dx, dy), index: 0, count: tops.length });
-      if (twoUp) drawCutMarks(pdf, dx, dy);
+    const items: Item[] = [];
+    tops.forEach((top, i) => {
+      page.draw({ items, fonts, height: h, dy: top, c: sheetCanvas(items, fonts, top), index: i, count: tops.length });
+      if (twoUp) items.push(halfLabelItem(halfLabel(fonts.regular, i as 0 | 1, bookTitle(book), ...page.label), top));
     });
+    page.whole?.({ items, fonts, height: h, dy: 0, c: sheetCanvas(items, fonts), index: 0, count: tops.length });
+    if (twoUp) items.push(...cutMarks());
+    drawItems(doc.addPage([mmToPt(w), mmToPt(h)]), printSide(items, print, page.side, w, h), fonts, h);
   }
   return doc.save({ useObjectStreams: false });
 }
@@ -307,6 +343,7 @@ function sheetFront(g: Half, print: PrintSettings, now: Date) {
   content(g, print, frontRight(), true);
   ramp(g.c);
   hairlines(g.c);
+  lineWeights(g.c, print.sheet_layout, print);
   const { x, y } = gridAt(false, 0);
   const lines = ['SIDE 1 (FRONT)', ...settingsLines(print, now)];
   lines.forEach((line, i) => g.c.text(line, x + 0.8, y + 114 - (lines.length - 1 - i) * 1.7, 1.4));
@@ -403,11 +440,10 @@ async function sheetPdf(print: PrintSettings, fontBytes: FontBytes, now: Date): 
   const { doc, fonts } = await newDocument(fontBytes);
   const { w, h } = sheetSize(print.sheet_layout);
   for (const side of ['front', 'back'] as const) {
-    const pdf = doc.addPage([mmToPt(w), mmToPt(h)]);
-    onSheet(pdf, w, h, transformOf(print, side), (dx, dy) => {
-      const g: Half = { pdf, fonts, height: h, dx, dy, c: sheetCanvas(pdf, fonts, h, dx, dy), index: 0, count: 1 };
-      if (side === 'front') sheetFront(g, print, now); else sheetBack(g, print);
-    });
+    const items: Item[] = [];
+    const g: Half = { items, fonts, height: h, dy: 0, c: sheetCanvas(items, fonts), index: 0, count: 1 };
+    if (side === 'front') sheetFront(g, print, now); else sheetBack(g, print);
+    drawItems(doc.addPage([mmToPt(w), mmToPt(h)]), printSide(items, print, side, w, h), fonts, h);
   }
   return doc.save({ useObjectStreams: false });
 }

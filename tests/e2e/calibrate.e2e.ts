@@ -311,3 +311,51 @@ for (const device of ['phone', 'tablet', 'desktop'] as const) {
     });
   });
 }
+
+for (const device of ['phone', 'tablet', 'desktop'] as const) {
+  describe(`the Calibrate wizard: fold twist and line weight (${device})`, () => {
+    it('shows the twist against the paper once both readings of a fold pair are typed, and changes no setting', async () => {
+      const app = await open(env, device);
+      await startFlat(app);
+      await openCalibrate(app);
+      const twist = app.page.locator('dialog.calibrate [data-key="calibrate-fold-twist"]');
+      expect(await twist.isHidden()).toBe(true);
+      await set(app, 'calibrate', 'calibrate-read-hfold-left', '0.2');
+      expect(await twist.isHidden()).toBe(true); // one reading of a pair says nothing about a twist
+      await set(app, 'calibrate', 'calibrate-read-hfold-right', '0.5');
+      expect(await twist.innerText()).toContain('Horizontal fold, twist against the paper: 0.3 mm over 76 mm');
+      expect(await twist.innerText()).not.toContain('Vertical fold');
+      await set(app, 'calibrate', 'calibrate-read-vfold-top', '-0.1');
+      await set(app, 'calibrate', 'calibrate-read-vfold-bottom', '0.3');
+      expect(await twist.innerText()).toContain('Vertical fold, twist against the paper: 0.4 mm over 76 mm');
+      await twist.scrollIntoViewIfNeeded();
+      await shot(app, `${device}-calibrate-fold-twist`);
+      // Information only: the printer's settings are as they were.
+      expect((await profile(app)).layouts.half_letter).toMatchObject(NONE);
+      expect(await missingHelp(app)).toEqual([]);
+    });
+
+    it('takes the ladder step as a reading, shows the line weight in New settings, and keeps it as the selected layout’s printer setting, never in the book', async () => {
+      const app = await open(env, device);
+      await startFlat(app);
+      await openCalibrate(app);
+      const text = await app.page.locator('dialog.calibrate').innerText();
+      expect(text).toMatch(/pairs of lines on side 1 still differ/);
+      expect(text).toMatch(/never thickens lines/);
+      await set(app, 'calibrate', 'calibrate-read-ladder', '90');
+      const result = await app.page.locator('[data-key="calibrate-sheet-result"]').innerText();
+      expect(result).toContain('Line weight along the 8.5 in edge: 100 → 90 %');
+      await app.page.locator('[data-key="calibrate-use-sheet"]').scrollIntoViewIfNeeded();
+      await shot(app, `${device}-calibrate-line-weight`);
+      await hit(app, 'dialog.calibrate [data-key="calibrate-use-sheet"]');
+      expect((await profile(app)).layouts.half_letter.line_weight_x_pct).toBe(90);
+      expect((await profile(app)).layouts.letter_two_up.line_weight_x_pct ?? 100).toBe(100);
+      expect(await bookDraft(app)).toBe(BOOK);
+      await set(app, 'calibrate', 'calibrate-read-ladder', '500'); // brought back inside its limits
+      expect(await app.page.locator('[data-key="calibrate-sheet-result"]').innerText()).toContain('→ 120 %');
+      if (app.touch) expect(await small(app)).toEqual([]);
+      expect(await noOverflow(app)).toBe(true);
+      expect(await missingHelp(app)).toEqual([]);
+    });
+  });
+}

@@ -109,7 +109,7 @@ describe('centering, creep and the back offset in the content', () => {
     const files = await exportBookFiles(labelledBook(52), printer({ creep_per_sheet_mm: 0.2 }), fonts);
     for (const name of ['print-first.pdf', 'print-second.pdf', 'cover-outside.pdf', 'cover-inside.pdf']) {
       for (const page of await readPdf(file(files, name))) {
-        expect(page.content).toMatch(/ re\nW\nn\n/); // each page is clipped to its own box
+        expect(page.content).toMatch(/ l\nh\nW\nn\n/); // each page is clipped to its own box
         for (const m of numbers(page.content)) {
           const x = parseFloat(m[1] ?? m[3]);
           expect(x / PT).toBeGreaterThan(TRIM_ZONE_MM);

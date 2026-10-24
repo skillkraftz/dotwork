@@ -5,7 +5,7 @@ import { withBookJson } from './print/bundle';
 import type { ExportedFile } from './print/export';
 import { loadFontBytes } from './print/fonts';
 import { SPINE_WARN_MM, creepPages, creepResult, innermostSpineMargin, predictedMargins, validPages, type Printed } from './book/creep';
-import { FOLD_HOW, NO_READINGS, scaleCaptions, sheetResult, type SheetReadings } from './book/alignment';
+import { FOLD_HOW, NO_READINGS, foldTwist, scaleCaptions, sheetResult, twistText, type SheetReadings } from './book/alignment';
 import { GRID_Y_MM } from './format/types';
 import { PRINT_LIMITS, type Book } from './book/book';
 import { EDGE_NAMES, LAYOUT_NAMES, PAPER_SETTINGS, profileOf, type LayoutProfile, type PrintSettings, type SheetLayout } from './book/impose';
@@ -27,12 +27,12 @@ const STEPS = ['Sheet', 'Creep and cover', 'Check'] as const;
 /** What the sheet step changes, by name. */
 const RESULTS: [keyof LayoutProfile, string, string][] = [
   ['front_offset_x_mm', 'Front offset x', 'mm'], ['front_offset_y_mm', 'Front offset y', 'mm'], ['back_offset_x_mm', 'Back offset x', 'mm'], ['back_offset_y_mm', 'Back offset y', 'mm'],
-  ['back_rotation_deg', 'Back rotation', '°'], ['scale_x_pct', 'Scale along the first edge', '%'], ['scale_y_pct', 'Scale along the second edge', '%'],
+  ['back_rotation_deg', 'Back rotation', '°'], ['scale_x_pct', 'Scale along the first edge', '%'], ['scale_y_pct', 'Scale along the second edge', '%'], ['line_weight_x_pct', 'Line weight along the first edge', '%'],
 ];
 
 /** The sheet step's readings, as typed. */
 type SheetFields = { [K in keyof SheetReadings]: string };
-const EMPTY_SHEET: SheetFields = { topX: '', bottomX: '', leftY: '', rightY: '', hFoldLeft: '', hFoldRight: '', vFoldTop: '', vFoldBottom: '', longX: '', longY: '' };
+const EMPTY_SHEET: SheetFields = { topX: '', bottomX: '', leftY: '', rightY: '', hFoldLeft: '', hFoldRight: '', vFoldTop: '', vFoldBottom: '', longX: '', longY: '', ladder: '' };
 
 /** The page count, creep, shifts and target a creep test was printed with, as typed. */
 type TestPrinted = { pages: string; creep: string; shift: string; coverShift: string; target: string };
@@ -194,16 +194,21 @@ export class CalibrateDialog {
   private sheet(): HTMLElement[] {
     const layout = this.layout, twoUp = layout === 'letter_two_up', cap = scaleCaptions(layout);
     const result = h('div', { class: 'cal-result', role: 'status', 'data-key': 'calibrate-sheet-result' });
+    const twist = h('p', { class: 'hint', 'data-key': 'calibrate-fold-twist', 'data-help': 'calibrate-fold-twist' });
     const num_ = (k: keyof SheetFields) => num(this.read.sheet[k]);
     const redraw = () => {
       const r: SheetReadings = { ...NO_READINGS };
       for (const k of Object.keys(EMPTY_SHEET) as (keyof SheetFields)[]) r[k] = num_(k);
+      // Information only: how far the print is turned against the paper's folds, from each pair read.
+      const t = foldTwist(r);
+      twist.replaceChildren(...[['Horizontal fold', t.horizontal], ['Vertical fold', t.vertical]].flatMap(([name, v]) => (v ? [h('span', {}, `${name}, ${twistText(v as { mm: number; over: number })}. `)] : [])));
+      twist.hidden = !t.horizontal && !t.vertical;
       if ((Object.values(r) as (number | null)[]).every((v) => v === null)) { result.replaceChildren(h('p', { class: 'hint' }, 'Enter what you read to see the new settings.')); return; }
       const now = profileOf(this.host.printer.get()), printed = this.printed ?? now;
       const next = sheetResult(layout, printed, r);
       const edges = EDGE_NAMES[layout];
       const rows = RESULTS.map(([k, name, unit]) => {
-        const label = k === 'scale_x_pct' ? `Scale along the ${edges.x} edge` : k === 'scale_y_pct' ? `Scale along the ${edges.y} edge` : name;
+        const label = k === 'line_weight_x_pct' ? `Line weight along the ${edges.x} edge` : k === 'scale_x_pct' ? `Scale along the ${edges.x} edge` : k === 'scale_y_pct' ? `Scale along the ${edges.y} edge` : name;
         const show = k === 'back_rotation_deg' ? (v: number) => `${Math.round(v * 1000) / 1000}` : mm; // a degree is fine, so the rotation shows its third decimal
         return h('li', {}, `${label}: ${show(now[k])} → `, h('strong', {}, `${show(next[k])} ${unit}`));
       });
@@ -232,8 +237,12 @@ export class CalibrateDialog {
       h('h3', {}, 'Fold, where the crease crosses (mm)'),
       r('hFoldLeft', cap.hFoldLeft, 'calibrate-read-hfold-left'), r('hFoldRight', cap.hFoldRight, 'calibrate-read-hfold-right'),
       r('vFoldTop', cap.vFoldTop, 'calibrate-read-vfold-top'), r('vFoldBottom', cap.vFoldBottom, 'calibrate-read-vfold-bottom'),
+      twist,
       h('h3', {}, '100 mm lines, measured (mm)'),
       r('longX', cap.longX, 'calibrate-read-line-x'), r('longY', cap.longY, 'calibrate-read-line-y'),
+      h('h3', {}, 'Line weight ladder (optional, %)'),
+      h('p', { class: 'hint' }, `Only if the pairs of lines on side 1 still differ once the scale is right (a printer can draw lines along the ${EDGE_NAMES[layout].x} edge thicker than lines along the ${EDGE_NAMES[layout].y} edge): pick the ladder step whose line looks as thick as the 0.35 mm line along the ${EDGE_NAMES[layout].y} edge. The scale never thickens lines, so print the sheet again after setting it. Each pair says the width it is drawn at, so the setting’s effect is there on paper even if the printer can’t show it. Steps smaller than about 0.04 mm may be below what the printer can show: if 100 % and 90 % look the same, keep 100 %. Leave it empty if the pairs look the same.`),
+      r('ladder', `ladder step that matches (%)`, 'calibrate-read-ladder'),
       h('h3', {}, 'New settings'),
       result,
     ];

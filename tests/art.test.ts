@@ -1,15 +1,17 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { LineCapStyle, PDFDocument } from 'pdf-lib';
-import { describe, expect, it, vi } from 'vitest';
+import { PDFDocument } from 'pdf-lib';
+import { describe, expect, it } from 'vitest';
 import { importSvg, MAX_SVG_BYTES } from '../src/art/import';
 import { artMatrix, artPaths, canFill, canStroke, defaultSize } from '../src/format/art';
 import { artFromDrag } from '../src/geometry';
-import { pointsOf, parseStored } from '../src/format/path';
+import { pathString, pointsOf, parseStored } from '../src/format/path';
 import { formatIssue, validatePage } from '../src/format/validate';
-import type { Art, Page } from '../src/format/types';
+import { GRID_X_MM, GRID_Y_MM, type Art, type Page } from '../src/format/types';
 import { artColor, pageContent, SCREEN_ART_TONES } from '../src/render';
-import { color, drawPage } from '../src/print/draw';
+import { drawPage } from '../src/print/draw';
+import type { Item } from '../src/print/display';
+import { layoutPage } from '../src/print/layout';
 import { makeWidget, placeWidget } from '../src/widgets';
 
 const svg = (body: string, attrs = 'viewBox="0 0 100 100"') => `<svg xmlns="http://www.w3.org/2000/svg" ${attrs}>${body}</svg>`;
@@ -200,6 +202,12 @@ describe('placing art in its area', () => {
 });
 
 const markup = (a: Art) => pageContent(pageOf(a), { mode: 'export', pageNumber: null });
+/** The art paths the layout stage makes for a page, in mm from the grid's corner (the same units the screen draws). */
+const drawnPaths = (el: Art, tones?: { shade: { L: string; M: string; D: string }; grayText: string }) => {
+  const items: Item[] = [];
+  layoutPage(pageOf(el), { x: -GRID_X_MM, y: -GRID_Y_MM, pageNumber: null, expand: (t) => t, tones }, items);
+  return items.filter((i): i is Extract<Item, { k: 'path' }> => i.k === 'path');
+};
 const pageOf = (...elements: Art[]): Page => ({ format: 'dotwork-page', version: 2, name: 'T', grid: { cols: 27, rows: 44, pitch_mm: 3 }, elements });
 
 describe('the screen and the PDF draw the same paths', () => {
@@ -212,30 +220,20 @@ describe('the screen and the PDF draw the same paths', () => {
     ],
   };
 
-  it('SVG path data and the PDF path data are the same strings', async () => {
-    const pdf = await PDFDocument.create();
-    const sheet = pdf.addPage();
-    const spy = vi.spyOn(sheet, 'drawSvgPath');
-    drawPage(sheet, pageOf(a), { x: 0, y: 0, sheetHeight: 139.7, fonts: {} as never, pageNumber: null, expand: (t) => t });
+  it('SVG path data and the layout stage’s path data are the same strings', () => {
     const onScreen = [...markup(a).matchAll(/<path class="art" d="([^"]+)"/g)].map((m) => m[1]);
     expect(onScreen).toEqual(artPaths(a).map((p) => p.d));
-    expect(spy.mock.calls.map((c) => c[0])).toEqual(onScreen);
+    expect(drawnPaths(a).map((p) => pathString(p.segs))).toEqual(onScreen);
   });
 
-  it('draws fills, lines and widths with the print tones', async () => {
+  it('draws fills, lines and widths with the print tones', () => {
     const tones = { shade: { L: '#f1f1f1', M: '#d1d1d1', D: '#a1a1a1' }, grayText: '#707070' };
-    const pdf = await PDFDocument.create();
-    const sheet = pdf.addPage();
-    const spy = vi.spyOn(sheet, 'drawSvgPath');
-    drawPage(sheet, pageOf(a), { x: 0, y: 0, sheetHeight: 139.7, fonts: {} as never, pageNumber: null, expand: (t) => t, tones });
-    const opts = spy.mock.calls.map((c) => c[1]!);
-    expect(opts[0]).toMatchObject({ color: color('#f1f1f1'), borderColor: color('#000000'), borderWidth: 0.3 });
-    expect(opts[1].color).toBeUndefined();
-    expect(opts[1]).toMatchObject({ borderColor: color('#707070'), borderWidth: 0.5 });
-    expect(opts[2]).toMatchObject({ color: color('#a1a1a1') });
-    expect(opts[2].borderColor).toBeUndefined();
-    // The scale is points per mm, so a width in mm stays that wide on paper.
-    expect(opts[0].scale).toBeCloseTo(72 / 25.4);
+    const drawn = drawnPaths(a, tones);
+    expect(drawn[0]).toMatchObject({ fill: '#f1f1f1', stroke: { c: '#000', w: 0.3 } });
+    expect(drawn[1].fill).toBeUndefined();
+    expect(drawn[1]).toMatchObject({ stroke: { c: '#707070', w: 0.5 } });
+    expect(drawn[2]).toMatchObject({ fill: '#a1a1a1' });
+    expect(drawn[2].stroke).toBeUndefined();
   });
 
   it('the screen uses the fixed grays', () => {
@@ -397,22 +395,18 @@ describe('the gauge', () => {
     expect(gray.filter((p) => p.stroke === 'gray')).toHaveLength(1);
   });
 
-  it('draws both dials in the PDF with round line caps, the same paths as the screen', async () => {
+  it('draws both dials in the PDF with round line caps, the same paths as the screen', () => {
     const tones = { shade: { L: '#f1f1f1', M: '#d1d1d1', D: '#a1a1a1' }, grayText: '#707070' };
     for (const [el, rounds] of [[energy(), 3], [engagement(), 2]] as const) {
-      const pdf = await PDFDocument.create();
-      const sheet = pdf.addPage();
-      const spy = vi.spyOn(sheet, 'drawSvgPath');
-      drawPage(sheet, pageOf(el), { x: 0, y: 0, sheetHeight: 139.7, fonts: {} as never, pageNumber: null, expand: (t) => t, tones });
-      expect(spy.mock.calls.map((c) => c[0])).toEqual(artPaths(el).map((p) => p.d));
-      const caps = spy.mock.calls.map((c) => (c[1] as { borderLineCap?: number }).borderLineCap);
-      expect(caps.filter((c) => c === LineCapStyle.Round)).toHaveLength(rounds);
-      const medium = spy.mock.calls.filter((c) => JSON.stringify((c[1] as { color?: unknown }).color) === JSON.stringify(color('#d1d1d1')));
+      const drawn = drawnPaths(el, tones);
+      expect(drawn.map((p) => pathString(p.segs))).toEqual(artPaths(el).map((p) => p.d));
+      expect(drawn.filter((p) => p.stroke?.cap === 'round')).toHaveLength(rounds);
+      const medium = drawn.filter((p) => p.fill === '#d1d1d1');
       expect(medium).toHaveLength(rounds === 3 ? 1 : 0); // the left half is medium in Energy, and gone in Engagement
     }
   });
 
-  it('on the Energy dial, ticks set to none hide the tick marks on screen and in the PDF, and nothing else', async () => {
+  it('on the Energy dial, ticks set to none hide the tick marks on screen and in the PDF, and nothing else', () => {
     const off = { ...energy(), strokes: { 'centre-line': 'black', ticks: 'none' } } as Art;
     const ticks = gaugeArt().art.paths.find((p) => p.id === 'ticks')!;
     // The one path holds the two side ticks and the one at the top: its line control turns all three off together.
@@ -427,14 +421,8 @@ describe('the gauge', () => {
     expect(markup(off).match(/stroke-linecap="round"/g)).toHaveLength(2);
     // PDF: the same path is not drawn
     const tones = { shade: { L: '#f1f1f1', M: '#d1d1d1', D: '#a1a1a1' }, grayText: '#707070' };
-    const calls = async (el: Art) => {
-      const pdf = await PDFDocument.create();
-      const sheet = pdf.addPage();
-      const spy = vi.spyOn(sheet, 'drawSvgPath');
-      drawPage(sheet, pageOf(el), { x: 0, y: 0, sheetHeight: 139.7, fonts: {} as never, pageNumber: null, expand: (t) => t, tones });
-      return spy.mock.calls.map((c) => c[0]);
-    };
-    const [before, after] = [await calls(energy()), await calls(off)];
+    const calls = (el: Art) => drawnPaths(el, tones).map((p) => pathString(p.segs));
+    const [before, after] = [calls(energy()), calls(off)];
     const tickPath = artPaths({ ...energy(), paths: [ticks] })[0].d;
     expect(before).toContain(tickPath);
     expect(after).not.toContain(tickPath);

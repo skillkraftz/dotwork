@@ -150,13 +150,13 @@ cover. The outside front and outside back covers are two more pages to design.
   book, so the printer can duplex by itself; chosen in this one place), creep per sheet and the **fore-edge shifts** (interior and cover) and **target fore-edge margin** that put the trimmed
   margin where you want it, and for each layout the **front and back offsets** (x and y), the **back rotation** and the **scale along each paper edge** (so printed sizes
   measure true), and four **tones**: how dark the printed PDFs draw the light, medium and dark shade and the gray text, as a percent of black (the editor and PNGs
-  keep their fixed grays). Settings that would push content past the fold or off the paper are refused with the reason.
+  keep their fixed grays). An optional **line weight along the 8.5 in edge** (per layout) thins or thickens strokes by direction, for a printer that draws one direction heavier. The scale, rotation and offsets only move things: lines, dots and letters are never stretched (see [docs/print-pipeline.md](docs/print-pipeline.md)). Settings that would push content past the fold or off the paper are refused with the reason; content that would print within 3 mm of a two-up sheet's edge only gets a warning (the print driver may cut it off: check by printing that page).
 - **Calibrate your printer…** (PDF tab) opens a three-step wizard for the sheet layout chosen in the PDF tab (it names it, with a link to change it), one step on screen at a time, with Back and Next:
   1. **Sheet** downloads `calibration-sheet.pdf`, one double-sided sheet per layout on the whole paper (two-up: the whole letter sheet). Five marks: top,
      bottom, left and right 8 mm in from the edges, and the centre. Side 1 has a fine + at each, and the gray ramp, sample text, dot, line and hairline
-     samples away from them. Side 2 is all measuring: print the sheet, hold it to a light, and read the see-through scale at each edge mark where side 1's
+     samples away from them, and a **line weight by direction** block: pairs of identical lines (0.12, 0.25, 0.35 mm), one along each paper edge, and a ladder at 85 to 100 % of 0.35 mm. Side 2 is all measuring: print the sheet, hold it to a light, and read the see-through scale at each edge mark where side 1's
      + shows through (x at the top and bottom, y at the left and right), fold the sheet top edge to bottom edge and then left edge to right edge and read where each crease
-     crosses the fold scales on side 2 (0 is right), and measure two 100 mm lines with a ruler (parallel to the 8.5 in edge, and to the 5.5 in edge or the 11 in edge of two-up).
+     crosses the fold scales on side 2 (0 is right; the wizard shows each fold pair's twist against the paper, for information), and measure two 100 mm lines with a ruler (parallel to the 8.5 in edge, and to the 5.5 in edge or the 11 in edge of two-up).
      Print it twice: if the readings differ much between the two prints, the twist comes from the paper feed, not something a setting
      can fix. The wizard turns the readings into the back's offsets and **rotation** (about the sheet's centre) and the front's offsets (against the paper, from the fold
      readings with the see-through readings), and the 100 mm lines into the scale of each paper edge. It says how to print: page scaling None / Actual size, paper size *Statement

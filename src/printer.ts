@@ -26,10 +26,14 @@ export function readPrinter(data: unknown): { ok: true; value: PrintSettings } |
   }
   if (!SHEET_LAYOUTS.includes(o.sheet_layout as never)) issues.push({ rule: 'print-setting', path: 'sheet_layout', message: `"sheet_layout" must be ${SHEET_LAYOUTS.map((l) => `"${l}"`).join(' or ')}, got ${JSON.stringify(o.sheet_layout)}.` });
   const layouts = typeof o.layouts === 'object' && o.layouts !== null ? (o.layouts as Record<string, unknown>) : {};
-  // A profile saved before the back rotation existed has none: that is no rotation, not a broken profile.
+  // A profile saved before the back rotation or the line weight existed has none: that is no rotation and no change in weight, not a broken profile.
   for (const layout of SHEET_LAYOUTS) {
     const l = layouts[layout];
-    if (typeof l === 'object' && l !== null && !Array.isArray(l) && !('back_rotation_deg' in l)) (l as Record<string, unknown>).back_rotation_deg = 0;
+    if (typeof l === 'object' && l !== null && !Array.isArray(l)) {
+      const profile = l as Record<string, unknown>;
+      if (!('back_rotation_deg' in profile)) profile.back_rotation_deg = 0;
+      if (!('line_weight_x_pct' in profile)) profile.line_weight_x_pct = 100;
+    }
     issues.push(...layoutIssues(l, `layouts.${layout}`));
   }
   if (issues.length) return { ok: false, issues };

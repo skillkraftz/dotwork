@@ -54,6 +54,18 @@ describe('the printer profile', () => {
     if (r.ok) expect(r.value.layouts.half_letter.back_rotation_deg).toBe(0);
   });
 
+  it('reads a profile saved before the line weight existed, as 100 % (nothing changes), and keeps the rest of it', () => {
+    const old = clonePrint(calibrated) as unknown as { layouts: Record<string, Record<string, unknown>> };
+    for (const l of Object.values(old.layouts)) delete l.line_weight_x_pct;
+    const r = readPrinter(old);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.value.layouts.half_letter.line_weight_x_pct).toBe(100);
+      expect(r.value.layouts.letter_two_up.line_weight_x_pct).toBe(100);
+      expect(r.value.layouts.half_letter.front_offset_x_mm).toBe(-1.5);
+    }
+  });
+
   it('reports a storage that refuses, with the browser’s own reason', () => {
     const problem = savePrinter(refusing('The operation is insecure.'), calibrated);
     expect(problem).not.toBeNull();
@@ -88,7 +100,7 @@ describe('the printer profile', () => {
 
 describe('the layouts in the printer profile', () => {
   it('require every offset, the rotation and the scale of each layout, within their limits, with the path', () => {
-    const limits = { front_offset_x_mm: [-10.1, 10.1], front_offset_y_mm: [-10.1, 10.1], back_offset_x_mm: [-10.1, 10.1], back_offset_y_mm: [-10.1, 10.1], back_rotation_deg: [-1.6, 1.6], scale_x_pct: [94.9, 105.1], scale_y_pct: [94.9, 105.1] } as const;
+    const limits = { front_offset_x_mm: [-10.1, 10.1], front_offset_y_mm: [-10.1, 10.1], back_offset_x_mm: [-10.1, 10.1], back_offset_y_mm: [-10.1, 10.1], back_rotation_deg: [-1.6, 1.6], scale_x_pct: [94.9, 105.1], scale_y_pct: [94.9, 105.1], line_weight_x_pct: [79.9, 120.1] } as const;
     for (const layout of ['half_letter', 'letter_two_up'] as const) for (const key of Object.keys(limits) as (keyof typeof limits)[]) {
       for (const bad of [...limits[key], 'x', null]) {
         const p = JSON.parse(JSON.stringify(DEFAULT_PRINT));

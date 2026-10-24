@@ -106,8 +106,10 @@ export interface SheetReadings {
   hFoldLeft: number | null; hFoldRight: number | null; vFoldTop: number | null; vFoldBottom: number | null;
   /** The two 100 mm lines, measured with a ruler, mm: parallel to the 8.5 in edge, and to the other. */
   longX: number | null; longY: number | null;
+  /** The ladder step (percent of 0.35 mm) whose line along the 8.5 in edge looks as thick as the 0.35 mm line along the other edge. The ladder is exempt from the line weight setting, so this is the setting itself. */
+  ladder: number | null;
 }
-export const NO_READINGS: SheetReadings = { topX: null, bottomX: null, leftY: null, rightY: null, hFoldLeft: null, hFoldRight: null, vFoldTop: null, vFoldBottom: null, longX: null, longY: null };
+export const NO_READINGS: SheetReadings = { topX: null, bottomX: null, leftY: null, rightY: null, hFoldLeft: null, hFoldRight: null, vFoldTop: null, vFoldBottom: null, longX: null, longY: null, ladder: null };
 
 const known = (v: number | null): v is number => v !== null;
 const mean = (v: number[]) => v.reduce((a, b) => a + b, 0) / v.length;
@@ -136,6 +138,22 @@ export function backAgainstPaper(layout: SheetLayout, r: SheetReadings, phi = 0)
   const xs = [known(r.vFoldTop) ? -r.vFoldTop + phi * pos('top').y : null, known(r.vFoldBottom) ? -r.vFoldBottom + phi * pos('bottom').y : null].filter(known);
   return { x: xs.length ? mean(xs) : null, y: ys.length ? mean(ys) : null };
 }
+
+/**
+ * The twist of the print against the paper, from a fold pair: the right scale's reading minus the left's (horizontal fold), or the bottom's minus
+ * the top's (vertical fold), mm, and the distance between the two scales it is over. Null if either reading of the pair is missing. Information
+ * only: nothing is changed from it (the back's turn comes from the see-through readings).
+ */
+export function foldTwist(r: SheetReadings): { horizontal: { mm: number; over: number } | null; vertical: { mm: number; over: number } | null } {
+  const over = 2 * FOLD_FROM_CENTRE_MM;
+  return {
+    horizontal: known(r.hFoldLeft) && known(r.hFoldRight) ? { mm: round(r.hFoldRight - r.hFoldLeft), over } : null,
+    vertical: known(r.vFoldTop) && known(r.vFoldBottom) ? { mm: round(r.vFoldBottom - r.vFoldTop), over } : null,
+  };
+}
+
+/** The twist as the sheet's wizard says it. */
+export const twistText = (t: { mm: number; over: number }) => `twist against the paper: ${t.mm} mm over ${t.over} mm`;
 
 /**
  * What the sheet and the Calibrate step call each scale and line, in the same words: the paper's edges of the layout, never across and
@@ -174,5 +192,6 @@ export function sheetResult(layout: SheetLayout, printed: LayoutProfile, r: Shee
   if (rb.y !== null && dy !== null) next.front_offset_y_mm = within(round(printed.front_offset_y_mm - dy - rb.y), 'front_offset_y_mm');
   next.scale_x_pct = scaleFromReading(printed.scale_x_pct, printed.scale_x_pct, r.longX, LINE_MM);
   next.scale_y_pct = scaleFromReading(printed.scale_y_pct, printed.scale_y_pct, r.longY, LINE_MM);
+  if (known(r.ladder)) next.line_weight_x_pct = within(round(r.ladder), 'line_weight_x_pct');
   return next;
 }
