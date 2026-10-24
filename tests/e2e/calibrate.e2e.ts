@@ -335,22 +335,24 @@ for (const device of ['phone', 'tablet', 'desktop'] as const) {
       expect(await missingHelp(app)).toEqual([]);
     });
 
-    it('explains the line weight, and keeps it as the printer’s setting of the selected layout, never in the book', async () => {
+    it('takes the ladder step as a reading, shows the line weight in New settings, and keeps it as the selected layout’s printer setting, never in the book', async () => {
       const app = await open(env, device);
       await startFlat(app);
       await openCalibrate(app);
       const text = await app.page.locator('dialog.calibrate').innerText();
-      expect(text).toMatch(/Only set the line weight if the pairs still differ/);
+      expect(text).toMatch(/pairs of lines on side 1 still differ/);
       expect(text).toMatch(/never thickens lines/);
-      await app.page.locator('dialog.calibrate [data-key="book-line-weight"]').scrollIntoViewIfNeeded();
-      expect(await app.page.locator('dialog.calibrate [data-key="book-line-weight"]').inputValue()).toBe('100');
-      await set(app, 'calibrate', 'book-line-weight', '90');
+      await set(app, 'calibrate', 'calibrate-read-ladder', '90');
+      const result = await app.page.locator('[data-key="calibrate-sheet-result"]').innerText();
+      expect(result).toContain('Line weight along the 8.5 in edge: 100 → 90 %');
+      await app.page.locator('[data-key="calibrate-use-sheet"]').scrollIntoViewIfNeeded();
+      await shot(app, `${device}-calibrate-line-weight`);
+      await hit(app, 'dialog.calibrate [data-key="calibrate-use-sheet"]');
       expect((await profile(app)).layouts.half_letter.line_weight_x_pct).toBe(90);
       expect((await profile(app)).layouts.letter_two_up.line_weight_x_pct ?? 100).toBe(100);
-      await shot(app, `${device}-calibrate-line-weight`);
-      await set(app, 'calibrate', 'book-line-weight', '500'); // brought back inside its limits
-      expect((await profile(app)).layouts.half_letter.line_weight_x_pct).toBe(120);
       expect(await bookDraft(app)).toBe(BOOK);
+      await set(app, 'calibrate', 'calibrate-read-ladder', '500'); // brought back inside its limits
+      expect(await app.page.locator('[data-key="calibrate-sheet-result"]').innerText()).toContain('→ 120 %');
       if (app.touch) expect(await small(app)).toEqual([]);
       expect(await noOverflow(app)).toBe(true);
       expect(await missingHelp(app)).toEqual([]);

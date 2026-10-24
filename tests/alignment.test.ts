@@ -179,3 +179,12 @@ describe('the twist against the paper', () => {
     expect(foldTwist(NO_READINGS)).toEqual({ horizontal: null, vertical: null });
   });
 });
+
+describe('the line weight from the ladder', () => {
+  it('is the picked step itself, kept within 80 to 120, and unchanged when no step was picked', () => {
+    const printed = { ...ZERO, line_weight_x_pct: 100 };
+    expect(sheetResult('half_letter', printed, { ...NO_READINGS, ladder: 90 }).line_weight_x_pct).toBe(90);
+    expect(sheetResult('half_letter', printed, { ...NO_READINGS, ladder: 500 }).line_weight_x_pct).toBe(120);
+    expect(sheetResult('half_letter', { ...printed, line_weight_x_pct: 95 }, NO_READINGS).line_weight_x_pct).toBe(95);
+  });
+});

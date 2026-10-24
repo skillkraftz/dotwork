@@ -27,12 +27,12 @@ const STEPS = ['Sheet', 'Creep and cover', 'Check'] as const;
 /** What the sheet step changes, by name. */
 const RESULTS: [keyof LayoutProfile, string, string][] = [
   ['front_offset_x_mm', 'Front offset x', 'mm'], ['front_offset_y_mm', 'Front offset y', 'mm'], ['back_offset_x_mm', 'Back offset x', 'mm'], ['back_offset_y_mm', 'Back offset y', 'mm'],
-  ['back_rotation_deg', 'Back rotation', '°'], ['scale_x_pct', 'Scale along the first edge', '%'], ['scale_y_pct', 'Scale along the second edge', '%'],
+  ['back_rotation_deg', 'Back rotation', '°'], ['scale_x_pct', 'Scale along the first edge', '%'], ['scale_y_pct', 'Scale along the second edge', '%'], ['line_weight_x_pct', 'Line weight along the first edge', '%'],
 ];
 
 /** The sheet step's readings, as typed. */
 type SheetFields = { [K in keyof SheetReadings]: string };
-const EMPTY_SHEET: SheetFields = { topX: '', bottomX: '', leftY: '', rightY: '', hFoldLeft: '', hFoldRight: '', vFoldTop: '', vFoldBottom: '', longX: '', longY: '' };
+const EMPTY_SHEET: SheetFields = { topX: '', bottomX: '', leftY: '', rightY: '', hFoldLeft: '', hFoldRight: '', vFoldTop: '', vFoldBottom: '', longX: '', longY: '', ladder: '' };
 
 /** The page count, creep, shifts and target a creep test was printed with, as typed. */
 type TestPrinted = { pages: string; creep: string; shift: string; coverShift: string; target: string };
@@ -208,7 +208,7 @@ export class CalibrateDialog {
       const next = sheetResult(layout, printed, r);
       const edges = EDGE_NAMES[layout];
       const rows = RESULTS.map(([k, name, unit]) => {
-        const label = k === 'scale_x_pct' ? `Scale along the ${edges.x} edge` : k === 'scale_y_pct' ? `Scale along the ${edges.y} edge` : name;
+        const label = k === 'line_weight_x_pct' ? `Line weight along the ${edges.x} edge` : k === 'scale_x_pct' ? `Scale along the ${edges.x} edge` : k === 'scale_y_pct' ? `Scale along the ${edges.y} edge` : name;
         const show = k === 'back_rotation_deg' ? (v: number) => `${Math.round(v * 1000) / 1000}` : mm; // a degree is fine, so the rotation shows its third decimal
         return h('li', {}, `${label}: ${show(now[k])} → `, h('strong', {}, `${show(next[k])} ${unit}`));
       });
@@ -240,11 +240,11 @@ export class CalibrateDialog {
       twist,
       h('h3', {}, '100 mm lines, measured (mm)'),
       r('longX', cap.longX, 'calibrate-read-line-x'), r('longY', cap.longY, 'calibrate-read-line-y'),
+      h('h3', {}, 'Line weight ladder (optional, %)'),
+      h('p', { class: 'hint' }, `Only if the pairs of lines on side 1 still differ once the scale is right (a printer can draw lines along the ${EDGE_NAMES[layout].x} edge thicker than lines along the ${EDGE_NAMES[layout].y} edge): pick the ladder step whose line looks as thick as the 0.35 mm line along the ${EDGE_NAMES[layout].y} edge. The scale never thickens lines, so print the sheet again after setting it. Leave it empty if the pairs look the same.`),
+      r('ladder', `ladder step that matches (%)`, 'calibrate-read-ladder'),
       h('h3', {}, 'New settings'),
       result,
-      h('h3', {}, 'Line weight (optional)'),
-      h('p', { class: 'hint' }, `Side 1 has pairs of identical lines, one along each paper edge, and a ladder. The scale only moves things, it never thickens lines, so print the sheet again after setting it. Only set the line weight if the pairs still differ: a printer can draw lines along the ${EDGE_NAMES[layout].x} edge thicker than lines along the ${EDGE_NAMES[layout].y} edge. Then find the ladder step (85 to 100 %) whose line along the ${EDGE_NAMES[layout].x} edge looks as thick as the 0.35 mm line along the ${EDGE_NAMES[layout].y} edge, and enter that percent here. Leave it at 100 if the pairs look the same.`),
-      this.field('line_weight_x_pct'),
     ];
   }
 
