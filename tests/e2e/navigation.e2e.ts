@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { box, cellToClient, choose, draft, drag, hit, open, shot, start, stop, tap, tool, type App, type Env, openDoc} from './harness';
+import { box, cellToClient, choose, draft, drag, hit, nameOpen, open, shot, start, stop, tap, tool, type App, type Env, openDoc} from './harness';
 
 let env: Env;
 beforeAll(async () => { env = await start(); });
@@ -235,7 +235,7 @@ describe('the settings window', () => {
     await page.locator('[data-key="book-signatures"]').fill('2');
     await page.locator('[data-key="book-signatures"]').dispatchEvent('change');
     await page.locator('[data-key="settings-book-numbers"]').uncheck();
-    const book = await page.evaluate(() => JSON.parse(localStorage.getItem('dotwork.book')!));
+    const book = await openDoc(app, 'book');
     expect(book).toMatchObject({ name: 'Field notes', page_numbers: false, print: { signatures: 2 } });
     expect(await smallControls(app, 'dialog.settings')).toEqual([]);
     await shot(app, 'phone-settings-book');
@@ -333,6 +333,7 @@ describe('the library', () => {
     // tapping the item opens it and closes the library
     await page.click('.lib-card[data-name="Lined page"] .lib-open');
     await page.waitForSelector('dialog[aria-label="Library"]', { state: 'hidden' });
+    await page.waitForFunction(() => document.querySelector('#doc-name')?.textContent === 'Lined page');
     expect(await page.innerText('#doc-name')).toBe('Lined page'); // a built-in opens read-only, as itself
     expect(await page.locator('#builtin-bar').isVisible()).toBe(true);
 
@@ -506,10 +507,10 @@ describe('the export window', () => {
     await page.locator('dialog.picker .design', { hasText: 'Lined page' }).first().click();
 
     const now = await exported();
-    const draftBook = await page.evaluate(() => JSON.parse(localStorage.getItem('dotwork.book')!));
+    const draftBook = await openDoc(app, 'book');
     expect(now.name).toBe('Edited since opening');
     expect(now.pages[0].name).toBe('Lined page');
-    expect(now).toEqual(draftBook); // exactly the book on screen, which is what the draft keeps
+    expect(now).toEqual(draftBook); // exactly the book on screen, which is what the Library document keeps
     expect(now).not.toEqual(original);
 
     // Undo is part of "as it is now" too.
@@ -554,6 +555,7 @@ describe('the export window', () => {
     const { page } = app;
     await choose(app, 'page', '#view-book');
     await page.waitForSelector('.stage-page');
+    await nameOpen(app, 'Untitled book'); // an Untitled book is asked for a name before its zip
     await hit(app, '#export');
     await page.waitForSelector('dialog.export[open]');
     expect(await page.locator('dialog.export [data-tab="pdf"]').getAttribute('aria-selected')).toBe('true'); // the book view opens on PDF

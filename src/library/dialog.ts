@@ -1,8 +1,9 @@
 import { GRID_X_MM, GRID_Y_MM, PITCH_MM, emptyPage, type Page } from '../format/types';
 import type { Spread, SpreadSide } from '../format/spread';
-import { readBook, bookPage, type Book } from '../book/book';
+import { bookPage, type Book } from '../book/book';
 import { h, tabBar } from '../panel';
 import { errorProblem, issuesProblem, problemView, type Problem } from '../problems';
+import { slug } from '../slug';
 import { pageContent, thumbnailSvg } from '../render';
 import { placeWidget, widgetSize, type Widget, type WidgetStore } from '../widgets';
 import oflUrl from '../fonts/OFL.txt?url';
@@ -12,22 +13,15 @@ import type { Favorites } from './favorites';
 import { TABS, TAB_LABEL, artId, exampleId, sectionId, spreadId, templateId, visibleEntries, widgetId, type Entry, type LibraryTab } from './browse';
 import { TemplateDialog } from './templatedialog';
 import { TEMPLATES } from '../builtin/templates';
-import { BUILTIN_ART, BUILTIN_NOTICES, BUILTIN_SPREADS, BUILTIN_WIDGETS, asCopy } from '../builtin/library';
+import { BUILTIN_ART, BUILTIN_NOTICES, BUILTIN_SPREADS, BUILTIN_WIDGETS } from '../builtin/library';
 import { BUILTIN_SECTIONS } from '../builtin/sections';
 import { MOVE_LABEL, type Section } from '../book/sections';
 import { isArtWidget } from '../art/widget';
 import { importArtFile } from '../art/report';
 
-/** What can be saved to the Library by hand: only a book. A page or spread is a Library document that saves itself. */
-export type SaveWhat = 'book';
-
-export interface SaveOption { what: SaveWhat; label: string; name: string }
-
 /** What the dialog needs from the editor around it. */
 export interface LibraryHost {
   view(): 'page' | 'spread' | 'book';
-  saveOptions(): SaveOption[];
-  data(what: SaveWhat): Book;
   /** The built-in example pages, listed with the saved pages. Opening or placing one makes a copy. */
   examples: readonly Page[];
   widgets: WidgetStore;
@@ -42,8 +36,8 @@ export interface LibraryHost {
   /** A saved page or spread was renamed or removed here, in case it is the one open. */
   renamed(id: string, name: string): void;
   removed(id: string): void;
-  /** `fresh` is for a book made just now from a template, which takes the printer's saved print settings. */
-  openBook(book: Book, fresh?: boolean): void;
+  /** Open a book: a saved one (its `id`) or a built-in, such as a template's (`id` null, read-only until copied). The open one is written first. */
+  openBook(book: Book, id: string | null): void;
   placePage(page: Page, side: SpreadSide): void;
   /** Arm the widget tool, ready to be put on the page. */
   useWidget(widget: Widget): void;
@@ -100,7 +94,6 @@ export class LibraryDialog {
   private dialog: HTMLDialogElement;
   private msgEl = h('p', { class: 'lib-msg', role: 'status', hidden: true });
   private listEl = h('div', { class: 'lib-list' });
-  private saveRow = h('div', { class: 'lib-save' });
   private artRow = h('div', { class: 'lib-save', hidden: true });
   private search = h('input', { type: 'text', 'aria-label': 'Search by name', placeholder: 'Search by name', 'data-help': 'library-search', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', enterkeyhint: 'search' });
   private tabsBar = tabBar('Library sections', TABS.map((t) => [t, TAB_LABEL[t]] as [LibraryTab, string]), 'library-tab',
@@ -132,7 +125,6 @@ export class LibraryDialog {
       h('header', {},
         h('h2', {}, 'Library'),
         h('button', { type: 'button', 'data-help': 'library-close', onclick: () => this.dialog.close() }, 'Close')),
-      this.saveRow,
       this.artRow,
       h('div', { class: 'lib-find' }, this.search, this.tabsBar.el),
       this.msgEl,
@@ -159,7 +151,6 @@ export class LibraryDialog {
     this.search.value = '';
     this.tab = VIEW_TAB[this.host.view()];
     this.say(null);
-    this.renderSave();
     this.renderTabs();
     await this.renderList();
     if (!this.dialog.open) this.dialog.showModal();
@@ -189,40 +180,6 @@ export class LibraryDialog {
     if (!r.ok) { this.say(r.problem); return; }
     this.say(r.problem ?? `Imported “${r.name}”. Tap it, then drag a rectangle on the page for it.`);
     if (r.problem) this.msgEl.prepend(h('p', {}, `Tap “${r.name}”, then drag a rectangle on the page for it.`));
-    await this.renderList();
-  }
-
-  // ---- saving ---------------------------------------------------------------
-
-  /** Only a book is saved by hand, under its own name (set in Settings). A page or spread saves itself as you edit it. */
-  private renderSave() {
-    this.saveRow.replaceChildren(...this.host.saveOptions().map((o) => h('button', {
-      type: 'button', class: 'primary', 'data-key': `library-save-${o.what}`, 'data-help': 'library-save', title: `Save under the name “${o.name}”`,
-      onclick: () => void this.save(o),
-    }, `Save ${o.label.toLowerCase()}`)));
-    this.saveRow.hidden = this.saveRow.childElementCount === 0;
-  }
-
-  private async save(option: SaveOption) {
-    const { name } = option;
-    const existing = await this.library.findByName('book', name);
-    if (existing && !confirm(`Replace the saved book “${existing.name}”?`)) return;
-    const data = this.host.data(option.what) as Book;
-    const check = readBook(data);
-    if (!check.ok) {
-      this.say(issuesProblem('Not saved: the book breaks the format.', check.issues));
-      return;
-    }
-    let item: LibraryItem;
-    try {
-      item = await this.library.save('book', name, data);
-    } catch (err) {
-      this.say(errorProblem('Not saved.', err)); // a built-in's name, or the browser's storage refusing
-      return;
-    }
-    this.say(`Saved book “${item.name}” to the library.`);
-    this.tab = KIND_TAB.book;
-    this.renderTabs();
     await this.renderList();
   }
 
@@ -261,7 +218,7 @@ export class LibraryDialog {
         spreads: 'No spreads yet. Draw on a spread and it is kept here as you go.',
         sections: 'No sections yet. In the Book view, More, Save pages as a section.',
         art: 'No art yet. Import an SVG file with the button above.',
-        books: 'No books yet. Save the book you are arranging with the button above.',
+        books: 'No books yet. In the Book view, New starts one, or build one from a template here.',
         widgets: 'No widgets yet. Select elements on a page, then More, Save as widget.',
         favorites: 'Nothing starred yet. Tap the star on anything to find it here.',
       };
@@ -275,7 +232,7 @@ export class LibraryDialog {
   private use(e: Entry) {
     if (e.kind === 'template') {
       this.close();
-      this.templates.open(e.data, (book) => this.host.openBook(book, true));
+      this.templates.open(e.data, (book) => this.host.openBook(book, null));
       return;
     }
     if (e.kind === 'section') {
@@ -287,7 +244,7 @@ export class LibraryDialog {
       const side = this.host.pageTarget();
       if (side) this.host.placePage(e.data, side); else this.host.openPage(e.data, e.example ? null : e.id);
     } else if (e.kind === 'spread') this.host.openSpread(e.data, e.example ? null : e.id);
-    else if (e.kind === 'book') this.host.openBook(e.data);
+    else if (e.kind === 'book') this.host.openBook(e.data, e.example ? null : e.id);
     else if (e.kind === 'art') this.host.useArt(e.data);
     else this.host.useWidget(e.data);
     this.close();
@@ -322,13 +279,14 @@ export class LibraryDialog {
     return e.kind === 'section' ? 'About' : e.kind === 'widget' ? 'Use widget' : e.kind === 'art' ? 'Place art' : e.kind === 'template' ? 'Build a book from' : e.kind === 'page' && this.host.pageTarget() ? `Place on the ${this.host.pageTarget()} page:` : 'Open';
   }
 
-  /** Rename, duplicate and delete; the built-in examples can only be copied. */
+  /** Rename, duplicate and delete; the built-in examples can only be copied. A section can also be exported. */
   private menu(e: Entry): HTMLElement {
     const item = (help: string, label: string, fn: () => void | Promise<void>) =>
       h('button', { type: 'button', role: 'menuitem', 'data-key': `library-${help}`, 'data-help': `library-${help}`, onclick: () => { this.menuFor = null; void fn(); } }, label);
     const items: HTMLElement[] = [];
     if (!e.example) items.push(item('rename', 'Rename', () => { this.renaming = e.id; return this.renderList(); }));
     items.push(item('duplicate', 'Duplicate', () => this.duplicate(e)));
+    if (e.kind === 'section') items.push(item('export-section', 'Export', () => this.exportSection(e.data)));
     if (!e.example) {
       items.push(item('delete', 'Delete', async () => {
         if (!confirm(`Delete the saved ${e.kind} “${e.name}”? This can’t be undone.`)) { await this.renderList(); return; }
@@ -344,26 +302,21 @@ export class LibraryDialog {
     await this.renderList();
   }
 
+  /** Download a section as its own file (Import adds it back). */
+  private exportSection(section: Section) {
+    this.host.download(new Blob([JSON.stringify(section, null, 2) + '\n'], { type: 'application/json' }), `${slug(section.name, 'section')}.json`);
+  }
+
   private async copy(e: Entry) {
     if (e.kind === 'template') return;
-    if (e.kind === 'page' || e.kind === 'spread') {
-      // A page or spread: the same as editing a built-in: ask for a name, prefilled, and keep the copy as a document of its own.
-      const name = await this.host.askName(`Name the copy of “${e.name}”`, `${e.name} copy`);
-      if (name === null) return;
-      const saved = await this.library.create(e.kind, name, e.data);
-      this.tab = KIND_TAB[e.kind];
-      this.renderTabs();
-      this.say(`Saved a copy of “${e.name}” as “${saved.name}”.`);
-      return;
-    }
-    if (isWidgetKind(e)) this.host.widgets.add(`${e.name} copy`, e.data.elements);
-    else if (e.example) {
-      const copy = asCopy(e.data as Section);
-      const saved = await this.library.save('section', copy.name, copy);
-      this.tab = KIND_TAB[e.kind];
-      this.renderTabs();
-      this.say(`Saved a copy of “${e.name}” to your ${e.kind}s as “${saved.name}”.`);
-    } else await this.library.duplicate(e.id);
+    if (isWidgetKind(e)) { this.host.widgets.add(`${e.name} copy`, e.data.elements); return; }
+    // A page, spread, book or section, built-in or saved: ask for a name, prefilled, and keep the copy as a document of its own.
+    const name = await this.host.askName(`Name the copy of “${e.name}”`, `${e.name} copy`);
+    if (name === null) return;
+    const saved = await this.library.create(e.kind, name, e.data);
+    this.tab = KIND_TAB[e.kind];
+    this.renderTabs();
+    this.say(`Saved a copy of “${e.name}” as “${saved.name}”.`);
   }
 
   private renameField(e: Entry): HTMLElement {

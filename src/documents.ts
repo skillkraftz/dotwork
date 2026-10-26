@@ -1,10 +1,11 @@
-// The open page or spread is a Library document, and it saves itself. This file is the logic only (no screen): when a
+// The open page, spread or book is a Library document, and it saves itself. This file is the logic only (no screen): when a
 // change is written, what the "Saved" mark may say, how a document is named, and how a built-in becomes a named copy.
 import type { Page } from './format/types';
 import type { Spread } from './format/spread';
+import type { Book } from './book/book';
 import type { Library, LibraryItem } from './library/library';
 
-export type DocKind = 'page' | 'spread';
+export type DocKind = 'page' | 'spread' | 'book';
 
 /** How long to wait after the last change before writing it. */
 export const SAVE_DELAY_MS = 400;
@@ -84,20 +85,31 @@ export class Autosave {
   }
 }
 
-/** How the open document is put on the screen and read back. `D` is a whole page or spread file, with its name. */
+/**
+ * What the mark beside the name says. When the browser can't keep documents (`keeping` false) nothing is ever written to
+ * disk, so it never says Saved.
+ */
+export function statusText(status: SaveStatus, keeping = true): string {
+  if (!keeping) return 'Not saved';
+  return { saved: 'Saved', unsaved: 'Saving…', saving: 'Saving…', failed: 'Not saved' }[status];
+}
+
+/** How the open document is put on the screen and read back. `D` is a whole page, spread or book file, with its name. */
 export interface Adapter<D> {
   read(name: string): D;
   /** Show this document (its own undo history starts empty). */
   show(data: D): void;
   blank(): D;
+  /** Whether what is on screen is still the empty document `blank` gives (its name aside). */
+  isBlank(): boolean;
 }
 
 export const UNTITLED = 'Untitled';
 const UNTITLED_RE = /^Untitled( \d+)?$/;
 export const isUntitled = (name: string) => UNTITLED_RE.test(name.trim());
 
-/** The data of a page or spread entry, or a built-in, as the file it is. */
-type Content<K extends DocKind> = K extends 'page' ? Page : Spread;
+/** The data of a page, spread or book entry, or a built-in, as the file it is. */
+type Content<K extends DocKind> = K extends 'page' ? Page : K extends 'spread' ? Spread : Book;
 
 /**
  * One open document of a kind. It is a Library entry (`id`, `name`) that every change is written to, or a built-in
@@ -126,6 +138,8 @@ export class DocSession<K extends DocKind> {
 
   get readOnly() { return this.builtin !== null; }
   get untitled() { return !this.readOnly && isUntitled(this.name); }
+  /** Untitled and still empty: nothing worth keeping, so it is deleted when another document is opened. */
+  get pristine() { return this.untitled && this.adapter.isBlank(); }
   get status(): SaveStatus { return this.autosave.status; }
 
   private async persist() {
@@ -152,6 +166,18 @@ export class DocSession<K extends DocKind> {
     return this.autosave.status === 'saved';
   }
 
+  /**
+   * Delete the open document from the Library if it is Untitled and was never drawn on. Named or edited documents are
+   * never deleted. Returns whether it was.
+   */
+  async discardIfPristine(): Promise<boolean> {
+    if (this.id === null || !this.pristine) return false;
+    const id = this.id;
+    try { await this.library.remove(id); } catch { return false; } // kept: an empty document costs nothing
+    this.id = null;
+    return true;
+  }
+
   private attach(id: string | null, name: string, builtin: string | null) {
     this.id = id;
     this.name = name;
@@ -163,6 +189,8 @@ export class DocSession<K extends DocKind> {
   /** Start a document named Untitled (Untitled 2… if taken). False if the one open could not be written first. */
   async startNew(): Promise<boolean> {
     if (!(await this.flush())) return false;
+    if (this.id !== null && this.pristine) return true; // already a new, empty one
+    await this.discardIfPristine();
     const name = await this.library.uniqueName(this.kind, UNTITLED);
     this.attach(null, name, null);
     this.adapter.show(this.adapter.blank());
@@ -174,6 +202,7 @@ export class DocSession<K extends DocKind> {
   /** Open a saved document. False if the one open could not be written first. */
   async open(item: LibraryItem): Promise<boolean> {
     if (!(await this.flush())) return false;
+    if (item.id !== this.id) await this.discardIfPristine();
     this.attach(item.id, item.name, null);
     this.adapter.show(item.data as Content<K>);
     return true;
@@ -182,6 +211,7 @@ export class DocSession<K extends DocKind> {
   /** Open a built-in, read-only. */
   async openBuiltin(data: Content<K>): Promise<boolean> {
     if (!(await this.flush())) return false;
+    await this.discardIfPristine();
     this.attach(null, data.name, data.name);
     this.adapter.show(structuredClone(data));
     return true;
@@ -190,6 +220,7 @@ export class DocSession<K extends DocKind> {
   /** Add a document from a file, named from it (with " 2" if taken), and open it. */
   async importAs(data: Content<K>): Promise<boolean> {
     if (!(await this.flush())) return false;
+    await this.discardIfPristine();
     const name = await this.library.uniqueName(this.kind, data.name);
     this.attach(null, name, null);
     this.adapter.show({ ...structuredClone(data), name });

@@ -28,9 +28,9 @@ export interface ExportHost extends Pick<CalibrateHost, 'printer'> {
   /** The books saved in the Library: the choices for the bottom book of a two-up sheet. */
   savedBooks(): Promise<{ id: string; name: string; book: Book }[]>;
   editBook(change: (book: Book) => void): void;
-  /** Called before a page or spread is downloaded: asks for a name if it is still Untitled. False if that was cancelled (nothing is downloaded). */
-  beforeExport(): Promise<boolean>;
-  /** Open a chosen file as a page, spread or book. */
+  /** Called before a page, spread or book is downloaded: asks for a name if it is still Untitled. False if that was cancelled (nothing is downloaded). */
+  beforeExport(what?: 'book'): Promise<boolean>;
+  /** Add a chosen file as a new page, spread, book or section. */
   importFile(file: File): Promise<{ ok: true } | { ok: false; problem: Problem }>;
   download(blob: Blob, filename: string): void;
 }
@@ -115,7 +115,7 @@ export class ExportDialog {
       } else this.say(r.problem);
     };
     return [
-      this.what('Opens a Dotwork .json file that you exported before: a page, a spread or a book. A page or spread is added to your Library as a new document, named from the file, and opened; nothing you have is replaced. A book replaces the book you are arranging.'),
+      this.what('Adds a Dotwork .json file that you exported before: a page, a spread, a book or a section. It becomes a new document in your Library, named from the file (with 2 added if that name is taken). A page, spread or book is opened; a section is listed under Sections. Nothing you have is replaced.'),
       h('div', { class: 'export-actions' }, h('button', { type: 'button', class: 'primary', 'data-key': 'import-choose', 'data-help': 'export-import-choose', onclick: () => file.click() }, 'Choose a file…'), file),
     ];
   }
@@ -129,7 +129,7 @@ export class ExportDialog {
     return [
       this.what(`Saves the ${thing} you are editing, as it is now, as a .json file, so you can keep it, share it or import it again. You get `, h('strong', {}, fileName), '.'),
       this.downloadButton('export-json', async () => {
-        if (this.host.view() !== 'book' && !(await this.host.beforeExport())) return;
+        if (!(await this.host.beforeExport())) return;
         const now = this.host.json();
         if (!now.ok) { this.say(now.problem); return; }
         this.say(null);
@@ -234,6 +234,7 @@ export class ExportDialog {
   }
 
   private async buildPdf() {
+    if (!(await this.host.beforeExport('book'))) return; // the print zip is the book, whichever view is showing
     const book = this.host.book(), print = this.host.printer.get();
     const include: Include = { ...this.pdf };
     this.say('Building the PDFs…');

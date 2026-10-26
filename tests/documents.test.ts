@@ -3,6 +3,10 @@ import { Autosave, DocSession, SAVE_DELAY_MS, isUntitled, type Adapter } from '.
 import { Library, MemoryBackend, type Backend, type LibraryItem } from '../src/library/library';
 import { emptyPage, type Page } from '../src/format/types';
 import { buildSpread, emptySpread, type Spread } from '../src/format/spread';
+import { emptyBook, setSlot, type Book } from '../src/book/book';
+import { readSection, type Section } from '../src/book/sections';
+import { CANT_KEEP, Keeper } from '../src/library/keeper';
+import { statusText } from '../src/documents';
 
 /** A clock the tests move by hand, so the 400 ms pause can be stepped through. */
 function clock() {
@@ -38,7 +42,7 @@ function pageSetup(backend: Backend = new FlakyBackend(), opts: { builtinNames?:
   let n = 0;
   const lib = new Library(backend, () => new Date(Date.UTC(2026, 9, 26, 12, 0, n)), () => `id${n++}`, (_k, name) => (opts.builtinNames ?? []).includes(name));
   let screen: Page = emptyPage();
-  const adapter: Adapter<Page> = { read: (name) => ({ ...screen, name }), show: (d) => { screen = structuredClone(d); }, blank: emptyPage };
+  const adapter: Adapter<Page> = { read: (name) => ({ ...screen, name }), show: (d) => { screen = structuredClone(d); }, blank: emptyPage, isBlank: () => JSON.stringify({ ...screen, name: '' }) === JSON.stringify({ ...emptyPage(), name: '' }) };
   const t = clock();
   const session = new DocSession('page', lib, adapter, SAVE_DELAY_MS, t);
   return { lib, session, t, edit: (p: Page) => { screen = p; session.changed(); }, get screen() { return screen; } };
@@ -220,6 +224,8 @@ describe('opening documents', () => {
   it('opening does not touch the document (no write, same updated time)', async () => {
     const s = pageSetup();
     await s.session.startNew();
+    s.edit(box(1)); // drawn on, so it is kept when another is started
+    await s.session.flush();
     const item = (await s.lib.get(s.session.id!))!;
     const puts = (s.lib as unknown as { backend: FlakyBackend }).backend.puts;
     await s.session.startNew();
@@ -242,6 +248,7 @@ describe('opening documents', () => {
   it('renames in place, " 2" when taken, and writes it', async () => {
     const s = pageSetup();
     await s.session.startNew();
+    s.edit(box(1)); // drawn on, so the next New leaves it in the Library
     await s.session.startNew();
     expect(await s.session.rename('Untitled')).toBe('Untitled 2'); // the first Untitled has the name; its own old name is free again
     expect(await s.session.rename('Garden')).toBe('Garden');
@@ -295,6 +302,7 @@ describe('a spread is a document too', () => {
       read: (name) => buildSpread(name, screen.left, screen.right),
       show: (d) => { screen = structuredClone(d); },
       blank: emptySpread,
+      isBlank: () => JSON.stringify(screen) === JSON.stringify(emptySpread()),
     };
     const t = clock();
     const session = new DocSession('spread', lib, adapter, SAVE_DELAY_MS, t);
@@ -305,5 +313,240 @@ describe('a spread is a document too', () => {
     const item = (await lib.get(session.id!))!;
     expect(item.name).toBe('Untitled');
     expect((item.data as Spread).right.elements[0]).toMatchObject({ x: 2 });
+  });
+});
+
+
+/** A book "on screen": the adapter reads and shows one variable, as the page tests do. */
+function bookSetup(backend: Backend = new FlakyBackend(), opts: { builtinNames?: string[] } = {}) {
+  let n = 0;
+  const lib = new Library(backend, () => new Date(Date.UTC(2026, 9, 26, 12, 0, n)), () => `b${n++}`, (k, name) => k === 'book' && (opts.builtinNames ?? []).includes(name));
+  let screen: Book = emptyBook();
+  const adapter: Adapter<Book> = {
+    read: (name) => ({ ...screen, name }),
+    show: (d) => { screen = structuredClone(d); },
+    blank: emptyBook,
+    isBlank: () => JSON.stringify({ ...screen, name: '' }) === JSON.stringify({ ...emptyBook(), name: '' }),
+  };
+  const t = clock();
+  const session = new DocSession('book', lib, adapter, SAVE_DELAY_MS, t);
+  const edit = (change: (b: Book) => void) => { const b = structuredClone(screen); change(b); screen = b; session.changed(); };
+  return { lib, session, t, edit, get screen() { return screen; } };
+}
+
+describe('a book is a document too', () => {
+  it('starts Untitled, saves itself after the pause, and holds its name in the entry only', async () => {
+    const b = bookSetup();
+    expect(await b.session.startNew()).toBe(true);
+    expect(b.session.name).toBe('Untitled');
+    expect(b.session.untitled).toBe(true);
+    b.edit((x) => { x.page_numbers = false; });
+    expect(b.session.status).toBe('unsaved');
+    await b.t.advance(SAVE_DELAY_MS);
+    expect(b.session.status).toBe('saved');
+    const item = (await b.lib.get(b.session.id!))!;
+    expect(item.kind).toBe('book');
+    expect((item.data as Book).page_numbers).toBe(false);
+    expect((item.data as Book).name).toBe('Untitled'); // filled in on read
+    expect('name' in (await (b.lib as unknown as { backend: Backend }).backend.all())[0].data).toBe(false); // not stored twice
+  });
+
+  it('flushes at once when the tab is hidden, without waiting for the pause', async () => {
+    const backend = new FlakyBackend();
+    const b = bookSetup(backend);
+    await b.session.startNew();
+    const before = backend.puts;
+    b.edit((x) => setSlot(x, 1, box(3)));
+    expect(await b.session.flush()).toBe(true);
+    expect(backend.puts).toBe(before + 1);
+    expect(b.session.status).toBe('saved');
+  });
+
+  it('says Not saved when the write fails, never Saved, and Retry writes it', async () => {
+    const backend = new FlakyBackend();
+    const b = bookSetup(backend);
+    await b.session.startNew();
+    backend.failing = true;
+    b.edit((x) => { x.page_numbers = false; });
+    expect(await b.session.flush()).toBe(false);
+    expect(b.session.status).toBe('failed');
+    expect(statusText(b.session.status)).toBe('Not saved');
+    backend.failing = false;
+    expect(await b.session.flush()).toBe(true);
+    expect(statusText(b.session.status)).toBe('Saved');
+  });
+
+  it('opening another book writes the current one first and replaces nothing', async () => {
+    const b = bookSetup();
+    await b.session.startNew();
+    await b.session.rename('First');
+    b.edit((x) => { x.page_numbers = false; }); // not written yet
+    const other = await b.lib.create('book', 'Second', { ...emptyBook(), name: 'Second' });
+    expect(await b.session.open(other)).toBe(true);
+    expect(b.session.name).toBe('Second');
+    const first = (await b.lib.list()).find((i) => i.name === 'First')!;
+    expect((first.data as Book).page_numbers).toBe(false); // written before switching
+    expect(await b.lib.list()).toHaveLength(2);
+  });
+
+  it('an import adds a document named from the file, with " 2" when taken, and opens it', async () => {
+    const b = bookSetup();
+    const file = { ...emptyBook(), name: 'Field notes' };
+    await b.session.importAs(file);
+    expect(b.session.name).toBe('Field notes');
+    await b.session.importAs(file);
+    expect(b.session.name).toBe('Field notes 2');
+    expect((await b.lib.list()).map((i) => i.name).sort()).toEqual(['Field notes', 'Field notes 2']);
+  });
+
+  it('a built-in book is read-only; Edit a copy takes a name and the first write has the attempted edit', async () => {
+    const b = bookSetup();
+    const builtin = { ...emptyBook(), name: 'Idea book' };
+    await b.session.openBuiltin(builtin);
+    expect(b.session.readOnly).toBe(true);
+    b.session.changed(); // nothing is written for a built-in
+    expect(b.session.status).toBe('saved');
+    expect(await b.lib.list()).toHaveLength(0);
+    await b.session.makeCopy('Idea book copy', () => b.edit((x) => { x.page_numbers = false; }));
+    expect(b.session.readOnly).toBe(false);
+    const saved = (await b.lib.list())[0];
+    expect(saved.name).toBe('Idea book copy');
+    expect((saved.data as Book).page_numbers).toBe(false);
+    expect(b.session.status).toBe('saved');
+  });
+});
+
+describe('sections are documents', () => {
+  const section = (name: string): Section => ({ format: 'dotwork-section', version: 1, name, pages: [null, null], days: [0, 1], weekday: 1, move: 'week', left: false });
+
+  it('are named like the rest: a taken name gets " 2", a rename keeps its own, nothing is replaced', async () => {
+    const lib = new Library(new MemoryBackend());
+    const a = await lib.create('section', 'Week', section('Week'));
+    const b = await lib.create('section', 'Week', section('Week'));
+    expect([a.name, b.name]).toEqual(['Week', 'Week 2']);
+    expect(await lib.rename(b.id, 'Week')).toBe('Week 2');
+    expect(await lib.rename(b.id, 'Review')).toBe('Review');
+    expect(readSection((await lib.get(b.id))!.data).ok).toBe(true); // the name is put back in the data for the reader
+    expect((await lib.get(b.id))!.data.name).toBe('Review');
+  });
+
+  it('Duplicate and Delete work on them, and a backup restores them with their names', async () => {
+    const lib = new Library(new MemoryBackend());
+    const a = await lib.create('section', 'Week', section('Week'));
+    const copy = (await lib.duplicate(a.id))!;
+    expect(copy.name).toBe('Week copy');
+    await lib.remove(a.id);
+    const file = await lib.exportAll();
+    const restored = new Library(new MemoryBackend());
+    expect(await restored.importFile(file)).toMatchObject({ ok: true, added: 1 });
+    expect((await restored.list())[0].name).toBe('Week copy');
+  });
+});
+
+describe('an Untitled document nobody drew on is not kept', () => {
+  it('is deleted when another document is opened or started', async () => {
+    const s = pageSetup();
+    await s.session.startNew();
+    const first = s.session.id!;
+    expect(s.session.pristine).toBe(true);
+    const other = await s.lib.create('page', 'Other', box(1));
+    await s.session.open(other);
+    expect(await s.lib.get(first)).toBeUndefined();
+    expect(s.session.name).toBe('Other');
+  });
+
+  it('New on an empty Untitled keeps that one instead of piling up more', async () => {
+    const s = pageSetup();
+    await s.session.startNew();
+    const id = s.session.id;
+    await s.session.startNew();
+    expect(s.session.id).toBe(id);
+    expect(await s.lib.list()).toHaveLength(1);
+  });
+
+  it('is kept once edited, and kept once named', async () => {
+    const edited = pageSetup();
+    await edited.session.startNew();
+    edited.edit(box(2));
+    expect(edited.session.pristine).toBe(false);
+    await edited.session.startNew();
+    expect((await edited.lib.list()).map((i) => i.name).sort()).toEqual(['Untitled', 'Untitled 2']);
+
+    const named = pageSetup();
+    await named.session.startNew();
+    await named.session.rename('Garden');
+    await named.session.flush();
+    await named.session.startNew();
+    expect((await named.lib.list()).map((i) => i.name).sort()).toEqual(['Garden', 'Untitled']);
+    expect(named.session.name).toBe('Untitled'); // the new one; Garden is still there
+  });
+
+  it('applies to books, and to a built-in or import opened over it', async () => {
+    const b = bookSetup();
+    await b.session.startNew();
+    await b.session.openBuiltin({ ...emptyBook(), name: 'Year planner' });
+    expect(await b.lib.list()).toHaveLength(0);
+    await b.session.startNew();
+    await b.session.importAs({ ...emptyBook(), name: 'Imported' });
+    expect((await b.lib.list()).map((i) => i.name)).toEqual(['Imported']);
+  });
+
+  it('a close discards it too, and an edited one stays', async () => {
+    const b = bookSetup();
+    await b.session.startNew();
+    expect(await b.session.discardIfPristine()).toBe(true);
+    expect(await b.lib.list()).toHaveLength(0);
+    await b.session.startNew();
+    b.edit((x) => { x.page_numbers = false; });
+    await b.session.flush();
+    expect(await b.session.discardIfPristine()).toBe(false);
+    expect(await b.lib.list()).toHaveLength(1);
+  });
+});
+
+describe('when the browser can’t keep documents', () => {
+  it('without IndexedDB it says so, keeps working from memory, and never says Saved', async () => {
+    const keeper = new Keeper(null);
+    await keeper.start();
+    expect(keeper.keeping).toBe(false);
+    expect(CANT_KEEP).toMatch(/can’t keep your documents/);
+    expect(CANT_KEEP).toMatch(/Export/);
+    const lib = new Library(keeper);
+    let screen = emptyPage();
+    const session = new DocSession('page', lib, { read: (name) => ({ ...screen, name }), show: (d) => { screen = d; }, blank: emptyPage, isBlank: () => false });
+    expect(await session.startNew()).toBe(true);
+    expect(session.status).toBe('saved'); // the write to memory worked...
+    expect(statusText(session.status, keeper.keeping)).toBe('Not saved'); // ...but the mark never claims it is kept
+    expect((await lib.list()).map((i) => i.name)).toEqual(['Untitled']);
+  });
+
+  it('a storage that refuses to open, or refuses the first write, falls back to memory', async () => {
+    const refusing = Object.assign(new FlakyBackend(), { check: async () => { throw new Error('private mode'); } });
+    const a = new Keeper(refusing);
+    await a.start();
+    expect(a.keeping).toBe(false);
+
+    const failing = new FlakyBackend();
+    failing.failing = true;
+    const b = new Keeper(failing);
+    await b.start();
+    expect(b.keeping).toBe(true);
+    let told = 0;
+    b.subscribe(() => told++);
+    const lib = new Library(b);
+    await lib.create('page', 'x', emptyPage()); // does not throw: it is kept in memory
+    expect(b.keeping).toBe(false);
+    expect(told).toBe(1);
+    expect(await lib.list()).toHaveLength(1);
+  });
+
+  it('a write that fails after one has worked is an ordinary failure: Not saved, with Retry', async () => {
+    const disk = new FlakyBackend();
+    const k = new Keeper(disk);
+    const lib = new Library(k);
+    await lib.create('page', 'x', emptyPage());
+    disk.failing = true;
+    await expect(lib.create('page', 'y', emptyPage())).rejects.toThrow();
+    expect(k.keeping).toBe(true);
   });
 });

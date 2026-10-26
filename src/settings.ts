@@ -22,6 +22,8 @@ export interface SettingsHost {
   /** A built-in is open: it can't be renamed (editing it makes a copy first). */
   nameLocked(): boolean;
   book(): Book;
+  /** The open book's name: the Library document's. */
+  setBookName(name: string): void;
   /** Change the book (with its own undo step) and keep the draft. */
   editBook(change: (book: Book) => void): void;
 }
@@ -160,8 +162,10 @@ export class SettingsDialog {
   private bookSection(): HTMLElement[] {
     const book = this.host.book();
     const name = h('input', {
-      type: 'text', value: book.name, placeholder: 'Untitled book', maxlength: 80, autocomplete: 'off', 'data-key': 'settings-book-name', 'data-help': 'book-name', 'aria-label': 'Book name',
-      oninput: () => this.host.editBook((b) => { b.name = name.value; }),
+      type: 'text', value: book.name, placeholder: 'Untitled', maxlength: 80, autocomplete: 'off', 'data-key': 'settings-book-name', 'data-help': 'book-name', 'aria-label': 'Book name',
+      readOnly: this.host.nameLocked(),
+      oninput: () => this.host.setBookName(name.value),
+      onchange: () => { name.value = this.host.book().name; }, // a name already used got " 2" added
       onfocus: () => name.select(),
     });
     const pages = h('input', { type: 'number', value: book.page_count, min: MIN_PAGES, max: MAX_PAGES, step: 4, inputmode: 'numeric', 'data-key': 'settings-book-pages', 'data-help': 'book-pages', 'aria-label': 'Pages' });

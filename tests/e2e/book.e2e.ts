@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { bookMore, box, open, shot, start, stop, touch, settle, type App, type Env } from './harness';
+import { bookMore, box, open, openDoc, shot, start, stop, touch, settle, type App, type Env } from './harness';
 
 let env: Env;
 beforeAll(async () => { env = await start(); });
@@ -7,7 +7,7 @@ afterAll(async () => { await stop(env); });
 
 const noErrors = (app: App) => expect(app.errors).toEqual([]);
 const click = async (app: App, target: ReturnType<App['page']['locator']>) => { if (app.touch) { await target.tap(); await settle(app); } else await target.click(); };
-const saved = (app: App) => app.page.evaluate(() => JSON.parse(localStorage.getItem('dotwork.book')!));
+const saved = (app: App) => openDoc(app, 'book'); // the open book as the Library holds it
 const names = async (app: App) => (await saved(app)).pages.map((p: { name: string } | null) => p?.name ?? null);
 
 async function smallControls(app: App) {

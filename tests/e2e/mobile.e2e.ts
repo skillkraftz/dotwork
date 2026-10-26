@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
-  bar, box, cellToClient, choose, doubleTap, draft, drag, open, pinch, press, shot, stagger, start, stop, tap, twoFingerDrag, viewBoxOf, type App, type Env, tool, openDoc,} from './harness';
+  bar, box, cellToClient, choose, doubleTap, draft, drag, open, pinch, press, shot, stagger, start, stop, tap, twoFingerDrag, viewBoxOf, type App, type Env, tool, openDoc, nameOpen,} from './harness';
 
 let env: Env;
 beforeAll(async () => { env = await start(); });
@@ -445,6 +445,7 @@ describe('book and export on a phone', () => {
     const { page } = app;
     await choose(app, 'page', '#view-book');
     await page.waitForSelector('.stage-page');
+    await nameOpen(app, 'Untitled book');
     await shot(app, 'phone-book');
     expect(await smallControls(app)).toEqual([]);
     await page.getByRole('button', { name: /Print files/ }).tap();

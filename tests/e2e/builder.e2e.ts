@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { bookMore, missingHelp, open, shot, start, stop, settle, type App, type Device, type Env } from './harness';
+import { bookMore, missingHelp, open, openDoc, seedDoc, shot, start, stop, settle, type App, type Device, type Env } from './harness';
 
 let env: Env;
 beforeAll(async () => { env = await start(); });
@@ -8,7 +8,7 @@ afterAll(async () => { await stop(env); });
 
 const fixture = readFileSync('tests/fixtures/november-2026-journal.json', 'utf8');
 const click = async (app: App, target: ReturnType<App['page']['locator']>) => { if (app.touch) { await target.tap(); await settle(app); } else await target.click(); };
-const saved = (app: App) => app.page.evaluate(() => JSON.parse(localStorage.getItem('dotwork.book')!));
+const saved = (app: App) => openDoc(app, 'book');
 
 async function smallControls(app: App) {
   return app.page.evaluate(() => {
@@ -28,9 +28,8 @@ const noSideways = (app: App) => app.page.evaluate(() => document.documentElemen
 async function start_(device: Device) {
   const app = await open(env, device);
   const { page } = app;
-  await page.evaluate((json) => localStorage.setItem('dotwork.book', json), fixture);
-  await page.reload();
-  await page.waitForSelector('#canvas');
+  const book = JSON.parse(fixture);
+  await seedDoc(app, 'book', book, book.name); // the fixture is the open book
   await click(app, page.locator('#menu-page'));
   await click(app, page.locator('#view-book'));
   await page.waitForSelector('.stage-page');

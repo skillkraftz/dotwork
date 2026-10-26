@@ -81,6 +81,8 @@ for (const device of ['phone', 'tablet', 'desktop'] as Device[]) {
       const app = await open(env, device);
       const { page } = app;
       await shot(app, `documents-${device}-untitled-chip`);
+      await drawBox(app); // an empty Untitled is not kept, so draw before starting another
+      await waitSaved(app);
       await choose(app, 'edit', '#new');
       await page.waitForFunction(() => document.querySelector('#doc-name')?.textContent === 'Untitled 2: name it');
       await waitSaved(app);
@@ -191,7 +193,7 @@ for (const device of ['phone', 'tablet', 'desktop'] as Device[]) {
       await page.waitForFunction(() => document.querySelector('#doc-name')?.textContent === 'Weekly 2');
       await waitSaved(app);
       const names = (await libraryItems(app)).filter((i) => i.kind === 'page').map((i) => i.name).sort();
-      expect(names).toEqual(['Untitled', 'Weekly', 'Weekly 2']);
+      expect(names).toEqual(['Weekly', 'Weekly 2']); // the empty Untitled it started with was not kept
       expect((await openDoc(app, 'page')).elements).toMatchObject([{ type: 'box', x: 5 }]);
     });
 
