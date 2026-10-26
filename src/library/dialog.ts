@@ -6,9 +6,11 @@ import { errorProblem, issuesProblem, problemView, type Problem } from '../probl
 import { slug } from '../slug';
 import { pageContent, thumbnailSvg } from '../render';
 import { placeWidget, widgetSize, type Widget, type WidgetStore } from '../widgets';
+import type { PrintSettings } from '../book/impose';
 import oflUrl from '../fonts/OFL.txt?url';
 import type { BookTemplate } from '../builtin/templates';
 import type { Library, LibraryItem } from './library';
+import { printerRows, restoreBackup, summaryProblem } from './backup';
 import type { Favorites } from './favorites';
 import { TABS, TAB_LABEL, artId, exampleId, sectionId, spreadId, templateId, visibleEntries, widgetId, type Entry, type LibraryTab } from './browse';
 import { TemplateDialog } from './templatedialog';
@@ -16,7 +18,6 @@ import { TEMPLATES } from '../builtin/templates';
 import { BUILTIN_ART, BUILTIN_NOTICES, BUILTIN_SPREADS, BUILTIN_WIDGETS } from '../builtin/library';
 import { BUILTIN_SECTIONS } from '../builtin/sections';
 import { MOVE_LABEL, type Section } from '../book/sections';
-import { isArtWidget } from '../art/widget';
 import { importArtFile } from '../art/report';
 
 /** What the dialog needs from the editor around it. */
@@ -38,6 +39,10 @@ export interface LibraryHost {
   removed(id: string): void;
   /** Open a book: a saved one (its `id`) or a built-in, such as a template's (`id` null, read-only until copied). The open one is written first. */
   openBook(book: Book, id: string | null): void;
+  /** A book made just now (from a template that asked questions): added to the Library under its name and opened, ready to edit. */
+  addBook(book: Book): void;
+  /** The printer profile in use, and a way to replace it (null if saved, or the reason the browser refused). */
+  printer: { get(): PrintSettings; set(next: PrintSettings): Problem | null };
   placePage(page: Page, side: SpreadSide): void;
   /** Arm the widget tool, ready to be put on the page. */
   useWidget(widget: Widget): void;
@@ -104,7 +109,7 @@ export class LibraryDialog {
   private menuFor: string | null = null;
 
   constructor(private library: Library, private host: LibraryHost) {
-    const file = h('input', { type: 'file', accept: '.json,application/json', hidden: true });
+    const file = h('input', { type: 'file', accept: '.json,application/json', hidden: true, 'data-key': 'library-restore-file' });
     file.onchange = async () => {
       const f = file.files?.[0];
       file.value = '';
@@ -186,16 +191,18 @@ export class LibraryDialog {
   // ---- the list -------------------------------------------------------------
 
   private async entries(): Promise<Entry[]> {
-    const saved = (await this.library.list()).map((i): Entry => ({ ...i, updated: i.updated, example: false }) as Entry);
+    const saved = (await this.library.list()).map((i): Entry => {
+      if (i.kind === 'widget') return { kind: 'widget', id: i.id, name: i.name, updated: i.updated, example: false, data: { id: i.id, name: i.name, elements: i.data.elements } };
+      if (i.kind === 'art') return { kind: 'art', id: i.id, name: i.name, updated: i.updated, example: false, data: { id: i.id, name: i.name, elements: i.data.elements } };
+      return { ...i, example: false } as Entry;
+    });
     const examples = this.host.examples.map((data): Entry => ({ kind: 'page', id: exampleId(data), name: data.name, updated: null, example: true, data }));
     const spreads = BUILTIN_SPREADS.map((data): Entry => ({ kind: 'spread', id: spreadId(data), name: data.name, updated: null, example: true, data }));
     const sections = BUILTIN_SECTIONS.map((data): Entry => ({ kind: 'section', id: sectionId(data), name: data.name, updated: null, example: true, data }));
     const templates = TEMPLATES.map((data): Entry => ({ kind: 'template', id: templateId(data), name: data.name, updated: null, example: true, data }));
-    const widgets = this.host.widgets.list().filter((w) => !isArtWidget(w)).map((data): Entry => ({ kind: 'widget', id: widgetId(data), name: data.name, updated: null, example: false, data }));
     const builtinWidgets = BUILTIN_WIDGETS.map((data): Entry => ({ kind: 'widget', id: widgetId(data), name: data.name, updated: null, example: true, data }));
-    const art = [...this.host.widgets.list().filter(isArtWidget).map((data) => [data, false] as const), ...BUILTIN_ART.map((data) => [data, true] as const)]
-      .map(([data, example]): Entry => ({ kind: 'art', id: artId(data), name: data.name, updated: null, example, data }));
-    return [...saved, ...examples, ...spreads, ...sections, ...templates, ...widgets, ...builtinWidgets, ...art];
+    const art = BUILTIN_ART.map((data): Entry => ({ kind: 'art', id: artId(data), name: data.name, updated: null, example: true, data }));
+    return [...saved, ...examples, ...spreads, ...sections, ...templates, ...builtinWidgets, ...art];
   }
 
   /** Counts the draws, so that a slow one can't land after a newer one and show an old search. */
@@ -232,7 +239,8 @@ export class LibraryDialog {
   private use(e: Entry) {
     if (e.kind === 'template') {
       this.close();
-      this.templates.open(e.data, (book) => this.host.openBook(book, null));
+      // A template that asks for a year or a month makes a book of its own at once; one with no questions opens read-only.
+      this.templates.open(e.data, (book) => (e.data.fields.length ? this.host.addBook(book) : this.host.openBook(book, null)));
       return;
     }
     if (e.kind === 'section') {
@@ -255,7 +263,7 @@ export class LibraryDialog {
     thumb.innerHTML = itemThumb(e);
     const starred = this.host.favorites.has(e.id);
     const title = this.renaming === e.id ? this.renameField(e) : h('strong', { class: 'lib-name', title: e.name }, e.name);
-    const meta = [KIND_LABEL[e.kind], e.kind === 'section' ? sectionMeta(e.data) : '', e.example && e.kind !== 'template' ? 'example' : e.updated ? when(e.updated) : e.kind === 'widget' ? `${e.data.elements.length} element${e.data.elements.length === 1 ? '' : 's'}` : e.kind === 'art' ? 'imported' : ''].filter(Boolean).join(' · ');
+    const meta = [KIND_LABEL[e.kind], e.kind === 'section' ? sectionMeta(e.data) : '', e.example && e.kind !== 'template' ? 'example' : e.updated ? when(e.updated) : ''].filter(Boolean).join(' · ');
     const open = h('button', {
       type: 'button', class: 'lib-open', 'data-key': 'library-item', 'data-help': 'library-item', 'data-kind': e.kind, 'aria-label': `${this.openVerb(e)} ${e.name}`,
       onclick: () => this.use(e),
@@ -290,7 +298,8 @@ export class LibraryDialog {
     if (!e.example) {
       items.push(item('delete', 'Delete', async () => {
         if (!confirm(`Delete the saved ${e.kind} “${e.name}”? This can’t be undone.`)) { await this.renderList(); return; }
-        if (isWidgetKind(e)) this.host.widgets.remove(e.data.id); else { await this.library.remove(e.id); this.host.removed(e.id); }
+        try { await this.library.remove(e.id); } catch (err) { this.say(errorProblem('Not deleted.', err)); return; }
+        if (isWidgetKind(e)) await this.host.widgets.refresh(); else this.host.removed(e.id);
         await this.renderList();
       }));
     }
@@ -309,7 +318,14 @@ export class LibraryDialog {
 
   private async copy(e: Entry) {
     if (e.kind === 'template') return;
-    if (isWidgetKind(e)) { this.host.widgets.add(`${e.name} copy`, e.data.elements); return; }
+    if (isWidgetKind(e)) {
+      // A widget or art, saved or built in: the copy is a document of its own, named like the original plus “copy”.
+      const copy = await this.host.widgets.add(`${e.name} copy`, e.data.elements);
+      this.tab = e.kind === 'art' ? 'art' : 'widgets';
+      this.renderTabs();
+      this.say(`Saved a copy of “${e.name}” as “${copy.name}”.`);
+      return;
+    }
     // A page, spread, book or section, built-in or saved: ask for a name, prefilled, and keep the copy as a document of its own.
     const name = await this.host.askName(`Name the copy of “${e.name}”`, `${e.name} copy`);
     if (name === null) return;
@@ -328,11 +344,8 @@ export class LibraryDialog {
       this.renaming = null;
       if (commit) {
         try {
-          if (isWidgetKind(e)) this.host.widgets.rename(e.data.id, input.value);
-          else {
-            const name = await this.library.rename(e.id, input.value);
-            if (name) this.host.renamed(e.id, name);
-          }
+          const name = await this.library.rename(e.id, input.value);
+          if (name) { this.host.renamed(e.id, name); if (isWidgetKind(e)) await this.host.widgets.refresh(); }
         } catch (err) { this.say(errorProblem('Not renamed.', err)); }
       }
       await this.renderList();
@@ -346,7 +359,7 @@ export class LibraryDialog {
   // ---- backup ---------------------------------------------------------------
 
   private async exportBackup() {
-    const file = await this.library.exportAll();
+    const file = await this.library.exportAll({ favorites: this.host.favorites.list(), printer: this.host.printer.get() });
     const day = file.exported.slice(0, 10);
     this.host.download(new Blob([JSON.stringify(file, null, 2) + '\n'], { type: 'application/json' }), `dotwork-library-${day}.json`);
   }
@@ -359,19 +372,42 @@ export class LibraryDialog {
       this.say(errorProblem(`Not restored: ${f.name} is not valid JSON.`, err));
       return;
     }
-    let r: Awaited<ReturnType<Library['importFile']>>;
+    let r: Awaited<ReturnType<typeof restoreBackup>>;
     try {
-      r = await this.library.importFile(parsed);
+      r = await restoreBackup(this.library, this.host.favorites, parsed, this.host.printer.get());
     } catch (err) {
-      this.say(errorProblem(`Not restored: the library couldn’t be written from ${f.name}.`, err)); // e.g. the browser's storage is full
+      this.say(errorProblem(`Not restored: the library couldn’t be read from ${f.name}.`, err));
       return;
     }
     if (!r.ok) {
-      this.say(issuesProblem(`Not restored: ${f.name} breaks the library format.`, r.issues));
-    } else {
-      this.say(`Imported ${r.added} new and ${r.replaced} replaced from ${f.name}.`);
+      this.say(issuesProblem(`Not restored: ${f.name} breaks the library format. Nothing was added.`, r.issues));
+      return;
     }
+    await this.host.widgets.refresh();
+    this.say(summaryProblem(f.name, r.summary));
+    if (r.summary.printer) this.msgEl.append(this.printerQuestion(r.summary.printer));
     await this.renderList();
+  }
+
+  /** "Replace your printer settings with the backup's?" with both sets of values. The default is No. */
+  private printerQuestion(theirs: PrintSettings): HTMLElement {
+    const mine = this.host.printer.get();
+    const rows = printerRows(mine, theirs);
+    const answer = (replace: boolean) => {
+      const problem = replace ? this.host.printer.set(theirs) : null;
+      box.replaceWith(h('p', { class: 'hint', 'data-key': 'restore-printer-answer' }, replace ? (problem ? 'The settings are in use for this visit only; the browser would not keep them.' : 'Your printer settings are now the backup’s.') : 'Your printer settings were kept.'));
+    };
+    const keep = h('button', { type: 'button', class: 'primary', 'data-key': 'restore-printer-keep', 'data-help': 'restore-printer-keep', onclick: () => answer(false) }, 'No, keep mine');
+    const box = h('div', { class: 'restore-printer', role: 'group', 'aria-label': 'Printer settings in the backup', 'data-key': 'restore-printer' },
+      h('p', { class: 'problem-title' }, 'Replace your printer settings with the backup’s?'),
+      h('div', { class: 'restore-rows' },
+        h('table', {},
+          h('thead', {}, h('tr', {}, h('th', {}, 'Setting'), h('th', {}, 'Yours'), h('th', {}, 'Backup'))),
+          h('tbody', {}, ...rows.map((r) => h('tr', { class: r.mine === r.theirs ? '' : 'differs' }, h('td', {}, r.label), h('td', {}, r.mine), h('td', {}, r.theirs)))))),
+      h('div', { class: 'problem-actions' },
+        keep,
+        h('button', { type: 'button', 'data-key': 'restore-printer-replace', 'data-help': 'restore-printer-replace', onclick: () => answer(true) }, 'Yes, replace')));
+    return box;
   }
 }
 

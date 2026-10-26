@@ -4,7 +4,8 @@ import { emptyPage, type Page, type PageElement } from '../src/format/types';
 import { validatePage } from '../src/format/validate';
 import { groupArea, moveGroup } from '../src/geometry';
 import { Store } from '../src/store';
-import { makeWidget, placeWidget, WidgetStore, type WidgetStorage } from '../src/widgets';
+import { makeWidget, placeWidget, readWidget, WidgetStore } from '../src/widgets';
+import { Library, MemoryBackend } from '../src/library/library';
 
 const els = (): PageElement[] => [
   { type: 'box', x: 3, y: 5, w: 6, h: 4 },
@@ -14,10 +15,8 @@ const els = (): PageElement[] => [
 ];
 const pageWith = (elements: PageElement[]): Page => ({ ...emptyPage(), elements });
 const storeWith = (elements: PageElement[] = els()) => new Store(pageWith(elements));
-const memory = (): WidgetStorage & { data: Record<string, string> } => {
-  const data: Record<string, string> = {};
-  return { data, getItem: (k) => data[k] ?? null, setItem: (k, v) => { data[k] = v; } };
-};
+let n = 0;
+const makeLibrary = (backend = new MemoryBackend()) => new Library(backend, undefined, () => `id${++n}`);
 
 describe('selecting several elements', () => {
   it('keeps a main selection and the others, in drawing order', () => {
@@ -117,11 +116,11 @@ describe('saved widgets', () => {
     expect(els()[0]).toMatchObject({ x: 3 }); // the page's own elements were not changed
   });
 
-  it('saves from one page and places on another as a matching group', () => {
-    const widgets = new WidgetStore(null, () => 'id1');
+  it('saves from one page and places on another as a matching group', async () => {
+    const widgets = new WidgetStore(makeLibrary());
     const a = storeWith();
     a.selectMany([0, 1, 2, 3]);
-    const saved = widgets.add('Notes', a.selection.map((i) => a.page.elements[i]));
+    const saved = await widgets.add('Notes', a.selection.map((i) => a.page.elements[i]));
 
     const b = new Store(pageWith([{ type: 'rule', x1: 0, y1: 40, x2: 10, y2: 40 }]));
     addElements(b, placeWidget(saved, { x: 10, y: 20 }));
@@ -136,8 +135,8 @@ describe('saved widgets', () => {
 
     // no link back: editing a copy leaves the widget alone
     (b.page.elements[1] as { x: number }).x = 0;
-    expect(widgets.get('id1')!.elements[0]).toMatchObject({ x: 0, y: 0 });
-    expect(widgets.get('id1')!.elements).toHaveLength(4);
+    expect(widgets.get(saved.id)!.elements[0]).toMatchObject({ x: 0, y: 0 });
+    expect(widgets.get(saved.id)!.elements).toHaveLength(4);
   });
 
   it('moves a widget back onto the page if it would hang off the edge', () => {
@@ -148,29 +147,41 @@ describe('saved widgets', () => {
     expect(groupArea(placeWidget(w, { x: -3, y: 0 }))).toMatchObject({ x: 0, y: 1 }); // and below the header
   });
 
-  it('lives in the browser: it is there next time, can be renamed and deleted', () => {
-    const storage = memory();
-    const first = new WidgetStore(storage);
-    const w = first.add('Habit row', els().slice(0, 2));
-    first.add('Another', els().slice(2));
-    expect(new WidgetStore(storage).list().map((x) => x.name)).toEqual(['Habit row', 'Another']);
-    first.rename(w.id, 'Habits');
-    first.remove(first.list()[1].id);
-    const again = new WidgetStore(storage);
+  it('is a Library document: it is there next time, can be renamed and deleted', async () => {
+    const backend = new MemoryBackend();
+    const first = new WidgetStore(makeLibrary(backend));
+    const w = await first.add('Habit row', els().slice(0, 2));
+    await first.add('Another', els().slice(2));
+    const next = new WidgetStore(makeLibrary(backend));
+    await next.refresh();
+    expect(next.list().map((x) => x.name)).toEqual(['Habit row', 'Another']);
+    await first.rename(w.id, 'Habits');
+    await first.remove(first.list().find((x) => x.name === 'Another')!.id);
+    const again = new WidgetStore(makeLibrary(backend));
+    await again.refresh();
     expect(again.list().map((x) => x.name)).toEqual(['Habits']);
     expect(again.list()[0].elements).toEqual(w.elements);
   });
 
-  it('tells its listeners and ignores a damaged save', () => {
+  it('keeps one art element as art, and a taken name gets " 2"', async () => {
+    const lib = makeLibrary();
+    const store = new WidgetStore(lib);
+    await store.add('Star', [{ type: 'art', x: 0, y: 1, w: 3, h: 3, view_box: [0, 0, 10, 10], paths: [{ d: 'M0 0L10 0L10 10Z', fill: 'black', stroke: 'none', stroke_mm: 0 }] } as unknown as PageElement]);
+    await store.add('Box', els().slice(0, 1));
+    const second = await store.add('Box', els().slice(0, 1));
+    expect(second.name).toBe('Box 2');
+    expect((await lib.list()).map((i) => [i.kind, i.name]).sort()).toEqual([['art', 'Star'], ['widget', 'Box'], ['widget', 'Box 2']]);
+  });
+
+  it('tells its listeners, and a damaged widget document is refused', async () => {
     let calls = 0;
-    const store = new WidgetStore(memory());
+    const store = new WidgetStore(makeLibrary());
     store.subscribe(() => calls++);
-    store.add('A', els());
+    await store.add('A', els());
     expect(calls).toBe(1);
-    const bad = memory();
-    bad.data['dotwork.widgets'] = JSON.stringify([{ id: 'x', name: 'Bad', elements: [{ type: 'shade', x: 0, y: 0, w: 1, h: 1 }] }, { nonsense: true }]);
-    expect(new WidgetStore(bad).list()).toEqual([]);
-    bad.data['dotwork.widgets'] = '{not json';
-    expect(new WidgetStore(bad).list()).toEqual([]);
+    expect(readWidget({ name: 'Bad', elements: [{ type: 'shade', x: 0, y: 0, w: 1, h: 1 }] }, 'widget').ok).toBe(false);
+    expect(readWidget({ name: 'Bad' }, 'widget').ok).toBe(false);
+    expect(readWidget({ name: 'Ok', elements: els() }, 'widget').ok).toBe(true);
+    expect(readWidget({ name: 'Not art', elements: els() }, 'art').ok).toBe(false);
   });
 });

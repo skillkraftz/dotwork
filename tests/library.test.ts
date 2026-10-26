@@ -2,6 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { Library, MemoryBackend, readLibraryFile } from '../src/library/library';
 import { buildSpread, emptySpread } from '../src/format/spread';
 import { emptyPage, type Page } from '../src/format/types';
+import { Favorites } from '../src/library/favorites';
+import { restoreBackup } from '../src/library/backup';
+import { DEFAULT_PRINT } from '../src/book/impose';
+
+const restore = (lib: Library, file: unknown) => restoreBackup(lib, new Favorites(null), file, DEFAULT_PRINT);
 
 function make() {
   let t = 0, n = 0;
@@ -89,19 +94,19 @@ describe('Library backup', () => {
     expect(file).toMatchObject({ format: 'dotwork-library', version: 1 });
 
     const b = make();
-    expect(await b.importFile(file)).toEqual({ ok: true, added: 2, replaced: 0 });
+    expect(await restore(b, file)).toMatchObject({ ok: true, summary: { added: 2, skipped: 0, keptBoth: 0 } });
     expect(await b.list()).toEqual(await a.list());
   });
 
-  it('importing again replaces by id instead of duplicating', async () => {
+  it('restoring again skips what is already here instead of duplicating', async () => {
     const lib = make();
     await lib.save('page', 'P', page('P'));
     const file = JSON.parse(JSON.stringify(await lib.exportAll()));
-    expect(await lib.importFile(file)).toEqual({ ok: true, added: 0, replaced: 1 });
+    expect(await restore(lib, file)).toMatchObject({ ok: true, summary: { added: 0, skipped: 1, keptBoth: 0 } });
     expect(await lib.list()).toHaveLength(1);
   });
 
-  it('rejects a bad file and adds nothing', async () => {
+  it('refuses a bad item with the reason, and still restores the rest', async () => {
     const lib = make();
     await lib.save('page', 'Keep', page('Keep'));
     const good = JSON.parse(JSON.stringify(await make().exportAll()));
@@ -112,25 +117,33 @@ describe('Library backup', () => {
         { id: 'b', kind: 'page', name: 'Bad', updated: '2026-10-18T00:00:00Z', data: { ...page('Bad'), elements: [{ type: 'box', x: 0.2, y: 1, w: 2, h: 2 }] } },
       ],
     };
-    const r = await lib.importFile(bad);
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.issues[0].path).toBe('items[1].data.elements[0].x');
-    expect(await lib.list()).toHaveLength(1);
+    const r = await restore(lib, bad);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.summary.added).toBe(1);
+      expect(r.summary.refused).toHaveLength(1);
+      expect(r.summary.refused[0]).toMatchObject({ id: 'b', name: 'Bad', kind: 'page' });
+      expect(r.summary.refused[0].reason).toContain('items[1].data.elements[0].x');
+    }
+    expect((await lib.list()).map((i) => i.name).sort()).toEqual(['Keep', 'Ok']);
   });
 
-  it('checks the file itself', () => {
+  it('checks the file itself, and refuses a bad item without refusing the file', () => {
     const rules = (v: unknown) => { const r = readLibraryFile(v); return r.ok ? [] : r.issues.map((i) => i.rule); };
+    const refused = (v: unknown) => { const r = readLibraryFile(v); return r.ok ? r.refused.length : -1; };
     const item = { id: 'a', kind: 'page', name: 'N', updated: '2026-10-18T00:00:00Z', data: page('N') };
     const file = { format: 'dotwork-library', version: 1, exported: '', items: [item] };
     expect(rules(file)).toEqual([]);
     expect(rules({ ...file, format: 'x' })).toContain('format');
     expect(rules({ ...file, version: 2 })).toContain('version');
     expect(rules({ ...file, items: 3 })).toContain('items-array');
-    expect(rules({ ...file, items: [{ ...item, kind: 'notebook' }] })).toContain('kind');
-    expect(rules({ ...file, items: [item, item] })).toContain('id');
-    expect(rules({ ...file, items: [{ ...item, updated: 'yesterday' }] })).toContain('updated');
-    expect(rules({ ...file, items: [{ ...item, kind: 'spread' }] })).toContain('format'); // a page where a spread belongs
+    expect(rules({ ...file, favorites: [1] })).toContain('favorites');
     expect(rules('nope')).toEqual(['root-object']);
+    expect(refused({ ...file, items: [{ ...item, kind: 'notebook' }] })).toBe(1);
+    expect(refused({ ...file, items: [item, item] })).toBe(1); // the second one with the same id
+    expect(refused({ ...file, items: [{ ...item, updated: 'yesterday' }] })).toBe(1);
+    expect(refused({ ...file, items: [{ ...item, kind: 'spread' }] })).toBe(1); // a page where a spread belongs
+    expect(refused({ ...file, items: ['x'] })).toBe(1);
   });
 
   it('converts version 1 pages found in a backup', () => {

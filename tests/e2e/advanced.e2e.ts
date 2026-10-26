@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ICONS, ICON_NAMES } from '../../src/icons/icons';
-import { bar, box, cellToClient, draft, drag, missingHelp, open, shot, start, stop, tap, type App, type Env, tool, newDoc, seedPage,
+import { bar, box, cellToClient, draft, drag, missingHelp, open, shot, start, stop, tap, type App, type Env, tool, newDoc, seedPage, reload,
 } from './harness';
 
 let env: Env;
@@ -161,6 +161,7 @@ describe('Advanced on a phone (390 x 844, touch)', () => {
     await shot(app, 'phone-save-widget');
     await page.tap('dialog.ask .primary');
     await page.waitForSelector('dialog.ask', { state: 'hidden' });
+    await page.waitForFunction(() => document.querySelector('#notice')?.textContent?.includes('Notes box')); // saved to the Library, then said
     expect(await page.locator('#notice').innerText()).toContain('Notes box');
 
     // another page: a new, blank one
@@ -203,14 +204,15 @@ describe('Advanced on a phone (390 x 844, touch)', () => {
     await page.locator('.ctx-menu [data-action="widget"]').tap();
     await page.locator('dialog.ask input').fill('Box');
     await page.tap('dialog.ask .primary');
-    await page.reload();
-    await page.waitForSelector('#canvas');
+    await page.waitForFunction(() => document.querySelector('#notice')?.textContent?.includes('Saved'));
+    await reload(app);
     await tool(app, 'widget');
     expect(await page.locator('.widget-use strong').allInnerTexts()).toEqual(['Box']);
     await page.tap('[data-key="widget-rename"]');
     await page.locator('dialog.ask input').fill('Frame');
     await page.keyboard.press('Enter');
     await page.waitForSelector('dialog.ask', { state: 'hidden' });
+    await page.waitForFunction(() => document.querySelector('.widget-use strong')?.textContent === 'Frame'); // written to the Library, then listed
     expect(await page.locator('.widget-use strong').allInnerTexts()).toEqual(['Frame']);
     page.once('dialog', (d) => void d.accept());
     await page.tap('[data-key="widget-delete"]');

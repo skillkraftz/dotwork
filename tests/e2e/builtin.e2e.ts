@@ -1,18 +1,24 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { choose, hit, libraryItems, missingHelp, open, openDoc, shot, start, stop, type App, type Device, type Env } from './harness';
+import { choose, hit, libraryItems, missingHelp, open, openDoc, shot, start, stop, waitSaved, type App, type Device, type Env } from './harness';
 
 let env: Env;
 beforeAll(async () => { env = await start(); });
 afterAll(async () => { await stop(env); });
 
 const noErrors = (app: App) => expect(app.errors).toEqual([]);
-/** A template's book opens read-only, so it is not in the Library; take Edit a copy to read what was built (the copy's name loses its " copy"). */
+/**
+ * The book a template built. One with questions is a document already. One without opens read-only, so it is not in the
+ * Library yet; take Edit a copy to read what was built (the copy's name loses its " copy").
+ */
 const savedBook = async (app: App) => {
-  await app.page.waitForSelector('#builtin-bar:not([hidden])');
-  await hit(app, '#doc-copy');
-  await app.page.waitForSelector('dialog.ask[open]');
-  await hit(app, 'dialog.ask[open] .primary');
-  await app.page.waitForSelector('#builtin-bar', { state: 'hidden' });
+  await app.page.waitForSelector('#doc-name');
+  if (await app.page.locator('#builtin-bar').isVisible()) {
+    await hit(app, '#doc-copy');
+    await app.page.waitForSelector('dialog.ask[open]');
+    await hit(app, 'dialog.ask[open] .primary');
+    await app.page.waitForSelector('#builtin-bar', { state: 'hidden' });
+  }
+  await waitSaved(app);
   const book = await openDoc(app, 'book');
   return { ...book, name: book.name.replace(/ copy$/, '') };
 };

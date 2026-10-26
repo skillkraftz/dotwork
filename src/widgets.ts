@@ -2,6 +2,9 @@ import { COLS, ROWS, type PageElement } from './format/types';
 import { validateElement } from './format/validate';
 import { groupArea, translate, type Pt } from './geometry';
 import { newGroupId } from './groups';
+import { errorProblem, type Problem } from './problems';
+import type { Library, LibraryItem } from './library/library';
+import type { ValidationIssue } from './format/validate';
 
 /**
  * A saved group of elements. Their positions are relative to the group's top-left corner, which is (0, 0), so
@@ -9,7 +12,31 @@ import { newGroupId } from './groups';
  */
 export interface Widget { id: string; name: string; elements: PageElement[] }
 
-const KEY = 'dotwork.widgets';
+/** What a widget or art document holds: the Library entry has the id, the name is kept once in the entry (`data.name` is filled in when read). */
+export interface WidgetData { name: string; elements: PageElement[] }
+
+/** Saved art is a widget of one art element (see art/widget.ts); the Library keeps it as its own kind. */
+export const kindOf = (elements: readonly PageElement[]): 'widget' | 'art' => (elements.length === 1 && elements[0].type === 'art' ? 'art' : 'widget');
+
+/** Check a widget or art document: its elements fit the page format wherever it is placed, and art is exactly one art element. */
+export function readWidget(data: unknown, kind: 'widget' | 'art'): { ok: true; widget: WidgetData } | { ok: false; issues: ValidationIssue[] } {
+  const fail = (message: string): { ok: false; issues: ValidationIssue[] } => ({ ok: false, issues: [{ rule: 'widget', path: 'elements', message }] });
+  if (typeof data !== 'object' || data === null || Array.isArray(data)) return { ok: false, issues: [{ rule: 'root-object', path: '(file)', message: `A ${kind} must be a JSON object.` }] };
+  const d = data as { name?: unknown; elements?: unknown };
+  if (typeof d.name !== 'string') return { ok: false, issues: [{ rule: 'name', path: 'name', message: '"name" is required and must be a string.' }] };
+  if (!Array.isArray(d.elements) || d.elements.length === 0) return fail('"elements" must be a non-empty array.');
+  const widget: WidgetData = { name: d.name, elements: d.elements as PageElement[] };
+  if (kindOf(widget.elements) !== kind) return fail(kind === 'art' ? 'Art is exactly one art element.' : 'A widget is not a single art element (that is art).');
+  let issues: ValidationIssue[];
+  try {
+    issues = placeWidget({ id: '', ...widget }, { x: 0, y: 1 }).flatMap((el, i) => validateElement(el, `elements[${i}]`));
+  } catch (err) {
+    issues = [{ rule: 'element', path: 'elements', message: `The elements can't be placed: ${(err as Error).message}` }];
+  }
+  return issues.length ? { ok: false, issues } : { ok: true, widget };
+}
+
+const asWidget = (item: LibraryItem & { kind: 'widget' | 'art' }): Widget => ({ id: item.id, name: item.name, elements: item.data.elements });
 
 /** A widget from elements on a page, with positions relative to their top-left corner. */
 export function makeWidget(id: string, name: string, elements: readonly PageElement[]): Widget {
@@ -39,17 +66,18 @@ export function placeWidget(widget: Widget, at: Pt, existing: readonly PageEleme
   });
 }
 
-/** The place the widget list is kept: the browser's local storage, or anything shaped like it (tests use a plain object). */
-export type WidgetStorage = Pick<Storage, 'getItem' | 'setItem'>;
-
-/** The saved widgets, kept in the browser next to the library. */
+/**
+ * The saved widgets and art: Library documents of kind `widget` and `art`, kept here as a list that can be read at once
+ * (the pickers draw from it). Changes are written to the Library first and then shown; the Library window changes
+ * documents itself and calls `refresh`.
+ */
 export class WidgetStore {
   private widgets: Widget[] = [];
   private listeners = new Set<() => void>();
+  /** Where a failed rename or delete is reported (the caller of `add` gets the error instead). */
+  onError: (problem: Problem) => void = () => {};
 
-  constructor(private storage: WidgetStorage | null = null, private newId: () => string = () => crypto.randomUUID()) {
-    this.widgets = this.load();
-  }
+  constructor(private library: Library) {}
 
   list(): readonly Widget[] { return this.widgets; }
   get(id: string): Widget | undefined { return this.widgets.find((w) => w.id === id); }
@@ -59,38 +87,27 @@ export class WidgetStore {
     return () => this.listeners.delete(fn);
   }
 
-  add(name: string, elements: readonly PageElement[]): Widget {
-    const widget = makeWidget(this.newId(), name, elements);
-    this.widgets = [...this.widgets, widget];
-    this.changed();
-    return widget;
-  }
-
-  rename(id: string, name: string) {
-    const clean = name.trim();
-    if (!clean) return;
-    this.widgets = this.widgets.map((w) => (w.id === id ? { ...w, name: clean } : w));
-    this.changed();
-  }
-
-  remove(id: string) {
-    this.widgets = this.widgets.filter((w) => w.id !== id);
-    this.changed();
-  }
-
-  private changed() {
-    try { this.storage?.setItem(KEY, JSON.stringify(this.widgets)); } catch { /* storage full or blocked: the widgets last for this visit */ }
+  /** Read the saved widgets and art again from the Library. */
+  async refresh(): Promise<void> {
+    const items = await this.library.list();
+    this.widgets = items.filter((i): i is LibraryItem & { kind: 'widget' | 'art' } => i.kind === 'widget' || i.kind === 'art').reverse().map(asWidget); // oldest first
     this.listeners.forEach((fn) => fn());
   }
 
-  /** What was saved, leaving out any widget that no longer fits the page format. */
-  private load(): Widget[] {
-    try {
-      const raw = JSON.parse(this.storage?.getItem(KEY) ?? '[]');
-      if (!Array.isArray(raw)) return [];
-      return raw.filter((w): w is Widget =>
-        !!w && typeof w.id === 'string' && typeof w.name === 'string' && Array.isArray(w.elements) && w.elements.length > 0
-        && placeWidget(w, { x: 0, y: 1 }).every((el) => validateElement(el).length === 0));
-    } catch { return []; }
+  /** Save elements as a new widget (or art, for one art element); a taken name gets " 2". Throws if the browser refuses. */
+  async add(name: string, elements: readonly PageElement[]): Promise<Widget> {
+    const kind = kindOf(elements);
+    const made = makeWidget('', name || (kind === 'art' ? 'Art' : 'Widget'), elements);
+    const item = await this.library.create(kind, made.name, { name: made.name, elements: made.elements });
+    await this.refresh();
+    return asWidget(item as LibraryItem & { kind: 'widget' | 'art' });
+  }
+
+  async rename(id: string, name: string): Promise<void> {
+    try { await this.library.rename(id, name); await this.refresh(); } catch (err) { this.onError(errorProblem('Couldn’t rename it.', err)); }
+  }
+
+  async remove(id: string): Promise<void> {
+    try { await this.library.remove(id); await this.refresh(); } catch (err) { this.onError(errorProblem('Couldn’t delete it.', err)); }
   }
 }

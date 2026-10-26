@@ -71,7 +71,7 @@ The Library's **Duplicate** does the same from the list.
 template, an import, a link) writes the current one first and switches. The app remembers the open document (`dotwork.open`) and comes
 back to it on reload. **Export JSON** writes the open document as it is at that moment, in whatever area you are in. PNG is offered for pages
 and spreads, PDFs for books. **Import** makes a new document named from the file and opens it. Restoring a backup adds every document
-that is not already there (same id and content: skipped; same id, different content: added as `<name> restored`); nothing is replaced.
+that is not already there (same id and content: skipped; same id, different content: added as `<name> (from backup)`); nothing is replaced or deleted.
 A PNG is what is on screen: a page has no date or number of its own, so it shows the sample (Mon 26 Oct 2026, page 47) and the PNG tab says so
 in one line. Undo stays in memory for the open document.
 
@@ -87,8 +87,10 @@ memory with Export prominent. It never looks like it saved when it did not.
   the Library as "Old format" with Export and Delete, and cannot be opened. The owner's page designs are the work that matters and they
   survive; the books are built again from the outline (a few minutes each, which phases 6 and 7 make quick).
 - **Widgets and art** are Library items, not drafts. In phase 3, on first start, the contents of `dotwork.widgets` (`localStorage`) are
-  copied once into the Library store as documents of kind `widget` and `art`, and the key is removed. It is a move of the same objects, a
-  few lines, and it is deleted again in phase 4 (so it exists for exactly one release).
+  copied once into the Library store as documents of kind `widget` and `art` (same id and name; ` 2` if the name is taken), and a flag
+  (`dotwork.widgets.moved`) marks the move done. The old key is left untouched (it is the safety net). If the move fails, what was copied is
+  taken out again, the real error is shown with Copy details, and it is tried again next start. It is `src/widgetmove.ts`, and it is deleted
+  again in phase 4 (so it exists for exactly one release).
 - **Favorites** (`dotwork.favorites`) start again; they are a tap each.
 
 **Why.** The map has two parallel ways to keep work (a draft per view, and explicit Library saves) and no link between them: edits to
@@ -450,13 +452,13 @@ monthly log book (section 6) is one of them: **Monthly log**, which asks for the
 
 Each phase leaves the app working and deployable, passes the unit and e2e suites, and updates the docs it touches in place (the working rule:
 no migrations, old files break). **★** marks a change to a page, book or library **file**. There are four file changes (phases 5, 6, 7 and 11: the book outline; the calendar; the first `generated` element, the week block; the other
-generated elements) and one change of meaning (phase 4); the library backup gains two kinds in phase 3.
+generated elements) and one change of meaning (phase 4); the library backup gains two kinds, the favorites and the printer profile in phase 3 (done).
 
 | # | Phase | What it does | What the owner can try after it |
 |---|---|---|---|
 | 1 | **Documents: pages and spreads** (done) | One Library store; the open page or spread autosaves; "Saved" mark; New starts Untitled with the name-it chip and asks before export, placing and saving as a section; built-ins read-only with Edit a copy; the open document is remembered; Open and Import add documents. The old drafts are no longer read (the owner exported first). | Draw a page, close the tab, come back: it is there. Open a built-in and tap Edit a copy. |
 | 2 | **Documents: books and sections** (done) | Books and sections open and autosave the same way; Open and Import of a book make documents; Export exports the open document; the "can't keep documents" notice. The book view is otherwise unchanged. | Open two books and switch between them without losing either. Import a book twice and get two. |
-| 3 | **Full backup** ★ library file | Widgets, art and favorites become documents in the store (widgets and art are moved once from `localStorage`, D8, so nothing saved is lost); Back up and Restore carry every document, favorite, widget and art, and never replace. | Back up, clear the browser, restore: pages, spreads, books, widgets and art are all back. |
+| 3 | **Full backup** (done) ★ library file | Widgets and art become documents in the store (moved once from `localStorage`, D8, so nothing saved is lost); a book built from a template with options is a document at once; Back up and Restore carry every document, the favorites and the printer profile (offered, default No), and never replace or delete. Favorites stay in `localStorage` (they are a tap each). | Back up, clear the browser, restore: pages, spreads, books, widgets and art are all back. |
 | 4 | **Token units and `@end`** (meaning change) | `{month+1}`, `{year+1}`, `{week+1}` count in their own unit; week pages read their week; `@end`; the built-in Weekly reflection and the examples are rewritten; the editor shows the new samples. The one-time widget and art move from phase 3 is removed. Books still store dates, so they print as before. | See `{month+1}` and `NOV 29 – DEC 5` on a week page in the editor. |
 | 5 | **★ The outline (undated)** | The book becomes an outline: pages, spreads, groups and free pages; ×N and fill; pin to page; drag, Up/Down, Duplicate, Group/Ungroup, Collapse, Delete; save a group as a section; thumbnails, repeat, pages and the live "N of 52 pages"; gap pages for spreads; Make the book N pages; Edit here / Split out; moving blocks. Links (`from`) are recorded but not used yet. Removes `pages`, `dates`, `recipe`, the Build, Dates and Apply windows. Old books and sections become "Old format". | Build a 52-page undated book as an outline on a phone: blank ×10, an idea spread ×6, free pages for the rest, a closing page pinned to the last page. Drag a group around. |
 | 6 | **★ The calendar and derived dates** | `calendar`, the "each day / week / month" repeats, "of the span", week start, week numbers by the book's year, the repeat suggested from a page's tokens and the "reads:" line on every row, spread coverage, short-repeat leave-out, dates on every page, the Page map. The book's dates reach the PDFs, previews and Flip through. Free pages that do not fit after a re-date are kept and marked. | Make a November 2026 book from ordinary pages (a week group: a tracker page, a daily log for each day, a review page), change the calendar to January 2027 and watch every date move. Drag a row and see no date move. |
@@ -494,8 +496,9 @@ week week pages; a plain ×N inside a week group reads the week.
 **Q4. PNG date and page number.** A PNG is the screen: the sample date and page number for a design, and the PNG tab says so (D6). The book's
 `preview.png` and Flip through show the book's real dates and numbers.
 
-**Q5. Library backup contents.** Every document (pages, spreads, sections, books, widgets, art) and the favorites. Not the built-ins, not the
-printer profile (it belongs to a printer), not the snapshots (D22).
+**Q5. Library backup contents.** Every document (pages, spreads, sections, books, widgets, art), the favorites, and the printer profile with both
+layouts' calibration. Not the built-ins, not the snapshots (D22). The profile belongs to a printer, so Restore never replaces it silently: it
+is offered separately ("Replace your printer settings with the backup's?", both sets of values shown, default No) and only when it differs.
 
 **Q6. Moving and swapping pages.** Both are the outline (and pin to page for a block that must stay put): drag a row or use Up / Down, and Duplicate. Dates follow the block's repeat, so moving
 never changes them (D10, D13). Swapping two blocks is dragging one past the other.

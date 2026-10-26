@@ -22,6 +22,7 @@ import { emptyBook, readBook, type Book } from './book/book';
 import { readSection } from './book/sections';
 import { DEFAULT_PRINT, clonePrint, type PrintSettings } from './book/impose';
 import { loadPrinter, savePrinter } from './printer';
+import { moveOldWidgets } from './widgetmove';
 import { ExportDialog } from './exporter';
 import { SettingsDialog } from './settings';
 import { checkItem, setupMenus } from './menus';
@@ -73,11 +74,12 @@ let arranger: Arranger | null = null;
 /** The store that undo, the panel and the keyboard act on. */
 const cur = () => (view === 'page' ? stores.page : stores[active]);
 
-const widgets = new WidgetStore((() => { try { return localStorage; } catch { return null; } })());
 const nameDialog = new NameDialog();
 
 const keeper = new Keeper(typeof indexedDB === 'undefined' ? null : idbBackend);
 const library = new Library(keeper, undefined, undefined, (kind, name) => (kind === 'section' ? isBuiltinSection(name) : isBuiltinName(kind, name)));
+/** Saved widgets and art are Library documents; this keeps them as a list the pickers can read at once. */
+const widgets = new WidgetStore(library);
 
 // ---- the open documents ----------------------------------------------------
 
@@ -315,8 +317,10 @@ async function saveWidget() {
   if (!chosen.length) return;
   const name = await nameDialog.ask('Save as widget', '', `Widget ${widgets.list().length + 1}`);
   if (!name) return;
-  widgets.add(name, chosen);
-  notify(`Saved “${name}”. Find it under Advanced.`);
+  try {
+    const saved = await widgets.add(name, chosen);
+    notify(`Saved “${saved.name}”. Find it under Advanced.`);
+  } catch (err) { notifyProblems([errorProblem('The widget wasn’t saved.', err)]); }
 }
 
 // ---- Advanced: sequence, icon, saved widgets and art ----
@@ -460,6 +464,13 @@ async function openBook(next: Book, id: string | null) {
   if (ok) setView('book');
 }
 
+/** A book made just now from a template that asked questions: a document of its own at once, named from the template. */
+async function addBook(next: Book) {
+  notify(null);
+  const ok = await switchDocument(sessions.book, () => sessions.book.importAs(next));
+  if (ok) setView('book');
+}
+
 async function openSpread(spread: Spread, id: string | null) {
   notify(null);
   const ok = await switchDocument(sessions.spread, () => (id ? sessions.spread.open({ id, kind: 'spread', name: spread.name, updated: '', data: spread }) : sessions.spread.openBuiltin(spread)));
@@ -597,6 +608,12 @@ async function importFromFile(file: File): Promise<{ ok: true } | { ok: false; p
   return { ok: true };
 }
 
+/** Use these printer settings, and keep them. Returns what to tell the owner if the browser refuses. */
+function setPrinter(next: PrintSettings): Problem | null {
+  printerSettings = clonePrint(next); // used for this visit even if the browser refuses to store it
+  return savePrinter(draftStorage(), printerSettings);
+}
+
 const exportDialog = new ExportDialog({
   view: () => view,
   json: jsonToExport,
@@ -612,8 +629,7 @@ const exportDialog = new ExportDialog({
     edit(change) {
       const next = clonePrint(printerSettings);
       change(next);
-      printerSettings = next; // used for this visit even if the browser refuses to store it
-      return savePrinter(draftStorage(), next);
+      return setPrinter(next);
     },
   },
   importFile: importFromFile,
@@ -665,6 +681,8 @@ const libraryDialog = new LibraryDialog(library, {
     for (const s of allSessions) if (s.id === id) void switchDocument(s, () => s.startNew());
   },
   openBook,
+  addBook,
+  printer: { get: () => printerSettings, set: (next) => setPrinter(next) },
   placePage,
   download,
   closed: () => void arranger?.refreshDesigns(),
@@ -800,6 +818,10 @@ addEventListener('pagehide', () => { flushAll(); for (const s of allSessions) vo
 applyGuards();
 void (async () => {
   await keeper.start(); // does the browser keep documents? If not, the notice says so before anything is opened
+  widgets.onError = (problem) => notifyProblems([problem]);
+  const moved = await moveOldWidgets(draftStorage(), library, () => keeper.keeping); // removed in phase 4 (docs/product-model.md)
+  if (moved.status === 'failed') notifyProblems([moved.problem], true);
+  try { await widgets.refresh(); } catch (err) { notifyProblems([errorProblem('Your saved widgets and art couldn’t be read.', err)]); }
   await ensureOpen(view);
   started = true;
   applyGuards();
