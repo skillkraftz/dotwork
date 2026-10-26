@@ -19,7 +19,7 @@ to the page format.
   "pages": [ { "...": "a dotwork-page with side \"right\"" }, null, { "...": "..." } ],
   "dates": [ "2026-10-18", "2026-10-25", null ],
   "cover": { "front": { "...": "a dotwork-page with side \"left\"" }, "back": null, "outside_front": null, "outside_back": null },
-  "recipe": { "month": "2026-11", "weekday": 0, "section": { "...": "see Recipe below" } }
+  "recipe": { "month": "2026-11", "steps": [ { "section": { "...": "a dotwork-section" }, "repeat": { "kind": "fill" } } ] }
 }
 ```
 
@@ -57,11 +57,12 @@ N, inside back, outside back.
 `{day+1}`, `{months}` and the rest, see `page-format.md`) filled in from that
 date, in `pages.pdf`, the print files and the previews. A page with no date, and
 the covers, print them blank, so the date can be written in by hand. In
-Dotwork's Book view, **Dates…** gives a run of pages consecutive weeks (each
-dated its Sunday) or consecutive days. Dates travel with their page: moving or
-swapping pages moves their dates, and a page given a design with no date tokens loses its date. Dates survive
-resizing the book (new pages start undated). **Dates…** starts from the nearest dated page before the current one,
-continuing its rhythm (a day or a week later), and from today (the local date, never UTC) only when the book has none.
+Dotwork's Book view, **Dates…** (More menu) dates a range of pages: *each page is one week* (a year and a week number; every page gets
+a Sunday, seven days apart) or *each page is one day* (a start date; consecutive days). It opens on the current page up to the end of
+the run of pages that share its design, in *one week* mode, and starts from today (the local date, never UTC) only when the book has no dates.
+Choosing a design for a page keeps the page's date unless the new design uses no date tokens, in which case the date is cleared. Dates
+survive resizing the book (new pages start undated). The file format says that a date travels with its page, and the book code can move and swap
+pages (`movePage`, `swapPages`), but the Book view has no control that does either yet.
 
 **Recipe.** **Build book…** builds every interior page from a list of *steps*, each repeating a *section* (a run
 of pages kept in the Library, see `library-format.md`). It replaces every interior page and its date, as one Undo step,
@@ -112,11 +113,11 @@ limits below are brought back in by the fields and refused by the reader of a st
 | `cover_fore_edge_shift_mm` | The same for the covers (`cover-outside.pdf`, `cover-inside.pdf`). Default 2.2 (provisional). -10 to 10. |
 | `target_fore_edge_margin_mm` | The fore-edge margin wanted on the trimmed book, content box to the trimmed edge. The creep test marks it on its rulers and the wizard aims for it. Top and bottom are unchanged (3.85 mm). Default 3.5. 1 to 10. |
 | `sheet_layout` | `"half_letter"` or `"letter_two_up"`: how the sheets are laid on the paper (see **Sheet layouts** below). The offsets and scale below are those of the layout chosen here when the files are made. |
-| `layouts.<layout>.front_offset_x_mm`, `.front_offset_y_mm` | Added to everything printed on the first pass with that layout: `print-first.pdf`, the fronts in `print-duplex.pdf`, `cover-outside.pdf` and the front calibration pages. +x moves right, +y moves up, as seen on that side. -10 to 10. Measured against the paper, not against the back (see below). Defaults for `half_letter`: 1.7 and -0.05; for `letter_two_up`: -0.75 and -1.6 (the owner's printer). |
-| `layouts.<layout>.back_offset_x_mm`, `.back_offset_y_mm` | The same for the second pass (`print-second.pdf`, the backs in `print-duplex.pdf`, `cover-inside.pdf` and the back calibration page), as seen on that side. -10 to 10. Defaults for `half_letter`: 1.5 and 0.05; for `letter_two_up`: 0 and 1.1. Both offsets are against the paper, not against each other: to move all the print toward the top edge, add the same to both sides' y. |
-| `layouts.<layout>.scale_x_pct`, `.scale_y_pct` | Where everything on the sheet lands along its 8.5 in edge (x) and along its other edge (y: 5.5 in, or 11 in for two-up), as a percent of true distance, about the sheet's centre (the sheet's centre stays put), on both sides of every print PDF and calibration sheet. 95 to 105, default 100. It cancels a printer that enlarges or shrinks the page (borderless modes enlarge it slightly); the 100 mm lines on the calibration sheet find it. The offset is added after scaling. It moves positions only: line widths, dot sizes and letters are never scaled or stretched (see [print-pipeline.md](print-pipeline.md)). |
+| `layouts.<layout>.front_offset_x_mm`, `.front_offset_y_mm` | Added to everything printed on the first pass with that layout: `print-first.pdf`, the fronts in `print-duplex.pdf`, `cover-outside.pdf` and the front calibration pages. +x moves right, +y moves up, as seen on that side. -10 to 10. Measured against the paper, not against the back (see below). Defaults for `half_letter`: 1.7 and -0.05; for `letter_two_up`: -0.25 and -1.55 (the owner's printer). |
+| `layouts.<layout>.back_offset_x_mm`, `.back_offset_y_mm` | The same for the second pass (`print-second.pdf`, the backs in `print-duplex.pdf`, `cover-inside.pdf` and the back calibration page), as seen on that side. -10 to 10. Defaults for `half_letter`: 1.5 and 0.05; for `letter_two_up`: -0.4 and 1. Both offsets are against the paper, not against each other: to move all the print toward the top edge, add the same to both sides' y. |
+| `layouts.<layout>.scale_x_pct`, `.scale_y_pct` | Where everything on the sheet lands along its 8.5 in edge (x) and along its other edge (y: 5.5 in, or 11 in for two-up), as a percent of true distance, about the sheet's centre (the sheet's centre stays put), on both sides of every print PDF and calibration sheet. 95 to 105, default 100 (except `letter_two_up`'s y, 101.01, the owner's printer). It cancels a printer that enlarges or shrinks the page (borderless modes enlarge it slightly); the 100 mm lines on the calibration sheet find it. The offset is added after scaling. It moves positions only: line widths, dot sizes and letters are never scaled or stretched (see [print-pipeline.md](print-pipeline.md)). |
 | `layouts.<layout>.line_weight_x_pct` | How thick strokes along the paper's 8.5 in edge are drawn, as a percent of their drawn width; strokes across it are as drawn and angled ones in between (by cos² of the angle to the 8.5 in edge). 80 to 120, default 100. Dots and text are never affected. Optional: a printer can draw a line along one edge thicker than the same line across it; the pairs of lines on the calibration sheet show it, and its ladder finds the percent. Applied after the scale and the rotation, to the stroke's direction on the paper. A profile stored before it existed reads as 100. |
-| `layouts.<layout>.back_rotation_deg` | Rotates everything printed second (`print-second.pdf`, the backs in `print-duplex.pdf`, `cover-inside.pdf` and the back calibration pages) about the sheet's centre (the letter sheet's centre for two-up): + is counter-clockwise as seen on the back. Each line, rectangle, letter and dot is *placed* at its rotated position and not turned, so lines stay exactly horizontal or vertical (see [print-pipeline.md](print-pipeline.md)). -1.5 to 1.5, default 0. Applied after the scale and before the offset; the front is never turned. Found by the calibration sheet. A profile stored before it existed reads as 0. |
+| `layouts.<layout>.back_rotation_deg` | Rotates everything printed second (`print-second.pdf`, the backs in `print-duplex.pdf`, `cover-inside.pdf` and the back calibration pages) about the sheet's centre (the letter sheet's centre for two-up): + is counter-clockwise as seen on the back. Each line, rectangle, letter and dot is *placed* at its rotated position and not turned, so lines stay exactly horizontal or vertical (see [print-pipeline.md](print-pipeline.md)). -1.5 to 1.5, default 0 (`letter_two_up`: -0.183, the owner's printer). Applied after the scale and before the offset; the front is never turned. Found by the calibration sheet. A profile stored before it existed reads as 0. |
 | `shade_light_pct`, `shade_medium_pct`, `shade_dark_pct`, `gray_text_pct` | How dark the printed PDFs draw the light, medium and dark shade tones and the gray text (`"tone": "gray"` on text and sequences), as a percent of black: 0 is white, 100 is black. 0 to 100, fractions allowed. The defaults, 6.3, 13.7, 25.9 and 49.8, are the grays the editor and PNGs always use (#efefef, #dcdcdc, #bdbdbd, #808080), so a default book prints as it always did. They change `pages.pdf`, the print files, `cover.pdf` and the calibration sheets only, never the editor, the preview or PNGs. |
 
 ## What the print files contain
@@ -178,6 +179,15 @@ per-pass error *e* shows on a see-through test as about 2*e*, and correcting all
 sides with each other while both stay off the paper's centre. So each side has its own offset, and each is measured against
 the paper: the **fold** of the spread must land on the paper's physical centre (where the sheet folds edge to edge), and the
 margins at the top and bottom must be even. The page is the full height of the sheet, so top and bottom are never trimmed.
+
+## The Calibrate wizard
+
+**Calibrate your printer…** (Export, PDF tab) is three steps for the sheet layout chosen in the PDF tab, one on screen at a time with Back and Next.
+Everything typed there is kept as the printer's settings, never in the book.
+
+1. **Sheet**: downloads `calibration-sheet.pdf`; the readings from it become the back's offsets and rotation, the front's offsets and the scale of each paper edge (below).
+2. **Creep and cover**: downloads a zip with `creep-test.pdf` and `calibration-cover.pdf`; the fore-edge margins measured after binding and trimming become the creep, fore-edge shift and cover shift. The page count and the values the test prints with are editable first.
+3. **Check** (optional): prints the corrected creep test again and compares the margins with the targets; it also holds the tone fields.
 
 ## The calibration files
 
