@@ -1,7 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
-  bar, box, cellToClient, choose, doubleTap, draft, drag, open, pinch, press, shot, stagger, start, stop, tap, twoFingerDrag, viewBoxOf, type App, type Env, tool,
-} from './harness';
+  bar, box, cellToClient, choose, doubleTap, draft, drag, open, pinch, press, shot, stagger, start, stop, tap, twoFingerDrag, viewBoxOf, type App, type Env, tool, openDoc,} from './harness';
 
 let env: Env;
 beforeAll(async () => { env = await start(); });
@@ -437,7 +436,7 @@ describe('spreads on a phone', () => {
     // drawing on a page of the spread
     await tool(app, 'box');
     await drag(app, await cellToClient(app, 3, 4, '#canvas-left'), await cellToClient(app, 8, 9, '#canvas-left'));
-    expect(await page.evaluate(() => JSON.parse(localStorage.getItem('dotwork.spread.left')!).elements.length)).toBe(1);
+    expect((await openDoc(app, 'spread')).left.elements).toHaveLength(1);
     noErrors(app);
   });
 });

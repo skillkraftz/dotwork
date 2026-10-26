@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { box, cellToClient, choose, draft, drag, hit, open, shot, start, stop, tap, tool, type App, type Env } from './harness';
+import { box, cellToClient, choose, draft, drag, hit, open, shot, start, stop, tap, tool, type App, type Env, openDoc} from './harness';
 
 let env: Env;
 beforeAll(async () => { env = await start(); });
@@ -89,6 +89,7 @@ for (const device of ['phone', 'tablet', 'desktop'] as const) {
       await drag(app, await cellToClient(app, 3, 4), await cellToClient(app, 9, 8));
       expect((await pageData(app)).elements).toHaveLength(1);
       await choose(app, 'edit', '#new');
+      await page.waitForFunction(() => document.querySelector('#doc-name')?.textContent?.startsWith('Untitled 2'));
       expect((await pageData(app)).elements).toEqual([]);
       noErrors(app);
     });
@@ -210,12 +211,13 @@ describe('the settings window', () => {
     await closeDialog(app, 'settings');
 
     await choose(app, 'page', '#view-spread');
+    await page.waitForFunction(() => document.querySelector('#doc-name')?.textContent === 'Untitled: name it');
     await choose(app, 'page', '#settings');
     await page.waitForSelector('dialog.settings[open]');
     expect(await page.locator('dialog.settings h3').allTextContents()).toEqual(['Left page', 'Right page']);
-    expect(await page.locator('[data-key="settings-spread-name"]').getAttribute('placeholder')).toBe('Untitled spread');
+    expect(await page.locator('[data-key="settings-spread-name"]').inputValue()).toBe('Untitled');
     await page.locator('[data-key="settings-spread-name"]').fill('Weekly');
-    expect(await page.evaluate(() => localStorage.getItem('dotwork.spread.name'))).toBe('Weekly');
+    expect((await openDoc(app, 'spread')).name).toBe('Weekly');
     expect(await smallControls(app, 'dialog.settings')).toEqual([]);
     await shot(app, 'phone-settings-spread');
     await closeDialog(app, 'settings');
@@ -310,6 +312,9 @@ describe('the library', () => {
     await page.waitForSelector('.lib-menu');
     expect(await page.locator('.lib-menu button').allInnerTexts()).toEqual(['Duplicate']);
     await page.click('.lib-menu button');
+    await page.waitForSelector('dialog.ask[open]'); // a copy is named: prefilled, and kept as a document
+    expect(await page.inputValue('[data-key="ask-name"]')).toBe('Lined page copy');
+    await page.click('dialog.ask .primary');
     await page.waitForSelector('.lib-card[data-name="Lined page copy"]');
     // the copy is a saved page: all three
     await page.click('.lib-card[data-name="Lined page copy"] .lib-more');
@@ -328,8 +333,8 @@ describe('the library', () => {
     // tapping the item opens it and closes the library
     await page.click('.lib-card[data-name="Lined page"] .lib-open');
     await page.waitForSelector('dialog[aria-label="Library"]', { state: 'hidden' });
-    expect((await pageData(app)).name).toBe('Lined page copy'); // a built-in opens as a copy
-    expect((await pageData(app)).elements.length).toBeGreaterThan(0);
+    expect(await page.innerText('#doc-name')).toBe('Lined page'); // a built-in opens read-only, as itself
+    expect(await page.locator('#builtin-bar').isVisible()).toBe(true);
 
     // in a spread, a tapped page goes on the page being edited
     await choose(app, 'page', '#view-spread');
@@ -337,8 +342,9 @@ describe('the library', () => {
     await choose(app, 'edit', '#library');
     await page.waitForSelector('.lib-card[data-name="Daily Good Time Journal"]');
     await page.click('.lib-card[data-name="Daily Good Time Journal"] .lib-open');
-    const right = await page.evaluate(() => JSON.parse(localStorage.getItem('dotwork.spread.right')!));
-    expect(right).toMatchObject({ name: 'Daily Good Time Journal copy', side: 'right' });
+    const right = (await openDoc(app, 'spread')).right;
+    expect(right).toMatchObject({ side: 'right' });
+    expect(right.elements.length).toBeGreaterThan(0);
     noErrors(app);
   });
 
@@ -449,6 +455,7 @@ describe('the export window', () => {
 
     await closeDialog(app, 'export');
     await choose(app, 'edit', '#new');
+    await page.waitForFunction(() => document.querySelector('#doc-name')?.textContent?.startsWith('Untitled'));
     expect((await pageData(app)).elements).toEqual([]);
     await hit(app, '#export');
     await tab(app, 'import');
@@ -459,7 +466,8 @@ describe('the export window', () => {
     expect(said).toContain('Copy details');
     await page.setInputFiles('dialog.export input[type="file"]', { name: 'round-trip.json', mimeType: 'application/json', buffer: await bytes(d) });
     await page.waitForSelector('dialog.export', { state: 'hidden' });
-    expect(await pageData(app)).toMatchObject({ name: 'Round trip' });
+    await page.waitForFunction(() => document.querySelector('#doc-name')?.textContent === 'Round trip 2'); // added as a new document: the name was taken
+    expect(await pageData(app)).toMatchObject({ name: 'Round trip 2' });
     expect((await pageData(app)).elements).toHaveLength(1);
     noErrors(app);
   });

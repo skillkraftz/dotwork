@@ -1,7 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ICONS, ICON_NAMES } from '../../src/icons/icons';
-import { bar, box, cellToClient, choose, draft, drag, missingHelp, open, shot, start, stop, tap, type App, type Env, tool,
-} from './harness';
+import { bar, box, cellToClient, choose, draft, drag, missingHelp, open, shot, start, stop, tap, type App, type Env, tool, seedPage,} from './harness';
 
 let env: Env;
 beforeAll(async () => { env = await start(); });
@@ -34,10 +33,7 @@ const SEED = {
   ],
 };
 async function seed(app: App) {
-  await app.page.evaluate((p) => localStorage.setItem('dotwork.page', JSON.stringify(p)), SEED);
-  await app.page.reload();
-  await app.page.waitForSelector('#canvas');
-  await app.page.evaluate(() => document.fonts.ready);
+  await seedPage(app, SEED);
 }
 
 describe('Advanced on a phone (390 x 844, touch)', () => {

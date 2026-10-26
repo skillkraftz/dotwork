@@ -1,6 +1,5 @@
-import { readPage } from '../format/read';
 import { GRID_X_MM, GRID_Y_MM, PITCH_MM, emptyPage, type Page } from '../format/types';
-import { readSpread, type Spread, type SpreadSide } from '../format/spread';
+import type { Spread, SpreadSide } from '../format/spread';
 import { readBook, bookPage, type Book } from '../book/book';
 import { h, tabBar } from '../panel';
 import { errorProblem, issuesProblem, problemView, type Problem } from '../problems';
@@ -19,8 +18,8 @@ import { MOVE_LABEL, type Section } from '../book/sections';
 import { isArtWidget } from '../art/widget';
 import { importArtFile } from '../art/report';
 
-/** What can be saved from the editor right now. */
-export type SaveWhat = 'page' | 'spread' | 'left' | 'right' | 'book';
+/** What can be saved to the Library by hand: only a book. A page or spread is a Library document that saves itself. */
+export type SaveWhat = 'book';
 
 export interface SaveOption { what: SaveWhat; label: string; name: string }
 
@@ -28,15 +27,21 @@ export interface SaveOption { what: SaveWhat; label: string; name: string }
 export interface LibraryHost {
   view(): 'page' | 'spread' | 'book';
   saveOptions(): SaveOption[];
-  data(what: SaveWhat): Page | Spread | Book;
+  data(what: SaveWhat): Book;
   /** The built-in example pages, listed with the saved pages. Opening or placing one makes a copy. */
   examples: readonly Page[];
   widgets: WidgetStore;
   favorites: Favorites;
   /** In a spread, the side a tapped page is placed on; null when it should open on its own. */
   pageTarget(): SpreadSide | null;
-  openPage(page: Page): void;
-  openSpread(spread: Spread): void;
+  /** Open a page: a saved one (its `id`) or a built-in (`id` null, read-only until copied). The open one is written first. */
+  openPage(page: Page, id: string | null): void;
+  openSpread(spread: Spread, id: string | null): void;
+  /** Ask for a name in a small window; null if it was cancelled. */
+  askName(title: string, initial: string): Promise<string | null>;
+  /** A saved page or spread was renamed or removed here, in case it is the one open. */
+  renamed(id: string, name: string): void;
+  removed(id: string): void;
   /** `fresh` is for a book made just now from a template, which takes the printer's saved print settings. */
   openBook(book: Book, fresh?: boolean): void;
   placePage(page: Page, side: SpreadSide): void;
@@ -189,36 +194,34 @@ export class LibraryDialog {
 
   // ---- saving ---------------------------------------------------------------
 
-  /** One button per thing that can be saved: it is saved under its own name (set in Settings). */
+  /** Only a book is saved by hand, under its own name (set in Settings). A page or spread saves itself as you edit it. */
   private renderSave() {
     this.saveRow.replaceChildren(...this.host.saveOptions().map((o) => h('button', {
       type: 'button', class: 'primary', 'data-key': `library-save-${o.what}`, 'data-help': 'library-save', title: `Save under the name “${o.name}”`,
       onclick: () => void this.save(o),
     }, `Save ${o.label.toLowerCase()}`)));
+    this.saveRow.hidden = this.saveRow.childElementCount === 0;
   }
 
   private async save(option: SaveOption) {
-    const { what, name } = option;
-    const kind = what === 'spread' ? 'spread' : what === 'book' ? 'book' : 'page';
-    const existing = await this.library.findByName(kind, name);
-    if (existing && !confirm(`Replace the saved ${kind} “${existing.name}”?`)) return;
-    const data = this.host.data(what);
-    const check = kind === 'spread' ? readSpread(data) : kind === 'book' ? readBook(data) : readPage(data);
+    const { name } = option;
+    const existing = await this.library.findByName('book', name);
+    if (existing && !confirm(`Replace the saved book “${existing.name}”?`)) return;
+    const data = this.host.data(option.what) as Book;
+    const check = readBook(data);
     if (!check.ok) {
-      this.say(issuesProblem(`Not saved: the ${kind} breaks the format.`, check.issues));
+      this.say(issuesProblem('Not saved: the book breaks the format.', check.issues));
       return;
     }
     let item: LibraryItem;
     try {
-      item = kind === 'spread' ? await this.library.save('spread', name, data as Spread)
-        : kind === 'book' ? await this.library.save('book', name, data as Book)
-          : await this.library.save('page', name, data as Page);
+      item = await this.library.save('book', name, data);
     } catch (err) {
       this.say(errorProblem('Not saved.', err)); // a built-in's name, or the browser's storage refusing
       return;
     }
-    this.say(`Saved ${kind} “${item.name}” to the library.`);
-    this.tab = KIND_TAB[kind];
+    this.say(`Saved book “${item.name}” to the library.`);
+    this.tab = KIND_TAB.book;
     this.renderTabs();
     await this.renderList();
   }
@@ -254,8 +257,8 @@ export class LibraryDialog {
     const shown = visibleEntries(entries, tab, query, (id) => this.host.favorites.has(id));
     if (!shown.length) {
       const empty: Record<LibraryTab, string> = {
-        pages: 'No pages yet. Save the page you are editing with the button above.',
-        spreads: 'No spreads yet. Save the spread you are editing with the button above.',
+        pages: 'No pages yet. Draw on a page and it is kept here as you go.',
+        spreads: 'No spreads yet. Draw on a spread and it is kept here as you go.',
         sections: 'No sections yet. In the Book view, More, Save pages as a section.',
         art: 'No art yet. Import an SVG file with the button above.',
         books: 'No books yet. Save the book you are arranging with the button above.',
@@ -279,11 +282,11 @@ export class LibraryDialog {
       this.say(`“${e.name}” is a run of pages for the book builder. In the Book view, tap Build book, then Add a step, and pick it there.`);
       return;
     }
-    // A built-in can't be changed, so what opens or is placed is a copy under its own name plus “copy”.
+    // A built-in opens read-only; editing it asks for a name and makes a copy.
     if (e.kind === 'page') {
-      const page = e.example ? asCopy(e.data) : e.data, side = this.host.pageTarget();
-      if (side) this.host.placePage(page, side); else this.host.openPage(page);
-    } else if (e.kind === 'spread') this.host.openSpread(e.example ? asCopy(e.data) : e.data);
+      const side = this.host.pageTarget();
+      if (side) this.host.placePage(e.data, side); else this.host.openPage(e.data, e.example ? null : e.id);
+    } else if (e.kind === 'spread') this.host.openSpread(e.data, e.example ? null : e.id);
     else if (e.kind === 'book') this.host.openBook(e.data);
     else if (e.kind === 'art') this.host.useArt(e.data);
     else this.host.useWidget(e.data);
@@ -329,7 +332,7 @@ export class LibraryDialog {
     if (!e.example) {
       items.push(item('delete', 'Delete', async () => {
         if (!confirm(`Delete the saved ${e.kind} “${e.name}”? This can’t be undone.`)) { await this.renderList(); return; }
-        if (isWidgetKind(e)) this.host.widgets.remove(e.data.id); else await this.library.remove(e.id);
+        if (isWidgetKind(e)) this.host.widgets.remove(e.data.id); else { await this.library.remove(e.id); this.host.removed(e.id); }
         await this.renderList();
       }));
     }
@@ -343,11 +346,20 @@ export class LibraryDialog {
 
   private async copy(e: Entry) {
     if (e.kind === 'template') return;
+    if (e.kind === 'page' || e.kind === 'spread') {
+      // A page or spread: the same as editing a built-in: ask for a name, prefilled, and keep the copy as a document of its own.
+      const name = await this.host.askName(`Name the copy of “${e.name}”`, `${e.name} copy`);
+      if (name === null) return;
+      const saved = await this.library.create(e.kind, name, e.data);
+      this.tab = KIND_TAB[e.kind];
+      this.renderTabs();
+      this.say(`Saved a copy of “${e.name}” as “${saved.name}”.`);
+      return;
+    }
     if (isWidgetKind(e)) this.host.widgets.add(`${e.name} copy`, e.data.elements);
     else if (e.example) {
-      const copy = asCopy(e.data as Page | Spread | Section);
-      const saved = e.kind === 'section' ? await this.library.save('section', copy.name, copy as Section)
-        : e.kind === 'spread' ? await this.library.save('spread', copy.name, copy as Spread) : await this.library.save('page', copy.name, copy as Page);
+      const copy = asCopy(e.data as Section);
+      const saved = await this.library.save('section', copy.name, copy);
       this.tab = KIND_TAB[e.kind];
       this.renderTabs();
       this.say(`Saved a copy of “${e.name}” to your ${e.kind}s as “${saved.name}”.`);
@@ -363,7 +375,11 @@ export class LibraryDialog {
       this.renaming = null;
       if (commit) {
         try {
-          if (isWidgetKind(e)) this.host.widgets.rename(e.data.id, input.value); else await this.library.rename(e.id, input.value);
+          if (isWidgetKind(e)) this.host.widgets.rename(e.data.id, input.value);
+          else {
+            const name = await this.library.rename(e.id, input.value);
+            if (name) this.host.renamed(e.id, name);
+          }
         } catch (err) { this.say(errorProblem('Not renamed.', err)); }
       }
       await this.renderList();

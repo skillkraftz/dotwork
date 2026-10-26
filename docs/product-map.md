@@ -1,7 +1,7 @@
 # Dotwork product map: how the app works today
 
-This describes what the code does now (commit `25cf010`, the head of `main`), read from `src/`, not from the other docs or from
-comments. Where the code and a doc disagree, the code wins and the disagreement is listed in **Things that disagree** at the end.
+This describes what the code does now (commit `25cf010`, the head of `main`, with phase 1 of [product-model.md](product-model.md) applied: pages and
+spreads are Library documents that save themselves), read from `src/`, not from the other docs or from comments. Where the code and a doc disagree, the code wins and the disagreement is listed in **Things that disagree** at the end.
 Anything I could not confirm from the code is marked **(unsure)**.
 
 The owner's example, `tests/fixtures/monthly-log-book.json`, was checked against the code; see **The owner's monthly log book**.
@@ -34,17 +34,17 @@ flowchart LR
     PP[("Printer profile<br/>localStorage dotwork.printer")]
   end
 
-  DRAFTS[("Page and spread drafts<br/>dotwork.page · dotwork.spread.left/right/name")]
+  OPEN[("Open page and spread<br/>dotwork.open: Library ids")]
   FILES(["Files: .json in and out · .png · .zip of PDFs"])
 
-  ED -- "every change" --> DRAFTS
+  ED -- "every change: written to its own entry after 400 ms" --> IDB
+  ED --> OPEN
   SET --> ED
   ADV --> ED
-  ED -- "Save (a copy)" --> LIBW
   LIBW <--> IDB
   LIBW <--> LS
-  BUILT -- "open/place = copy" --> LIBW
-  LIBW -- "open page / spread = copy" --> ED
+  BUILT -- "open: read-only; edit: a named copy" --> ED
+  LIBW -- "open page / spread: the open one is written first" --> ED
   LIBW -- "open book = copy, replaces draft" --> ARR
   IDB -- "pages, spreads, sections listed in the picker and builder" --> ARR
   ARR -- "every change" --> BK
@@ -60,8 +60,8 @@ flowchart LR
   BK -- "name, page count, pages" --> CAL
   EXP <--> FILES
   CAL --> FILES
-  EXP -- "Import: replaces the draft" --> ED
-  EXP -- "Import: replaces the draft" --> ARR
+  EXP -- "Import page / spread: adds a document and opens it" --> ED
+  EXP -- "Import book: replaces the draft" --> ARR
 ```
 
 The one rule that holds everywhere: **nothing refers to anything else; everything is copied.** A page in a book is a copy of the
@@ -73,17 +73,18 @@ the PDF tab) and the names of built-ins.
 
 | Thing | What it holds | Where it is kept | How it refers to others |
 |---|---|---|---|
-| **Page** (`dotwork-page`, version 2) | `name`, `identity` (the header text, may hold tokens), `page_number` (default on), `side` (`left` / `right` / `either`), the 27 × 44 grid, `elements[]` (pattern, shade, box, rule, checkboxes, text, sequence, art; each may carry a `group` id). `src/format/types.ts` | Draft: `dotwork.page`. Library: kind `page`. Inside spreads, books, sections, recipes. | Copy everywhere. |
-| **Spread** (`dotwork-spread`, v2) | `name`, a `left` page and a `right` page (each must carry the matching `side`). `src/format/spread.ts` | Draft: *three keys*, `dotwork.spread.left`, `dotwork.spread.right` and `dotwork.spread.name`; the spread object is only built when needed (`currentSpread()` in `main.ts`). Library: kind `spread`. | Two embedded copies. |
+| **Page** (`dotwork-page`, version 2) | `name`, `identity` (the header text, may hold tokens), `page_number` (default on), `side` (`left` / `right` / `either`), the 27 × 44 grid, `elements[]` (pattern, shade, box, rule, checkboxes, text, sequence, art; each may carry a `group` id). `src/format/types.ts` | Library: kind `page`; the open page is one of these entries (its `name` is the entry's, put into the file when it is exported). Inside spreads, books, sections, recipes. | Copy everywhere. |
+| **Spread** (`dotwork-spread`, v2) | `name`, a `left` page and a `right` page (each must carry the matching `side`). `src/format/spread.ts` | Library: kind `spread`; the open spread is one of these entries. The two pages are the editor's two Stores; the spread object is built when written or exported (`currentSpread()` in `main.ts`). | Two embedded copies. |
 | **Book** (`dotwork-book`, v1) | `name`, `page_count` (multiple of 4, 4–400), `page_numbers`, `print: { signatures }`, `pages[]` (page or `null`, entry *i* is page *i*+1, each turned to face its slot), optional `dates[]` (parallel to `pages`), `cover` (`front` = inside front, `back` = inside back, optional `outside_front`, `outside_back`), optional `recipe`. `src/book/book.ts` | Draft: `dotwork.book`. Library: kind `book`. | Embedded copies of every page, cover, and (in the recipe) every section. |
 | **Section** (`dotwork-section`, v1) | `name`, `pages[]` (page or `null`), `days[]` (each page's date as whole days after the first dated page, or `null`), `weekday` of the first dated page, `move` (`none` / `day` / `week` / `month`: how dates shift per repeat), `left` (began on a left page). `src/book/sections.ts` | Library: kind `section`. Built-ins in code (`src/builtin/sections.ts`). Also inside every recipe step. | Embedded page copies. |
 | **Recipe** | `month` (`YYYY-MM`), optional `gap` page (Notes when absent), `steps[]`: `{ section (a full copy), repeat: times n / weeks (month?, only_in_month) / fill, start? }`. `src/book/sections.ts`, `src/book/build.ts` | Inside the book (`book.recipe`), so in the draft, in Library books and in exported JSON. The *window's* working copy is memory only until **Generate book**. | Embedded section copies. |
 | **Widget** | `{ id, name, elements[] }`, positions relative to its top-left. `src/widgets.ts` | `localStorage` `dotwork.widgets` (not the Library's IndexedDB). Built-ins from `examples/widgets/*.json` (`src/builtin/widgets.ts`). | Placing it adds ordinary copies; no link back. |
 | **Art** | A widget holding one `art` element (an imported SVG: shapes and colors). `src/art/` | Same as widgets: `dotwork.widgets`. Built-ins from `examples/art/*.svg` plus presets. | Same. |
-| **Library entry** | `{ id (uuid), kind, name, updated, data }`; `data.name` is forced equal to `name`. `src/library/library.ts` | IndexedDB database `dotwork`, store `library` (`src/library/idb.ts`). With no IndexedDB (`typeof indexedDB === 'undefined'`) it silently falls back to memory and is lost on reload. | Saving and opening are `structuredClone` copies. Saving over an existing name (same kind) replaces it after a confirm. |
+| **Library entry** | `{ id (uuid), kind, name, updated, data }`. For a page or spread the name lives only in the entry: `data.name` is left out when it is written and put back when it is read (an older entry that still has one loses it the next time it is written); books and sections still keep `data.name` equal to `name`. `src/library/library.ts` | IndexedDB database `dotwork`, store `library` (`src/library/idb.ts`, one connection kept open). With no IndexedDB (`typeof indexedDB === 'undefined'`) it silently falls back to memory and is lost on reload. | Pages and spreads: the open one *is* its entry, written in place. Names are unique per kind (a taken name gets ` 2`, ` 3`…, built-in names count as taken). Books and sections: saved explicitly, same name replaces after a confirm. |
+| **The open documents** | The id of the open page and of the open spread (a built-in by its example id). `src/documents.ts`, `main.ts` | `localStorage` `dotwork.open` (`{ "page": …, "spread": … }`), read at start-up so a reload reopens them; one open document per view (Page, Spread) until the three areas of the product model arrive. | By Library id. |
 | **Library backup** (`dotwork-library`, v1) | Every Library entry. | A downloaded file (**Back up library** / **Restore backup**). | Items are replaced by id on restore. **Does not include widgets, art or favorites** (they are in `localStorage`, not the Library store). |
 | **Printer profile** | creep per sheet, fore-edge shift, cover shift, target margin, the four tones, `sheet_layout`, and per layout: front/back offsets, back rotation, x/y scale, line weight. `src/printer.ts`, `src/book/impose.ts` | `localStorage` `dotwork.printer`. Loaded once at start-up into a module variable in `main.ts`. Defaults (`DEFAULT_PRINT`) are the owner's printer. | Never in a book. `summary.txt` and calibration pages record the values used. |
-| **Drafts** | The working copy of a page, the two spread pages, the spread name, and the book. | `localStorage` keys above, written on every change (no debounce). A draft that no longer passes the reader is copied to `<key>.bad.<time>` and offered as a download; it is never overwritten. `src/drafts.ts` | n/a |
+| **Drafts** | The working copy of the book. (The old page and spread drafts, `dotwork.page`, `dotwork.spread.left/right/name`, are no longer read or written; anything left under those keys stays untouched.) | `localStorage` `dotwork.book`, written on every change (no debounce). A draft that no longer passes the reader is copied to `<key>.bad.<time>` and offered as a download; it is never overwritten. `src/drafts.ts` | n/a |
 | **Favorites** | Starred Library item ids. | `localStorage` `dotwork.favorites`. | By Library id; built-ins by name (`example:<page name>`, `template:<id>` …). |
 | **Book templates** | Functions that build a whole book from a few numbers (year, month, first and last week). | Code only (`src/builtin/templates.ts`). Not saved; the result is just a book. | Output is a copy. |
 | **View settings** | `dotwork.view` (page / spread / book), `dotwork.book.spreads` (one page or two), `dotwork.book.picker-tab`, `dotwork.book.flip-ms`. | `localStorage`. | n/a |
@@ -101,27 +102,28 @@ Page/Spread views also have the bottom tool bar (Select, Draw, Advanced) and the
 
 | Screen | Reads | Writes | When it saves |
 |---|---|---|---|
-| **Page view** (editor) | `dotwork.page` at start; Store | Store → `dotwork.page` | On every committed change (`persist()` in `main.ts`). Typing in a properties text field commits after a pause or on blur (`panel.ts`). Undo history, selection, hidden/locked are not saved. |
-| **Spread view** | `dotwork.spread.*` | The active page's Store → `dotwork.spread.left/right`; spread name → `dotwork.spread.name` (on each keystroke in Settings) | Same. Left and right each have their own undo. |
+| **Document bar** (under the top bar in Page and Spread views) | The open document's name, save status and whether it is a built-in (`DocSession`, `src/documents.ts`) | The name button renames in place (`DocSession.rename`); **Retry** after a failed write; **Edit a copy** on a built-in | Name: on Enter or when the field loses focus. The name shows **Untitled: name it** as a chip while the name is `Untitled`, `Untitled 2`…; the mark says **Saved**, **Saving…** or **Not saved** (with Retry, and a notice that has the real reason and Copy details). It says Saved only after a write that worked with nothing changed since. A built-in shows the quiet bar "Built-in. Editing makes a copy." |
+| **Page view** (editor) | The open page document (`dotwork.open` → Library) at start; Store | Store → its Library entry | Every committed change is written 400 ms after the last one, and at once when the tab is hidden (`visibilitychange`) or closed (`pagehide`). Typing in a properties text field commits after a pause or on blur (`panel.ts`). Undo history, selection, hidden/locked are not saved; undo is in memory for the open document and starts empty when another is opened. A change to a built-in is not made: a name is asked for, the copy is created, and the change is made in it (`Store.guard`). |
+| **Spread view** | The open spread document | The two Stores → one spread entry; the name is the entry's | Same. Left and right each have their own undo. |
 | **Properties / Layers** (drawer or side panel) | The selected element(s) | Store (undoable) | Same as above. |
 | **Advanced** (sequence, icon, checkboxes, widgets, art) | Library-side widgets and built-ins | Arms a tool on all three Stores; **More → Save as widget** writes `dotwork.widgets` | Widgets: immediately. |
-| **Settings…** | Page: `store.page`. Spread: spread name + both pages. Book: the book | Page/spread: Store commits (undoable, coalesced per field). Book: `arranger.edit()` → book draft | On each input event (`oninput`), not on Done. Book name edits are one undo step each keystroke (30-step limit). |
-| **Library…** (window) | IndexedDB entries; built-ins; `dotwork.widgets`; favorites | **Save page / spread / left / right / book** → IndexedDB; rename, duplicate, delete → IndexedDB; star → favorites; Import SVG art → `dotwork.widgets`; Back up / Restore → file | Only when a button is pressed. Opening something replaces the matching draft *immediately* (see Saving). Tabs: Pages, Spreads, Sections, Art, Books (templates + saved books), Widgets, Favorites. It opens on Pages (or Books in the Book view). |
+| **Settings…** | Page: `store.page` and the document's name. Spread: the document's name + both pages (which keep names of their own inside the spread). Book: the book | Page/spread: Store commits (undoable, coalesced per field); the name renames the document (not a Store commit). Book: `arranger.edit()` → book draft | On each input event (`oninput`), not on Done. A built-in's name is read-only. Book name edits are one undo step each keystroke (30-step limit). |
+| **Library…** (window) | IndexedDB entries; built-ins; `dotwork.widgets`; favorites | **Save book** (a book only; pages and spreads have no Save button) → IndexedDB; rename, delete → IndexedDB; **Duplicate** of a page or spread asks for a name (prefilled `<name> copy`) and adds a document; star → favorites; Import SVG art → `dotwork.widgets`; Back up / Restore → file | Only when a button is pressed. Opening a page or spread writes the open one first and switches (nothing is replaced); opening a built-in is read-only; opening a book replaces the book draft (see Saving). Deleting the open document starts a new one. Tabs: Pages, Spreads, Sections, Art, Books (templates + saved books), Widgets, Favorites. It opens on Pages (or Books in the Book view). |
 | **Book view** (Arranger) | `dotwork.book` (loaded the first time the view is shown); Library pages / spreads / sections (refreshed when shown and when the Library closes); built-in pages and spreads; printer profile (only to warn) | The book, via `edit()` → `dotwork.book`; **Save pages as a section** → Library | After every change, one undo snapshot each. Slot, Spreads toggle: `dotwork.book.spreads` for the toggle, the slot is memory only. |
-| **Choose design…** (picker) | Blank, saved pages, built-in pages; for left slots with a page after them also spreads | `setSlot` / `fillSlots` on the book | On choosing. |
+| **Choose design…** (picker) | Blank, saved pages, built-in pages; for left slots with a page after them also spreads | `setSlot` / `fillSlots` on the book | On choosing. A saved page or spread that is still `Untitled…` is named first (a small window; its Library name changes). |
 | **Apply to more pages…** | The design on the current page (or its facing page) | `applyDesign` over a range, or every left / right page | On Apply. |
 | **Dates…** (More menu) | Book dates; the current page; today's local date only when the book has no dates | `book.dates` (and nothing else) | On **Set dates** / **Clear dates**. Details in Dates. |
 | **Build book…** (the builder) | `book.recipe`, else the month of the first dated page, else today; saved + built-in sections; saved + built-in pages (for the gap page) | Only on **Generate book**: every interior page, every date, `book.recipe`. Covers are not touched. | One undo step. Cancel discards the working recipe. |
 | **Save pages as a section…** | A page range of the book and its dates | Library section | On **Save section**. |
 | **Flip through** | The book (read-only). Speed from `dotwork.book.flip-ms` | Speed | On slider input. |
 | **Import and export** window (**Export** button) | See below | See below | See below. Opens on Export; opens on PDF in the Book view. |
-| ↳ **Import** | A chosen `.json` | Replaces the page (undoable), spread (undoable), or book (not undoable, no confirm). A library backup is refused with a pointer to Restore backup. Version-1 pages are converted. | Immediately. |
-| ↳ **Export** | The current page / spread / book **at the moment Download is pressed** (`jsonToExport()` in `main.ts` runs again on click) | A `.json` download | On Download. |
-| ↳ **PNG** | The page (or the spread being edited) | A `.png` (150 / 300 / 600 dpi). Not in the Book view. Prints with sample values: the sample date (Mon Oct 26 2026) for tokens and a sample page number "47" (`SAMPLE_DATE`, `SAMPLE_PAGE_NUMBER`) | On Download. |
+| ↳ **Import** | A chosen `.json` | A page or spread is added as a new document named from the file (` 2` if taken) and opened, after the open one is written; a book replaces the book draft (not undoable, no confirm). A library backup is refused with a pointer to Restore backup. Version-1 pages are converted. | Immediately. |
+| ↳ **Export** | The open page / spread / book **at the moment Download is pressed** (`jsonToExport()` in `main.ts` runs again on click), whether or not the 400 ms write has happened | A `.json` download. Before the first export of a page or spread that is still `Untitled…`, a small window asks for a name (leaving the field empty keeps it; cancelling cancels the export). | On Download. |
+| ↳ **PNG** | The page (or the spread being edited) | A `.png` (150 / 300 / 600 dpi), with the same name question. Not in the Book view. Prints with sample values: the sample date (Mon Oct 26 2026) for tokens and a sample page number "47" (`SAMPLE_DATE`, `SAMPLE_PAGE_NUMBER`); the tab says so in one line | On Download. |
 | ↳ **PDF** | The book, printer profile, Library books (Bottom book) | A zip. Its fields write the printer profile (`dotwork.printer`) and the book's signatures (book draft) as they are changed | Fields: on change. Files: on Download. |
 | **Calibrate** (from the PDF tab) | Book (name, page count; included as `book.json` in downloads), printer profile | The printer profile only, each time a field or a "Use" button changes it. Never the book. | Immediately; typed readings are memory only. Closing returns to the PDF tab. |
 | **Help mode** | `src/help.ts` (one entry per `data-help` key, touch and desktop text) | Nothing | n/a |
-| **Notices** | Problems (bad draft, can't export, can't keep a draft) | Nothing; a bad-draft notice is sticky until one of its buttons is used | n/a |
+| **Notices** | Problems (bad book draft, can't export, can't keep a draft, a page or spread that is not saved) | Nothing; a bad-draft notice is sticky until one of its buttons is used | n/a |
 
 Keyboard shortcuts (page and spread views only; the Book view has none except ←/→ for the page): V, A, P, S, B, R, C, T, Ctrl/Cmd+Z/Y/D, arrows, Delete, Escape.
 
@@ -168,13 +170,13 @@ What the file holds: a 52-page book with `dates`, and a `recipe` of **one step**
 
 ## 5. Saving and export
 
-- **Autosave.** There is no Save button for work in progress. Page, spread pages, spread name and book are written to `localStorage` on every change. A draft that breaks the format is *not* written (the last good draft stays) and a notice says why; one that can't be read on start-up is backed up under `<key>.bad.<time>`, reported, and the app starts empty.
-- **Library save** is explicit: a button per thing (page; spread, left page, right page; book), saved under the name set in Settings. The same name and kind replaces the old item after a confirm. Names are trimmed; an empty name becomes `Untitled`. A built-in's name is reserved and refused (`checkName`). The editor's own copy is untouched: there is no link between the draft and the saved item, and no "unsaved changes" marker.
-- **Opening** from the Library or a file copies it into the draft. For a page or spread this is undoable (the Store keeps the old one). For a **book** it replaces `dotwork.book` at once, clears the book's undo and asks nothing (`main.ts` `openBook`). **New** asks first only for a book with designed pages, and a new book cannot be undone; the help text for New says Undo brings the old one back, which is true for pages and spreads only.
-- **Export JSON** (Export tab) exports the live object for the current view: the page, the spread built from the two spread pages and the spread name, or the book (`arranger.current`), checked against the format first. It is *not* the file that was opened; the new test `tests/e2e/navigation.e2e.ts` ("Export saves the book as it is now…") pins that. It exports the **view you are in**: in Page view you get the page even if a book is open in the background.
-- **Built-ins vs copies.** Built-in pages, spreads, sections, widgets, art and templates are code or `examples/` files and cannot be changed or overwritten. Opening or placing one makes a copy named "<name> copy"; a template builds a fresh book. Built-in page / spread / section names are reserved for saved items.
-- **Names.** Defaults: page `Untitled`, spread `Untitled spread` (its pages `Left page` / `Right page`), book `Untitled book`, saved sections `Untitled`. File names come from the name via `slug` (fallback `page`, `spread`, `book`): `untitled.json`, `untitled-book.json`, `untitled-book-print.zip`. Saving "Left page" from a spread uses that name unless it was renamed, so two spreads' left pages collide in the Library.
-- **On reload.** Drafts, the view, the widgets, the printer profile, favorites and the Library come back. Lost: undo and redo, selection, hidden / locked, tool and mode, the active spread page (back to left), the Book view's page (back to page 1), all window choices. The printer profile is read once at start-up; a second tab would overwrite it with its own on its next edit (last write wins) **(unsure: not tested)**.
+- **Autosave.** The open page or spread is a Library entry and every committed change is written to it, 400 ms after the last change and at once when the tab is hidden or closed (`DocSession` / `Autosave` in `src/documents.ts`). There is no Save button and no unsaved state; the mark beside the name says **Saved** only after a write that worked and nothing has changed since, and **Not saved** with Retry (and the browser's real error, with Copy details) when a write fails. Switching documents writes the current one first and does not switch if that fails. The **book** is still a draft in `localStorage`, written on every change; a book draft that breaks the format is *not* written (the last good draft stays) and a notice says why; one that can't be read on start-up is backed up under `<key>.bad.<time>`, reported, and the app starts empty.
+- **Library save** of a book is explicit: a button, saved under the name set in Settings. The same name replaces the old book after a confirm. Names are trimmed; an empty name becomes `Untitled`. A page or spread is never saved by hand.
+- **Opening.** A page or spread from the Library, or an import, switches to that document; nothing is replaced (the one open was written first, and is in the Library). A built-in opens read-only. For a **book** it replaces `dotwork.book` at once, clears the book's undo and asks nothing (`main.ts` `openBook`). **New** makes a page or spread named Untitled (`Untitled 2`… if taken); for a book it asks first only if the book has designed pages, and a new book cannot be undone.
+- **Export JSON** (Export tab) exports the live object for the current view: the open page, the open spread (built from the two Stores and the document's name), or the book (`arranger.current`), checked against the format first. It is the document as it is on screen now, not the file that was opened; `tests/e2e/navigation.e2e.ts` ("Export saves the book as it is now…") and `tests/e2e/documents.e2e.ts` pin that. It exports the **view you are in**: in Page view you get the page even if a book is open in the background.
+- **Built-ins vs copies.** Built-in pages, spreads, sections, widgets, art and templates are code or `examples/` files and cannot be changed or overwritten. A built-in page or spread opens read-only; changing anything, or **Edit a copy**, asks for a name (prefilled `<name> copy`), creates a document and carries on in it with the change that was attempted; Library **Duplicate** asks the same. A template builds a fresh book. Built-in names count as taken, so a saved page or spread gets ` 2` added rather than being refused.
+- **Names.** Defaults: page and spread `Untitled` (`Untitled 2`…; the pages inside a spread are `Left page` / `Right page`), book `Untitled book`, saved sections `Untitled`. A name already used in its kind gets ` 2` added. File names come from the name via `slug` (fallback `page`, `spread`, `book`): `untitled.json`, `untitled-book.json`, `untitled-book-print.zip`. A page or spread has one copy of its name (the entry's); the file gets it when exported.
+- **On reload.** The open page and spread (`dotwork.open`), the book draft, the view, the widgets, the printer profile, favorites and the Library come back. Lost: undo and redo, selection, hidden / locked, tool and mode, the active spread page (back to left), the Book view's page (back to page 1), all window choices. The printer profile is read once at start-up; a second tab would overwrite it with its own on its next edit (last write wins) **(unsure: not tested)**.
 - **Printing a book** uses the book as it is and the printer profile as it is at that moment; the zip's `book.json` is that same object, `summary.txt` the same settings.
 
 ## 6. Covers
@@ -194,13 +196,13 @@ The book has four cover pages: **inside front** (left page, `cover.front`), **in
 3. **Dates window defaults to weeks.** `arranger.ts:113` and `:530`; daily pages get a week apart on first use (example 2).
 4. **`weeks` ignores `move`; `times` and `fill` honour it.** The section list says "dates a week later" for a section, which describes only the `times`/`fill` behaviour.
 5. **`guessMove` guesses `week` for any run with two or more distinct dates** (e.g. 30 daily pages in November), where `month` would be the repeat people mean (`build.ts:44`).
-6. **"New" help says Undo brings the old one back**; for a book it can't (`help.ts` `new`, `main.ts:488–500`; `Arranger.setBook` clears the undo stack).
-7. **Open / Import of a book replaces the draft with no confirm and no undo**, while Import's own text says "Undo takes a page back" for pages only.
+6. ~~"New" help says Undo brings the old one back~~: fixed in phase 1 (New keeps the old page in the Library; for a book the draft is replaced after a check).
+7. **Open / Import of a book replaces the draft with no confirm and no undo.** (For pages and spreads this is fixed in phase 1: they are added and opened, nothing is replaced.)
 8. **PNG shows sample values**: sample date 2026-10-26 and page number "47" (`png.ts` → `render.ts` defaults), unlike every PDF path, which fills from the book. A PNG of a dated book page is not what prints.
 9. **"Back up library" leaves out widgets, art and favorites**, although the Library window lists them on tabs (`library.ts` `exportAll`, `widgets.ts`, `favorites.ts`).
 10. **Widgets and art are in `localStorage`**, the Library's pages and books in IndexedDB: two stores, two failure modes (a large imported SVG can hit the localStorage quota; the failure is silent, "last for this visit", `widgets.ts:changed`).
 11. **IndexedDB missing → memory backend, silently** (`main.ts:93`): saves appear to work and vanish on reload.
-12. **Per-page "Untitled" collision.** Saving any page named `Untitled` replaces the previous `Untitled` (after a confirm); saving a spread's left page is named `Left page` unless renamed.
+12. ~~Per-page "Untitled" collision~~: fixed in phase 1 (Untitled, Untitled 2…; a taken name gets ` 2`).
 13. **Template defaults read the clock once at load** (`templates.ts:55`: `new Date().getFullYear()` and `getMonth()`), while built-in sample pages are fixed to 2026-10 (`builtin/library.ts:25`) and the editor's token sample is fixed to 2026-10-26 (`tokens.ts:8`).
 14. **Template books hold literal text** where the builder's books hold tokens (a reflection's identity `WEEK 44  OCT 26-31` vs `WEEK {week}  {month} {day}-{month+6} {day+6}`); a template book cannot be re-dated.
 
@@ -222,7 +224,7 @@ The book has four cover pages: **inside front** (left page, `cover.front`), **in
 - "A page from examples/pages, or the notes page": `example()` in both `builtin/templates.ts` and `builtin/sections.ts`.
 - The `try { return localStorage } catch` wrapper is written out three times in `main.ts` (`:46`, `:90`, `:599`); `stored()` is in `main.ts:44` and `arranger.ts:39`.
 - Two undo systems: `Store` (200 steps, coalescing, per page) and `Arranger` (30 JSON snapshots, whole book). The top-bar Undo is hidden in the Book view, which has its own button.
-- A name lives twice in each Library item (`item.name`, `item.data.name`) and the draft page's name is set in Settings, not where it is saved.
+- A name lives twice in each Library *book and section* (`item.name`, `item.data.name`). (A page or spread keeps it once, in the entry, since phase 1.)
 
 **Stale docs and help text**
 
@@ -231,9 +233,8 @@ The book has four cover pages: **inside front** (left page, `cover.front`), **in
 - `docs/book-format.md` says dates "travel with their page: moving or swapping pages moves their dates": no UI moves pages.
 - `docs/library-format.md:3–4` says **Export library** / **Import library**; the buttons are **Back up library** / **Restore backup**. It also says version-1 pages are converted.
 - `help.ts` entries `book-export` and `book-cover-shift` say `cover.pdf`; the files are `cover-outside.pdf` and `cover-inside.pdf`. `impose.ts:75` comment says the same.
-- `help.ts` `new` (see 6 above).
 - `CLAUDE.md` roadmap item 15 still names **Build by week**, which is now only a preset (`builtin/sections.ts:34`).
-- `README.md:110` says "The current page autosaves"; the spread and book drafts autosave too. No doc lists the `localStorage` keys; §2 here is the only list.
+- No doc lists the `localStorage` keys; §2 here is the only list.
 
 ## 8. Open questions
 

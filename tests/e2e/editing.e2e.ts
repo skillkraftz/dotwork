@@ -1,7 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
-  bar, box, cellToClient, doubleTap, draft, drag, hit, open, openDrawer, pinch, press, shot, start, stop, tap, tool, touch, twoFingerDrag, viewBoxOf, type App, type Env,
-} from './harness';
+  bar, box, cellToClient, doubleTap, draft, drag, hit, open, openDrawer, pinch, press, shot, start, stop, tap, tool, touch, twoFingerDrag, viewBoxOf, type App, type Env, seedPage,} from './harness';
 
 let env: Env;
 beforeAll(async () => { env = await start(); });
@@ -33,13 +32,8 @@ const WIDGET = {
 };
 
 async function seed(app: App, page: object = SEED, widgets: object[] = []) {
-  await app.page.evaluate(([p, w]) => {
-    localStorage.setItem('dotwork.page', JSON.stringify(p));
-    localStorage.setItem('dotwork.widgets', JSON.stringify(w));
-  }, [page, widgets] as const);
-  await app.page.reload();
-  await app.page.waitForSelector('#canvas');
-  await app.page.evaluate(() => document.fonts.ready);
+  await app.page.evaluate((w) => localStorage.setItem('dotwork.widgets', JSON.stringify(w)), widgets);
+  await seedPage(app, page);
 }
 
 const selectedLayers = (app: App) => app.page.locator('#panel .layer.selected').allInnerTexts();

@@ -101,9 +101,10 @@ describe('built-ins can’t be overwritten', () => {
     await expect(lib.save('page', 'Lined page', BUILTIN_PAGES[0])).rejects.toThrow(/built-in/);
     await expect(lib.save('spread', 'Ideas spread', BUILTIN_SPREADS[0])).rejects.toThrow(/built-in/);
     const saved = await lib.save('page', 'My lined page', BUILTIN_PAGES[0]);
-    await expect(lib.rename(saved.id, 'Notes')).rejects.toThrow(/built-in/);
-    expect((await lib.get(saved.id))!.name).toBe('My lined page');
-    expect((await lib.list()).map((i) => i.name)).toEqual(['My lined page']);
+    // A page or spread is never refused a name: one a built-in has gets " 2" added.
+    expect(await lib.rename(saved.id, 'Notes')).toBe('Notes 2');
+    expect((await lib.get(saved.id))!.name).toBe('Notes 2');
+    expect((await lib.list()).map((i) => i.name)).toEqual(['Notes 2']);
   });
 });
 

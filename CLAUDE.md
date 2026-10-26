@@ -69,7 +69,7 @@ Dotwork's print export follows the same physical rules as journal-system
 - Static web app: Vite + TypeScript, plain DOM and SVG, no backend. Deploys to
   GitHub Pages.
 - Pages render as SVG in millimeters so the screen, the PNG and the PDF match.
-- Drafts, widgets, art, favorites and the printer profile live in the browser's localStorage and the library in IndexedDB. Files
+- The open page and spread are Library documents that save themselves (IndexedDB); the book draft, widgets, art, favorites and the printer profile live in the browser's localStorage. Files
   people export are the source of truth.
 - Vitest for unit tests (`npm test`) and, for end-to-end tests, Vitest driving headless Chromium through Playwright
   (`npm run test:e2e`). Keep dependencies few.
@@ -153,5 +153,6 @@ same PR. Where the code and a doc disagree, the code is right and the doc is a b
 18. Books hold the design only (every printer and calibration setting is in the printer profile, so old books always open), one double-sided calibration sheet per layout with a back rotation and a scale per paper edge, and the outside covers in preview.png and Flip through (done).
 19. Print pipeline in stages (layout, then the printer's positions-only correction, then the PDF), so a stretched sheet never stretches lines, dots or glyphs; line weight by direction with a pairs-and-ladder block on the calibration sheet; the 3 mm edge check as a warning; fold twist readout (done; see `docs/print-pipeline.md`).
 20. The product model (`docs/product-model.md`): documents that save themselves, a book as an outline of repeated blocks with a
-    calendar, links to designs and book versions, the Design / Plan / Print areas, then a database (planned, in ten phases).
+    calendar, links to designs and book versions, the Design / Plan / Print areas, then a database (planned, in ten phases; phase 1,
+    pages and spreads as self-saving documents, is done).
 21. Later: dials and other components, color, sharing, a page gallery.

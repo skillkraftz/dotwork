@@ -42,6 +42,17 @@
           <button id="help" data-help="help" type="button" class="iconbtn" title="Help: tap anything to see what it does" aria-label="Help"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 114 2c-1 .7-1.5 1.2-1.5 2.5"/><path d="M12 17h0"/></svg></button>
         </div>
       </header>
+      <div id="docbar" hidden>
+        <div class="doc-row">
+          <button id="doc-name" data-help="doc-name" type="button"></button>
+          <span id="doc-status" role="status" data-help="doc-status"></span>
+          <button id="doc-retry" data-help="doc-retry" type="button" hidden>Retry</button>
+        </div>
+        <div id="builtin-bar" class="doc-row" hidden>
+          <span>Built-in. Editing makes a copy.</span>
+          <button id="doc-copy" data-help="doc-copy" type="button">Edit a copy</button>
+        </div>
+      </div>
       <main>
         <section id="book" hidden></section>
         <section id="canvas-wrap">

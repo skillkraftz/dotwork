@@ -28,6 +28,8 @@ export interface ExportHost extends Pick<CalibrateHost, 'printer'> {
   /** The books saved in the Library: the choices for the bottom book of a two-up sheet. */
   savedBooks(): Promise<{ id: string; name: string; book: Book }[]>;
   editBook(change: (book: Book) => void): void;
+  /** Called before a page or spread is downloaded: asks for a name if it is still Untitled. False if that was cancelled (nothing is downloaded). */
+  beforeExport(): Promise<boolean>;
   /** Open a chosen file as a page, spread or book. */
   importFile(file: File): Promise<{ ok: true } | { ok: false; problem: Problem }>;
   download(blob: Blob, filename: string): void;
@@ -113,7 +115,7 @@ export class ExportDialog {
       } else this.say(r.problem);
     };
     return [
-      this.what('Opens a Dotwork .json file that you exported before: a page, a spread or a book. It replaces the page, spread or book you are editing now (Undo takes a page back).'),
+      this.what('Opens a Dotwork .json file that you exported before: a page, a spread or a book. A page or spread is added to your Library as a new document, named from the file, and opened; nothing you have is replaced. A book replaces the book you are arranging.'),
       h('div', { class: 'export-actions' }, h('button', { type: 'button', class: 'primary', 'data-key': 'import-choose', 'data-help': 'export-import-choose', onclick: () => file.click() }, 'Choose a file…'), file),
     ];
   }
@@ -125,8 +127,9 @@ export class ExportDialog {
     const r = this.host.json();
     const fileName = r.ok ? `${slug(r.name, thing)}.json` : `${thing}.json`;
     return [
-      this.what(`Saves the ${thing} you are editing as a .json file, so you can keep it, share it or import it again. You get `, h('strong', {}, fileName), '.'),
-      this.downloadButton('export-json', () => {
+      this.what(`Saves the ${thing} you are editing, as it is now, as a .json file, so you can keep it, share it or import it again. You get `, h('strong', {}, fileName), '.'),
+      this.downloadButton('export-json', async () => {
+        if (this.host.view() !== 'book' && !(await this.host.beforeExport())) return;
         const now = this.host.json();
         if (!now.ok) { this.say(now.problem); return; }
         this.say(null);
@@ -154,6 +157,8 @@ export class ExportDialog {
     dpi.onchange = () => { this.png.dpi = Number(dpi.value); this.render(); };
     const whole = spread && this.png.scope === 'spread';
     const nameOf = () => (whole ? spread!.name : shown.page.name);
+    /** What is on screen now, after a name may have been asked for. */
+    const nowShown = () => { const n = this.host.png()!; return { page: n.page, spread: n.spread, whole: !!n.spread && whole }; };
     const px = Math.round((88.9 / 25.4) * this.png.dpi) * (whole ? 2 : 1);
     const py = Math.round((139.7 / 25.4) * this.png.dpi);
     return [
@@ -161,12 +166,15 @@ export class ExportDialog {
       ...(spread ? [h('div', { class: 'choices', role: 'radiogroup', 'aria-label': 'What to save' },
         radio('page', `This page (${shown.page.side === 'left' ? 'left' : 'right'})`), radio('spread', 'The whole spread'))] : []),
       h('label', { class: 'compact wide' }, 'Resolution', dpi),
+      h('p', { class: 'hint export-note' }, 'A page or spread has no date or number of its own, so the picture shows the sample date (Mon 26 Oct 2026) and page number (47).'),
       this.downloadButton('export-png', async () => {
+        if (!(await this.host.beforeExport())) return;
+        const now = nowShown();
         this.say('Making the PNG…');
         try {
-          const blob = whole ? await spreadToPng(spread!.left, spread!.right, this.png.dpi) : await pageToPng(shown.page, this.png.dpi);
+          const blob = now.whole ? await spreadToPng(now.spread!.left, now.spread!.right, this.png.dpi) : await pageToPng(now.page, this.png.dpi);
           this.say(null);
-          this.host.download(blob, `${slug(nameOf(), 'page')}.png`);
+          this.host.download(blob, `${slug(now.whole ? now.spread!.name : now.page.name, 'page')}.png`);
         } catch (err) {
           this.say(errorProblem('PNG export failed.', err));
         }

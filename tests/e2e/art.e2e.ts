@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { bar, cellToClient, choose, draft, drag, hit, missingHelp, open, shot, start, stop, tap, tool, touch, type App, type Device, type Env } from './harness';
+import { bar, cellToClient, choose, draft, drag, hit, missingHelp, open, shot, start, stop, tap, tool, touch, type App, type Device, type Env, seedPage} from './harness';
 
 let env: Env;
 beforeAll(async () => { env = await start(); });
@@ -209,10 +209,7 @@ for (const device of ['phone', 'tablet', 'desktop'] as Device[]) {
     it('draws the Good Time page with its six gauges, Engagement and Energy in each row', async () => {
       const app = await open(env, device);
       const { page } = app;
-      await page.evaluate((p) => localStorage.setItem('dotwork.page', p), goodTime);
-      await page.reload();
-      await page.waitForSelector('#canvas');
-      await page.evaluate(() => document.fonts.ready);
+      await seedPage(app, JSON.parse(goodTime));
       expect(await artElements(app)).toHaveLength(6);
       expect(await page.locator('#canvas path.art[stroke-linecap="round"]').count()).toBe(3 * 3 + 3 * 2);
       await shot(app, `${device}-good-time-gauges`);

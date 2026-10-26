@@ -1,8 +1,16 @@
 # Dotwork library file, version 1
 
-Dotwork keeps saved pages, spreads, sections and books in the browser (IndexedDB). **Back up library** (in the Library window) writes
-all of them to one JSON file, and **Restore backup** reads it back. Widgets, art and favorites are kept in `localStorage`, not in the
-Library store, so a backup does not carry them.
+Dotwork keeps pages, spreads, sections and books in the browser (IndexedDB), one entry each: `{ id, kind, name, updated, data }`. The page
+or spread you are editing *is* one of these entries and is written to it as you edit (after a 400 ms pause, and when the tab is hidden or
+closed); there are no drafts and no Save button for a page or a spread. **Back up library** (in the Library window) writes all of them to
+one JSON file, and **Restore backup** reads it back. Widgets, art and favorites are kept in `localStorage`, not in the Library store, so a
+backup does not carry them.
+
+**The name is kept once.** In the browser's store a page or spread entry has its name in `name` only; its `data` has no `name` (an older
+entry that still has one loses it the next time it is written). Everywhere a file is made from it (export, a book, a backup) the name is put
+back into `data`, so the page and spread files are exactly as `page-format.md` describes. Names are unique within a kind: a name already
+used (by a saved item or a built-in) gets ` 2`, ` 3`… added instead of being refused or replacing anything. A new document is named
+`Untitled`, `Untitled 2`…; the app asks for a real name before the first export and before the document is placed in a book.
 This file is only for Dotwork's own backups; journal-system reads the page and
 spread files described in `page-format.md`, which sit inside it unchanged. Books
 (`book-format.md`) and sections are in the same version 1 file.
@@ -23,11 +31,11 @@ spread files described in `page-format.md`, which sit inside it unchanged. Books
 
 | Field | Meaning |
 |-------|---------|
-| `id` | Unique within the file. Importing an item whose id is already in the library replaces it, so restoring the same backup twice changes nothing. |
+| `id` | Unique within the file. Importing an item whose id is already in the library replaces it, so restoring the same backup twice changes nothing (phase 3 of `product-model.md` changes this to never replace). |
 | `kind` | `"page"`, `"spread"`, `"section"` or `"book"`. |
-| `name` | The name it is saved under. The `name` inside `data` matches it. |
+| `name` | The name it is saved under. In a backup file the `name` inside `data` matches it (a reader also accepts a page or spread with no `name` in `data` and uses this one). |
 | `updated` | ISO date and time of the last change. |
-| `data` | A complete page file, spread file, section or book file. A version 1 page is converted when read, as everywhere the app reads a page. |
+| `data` | A complete page file, spread file, section or book file (in the browser's store a page or spread has no `name`, see above). A version 1 page is converted when read, as everywhere the app reads a page. |
 
 A reader rejects the whole file, and says which rule failed and where, if the
 format or version is wrong, an id is missing or repeated, `kind` is unknown, or
