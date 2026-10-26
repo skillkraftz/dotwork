@@ -22,8 +22,13 @@ export interface ArrangerHost {
   library: Library;
   /** The built-in example pages, offered next to the saved designs. */
   examples: readonly Page[];
-  /** Called after every change to the book, so the draft can be kept. */
+  /** Called after every change to the book, so it can be saved. */
   changed(book: Book): void;
+  /**
+   * Asked before a change is made. False when the book can't be changed as it is (a built-in): the host then asks for a
+   * name for a copy and calls `apply` again once the copy is open.
+   */
+  editing(apply: () => void): boolean;
   exportFiles(book: Book): void;
   /** A saved page or spread that is still Untitled is about to be placed: ask for its name first. Returns the name it ended with, or null if that was cancelled. */
   nameSaved(id: string, name: string, kind: 'page' | 'spread'): Promise<string | null>;
@@ -183,6 +188,7 @@ export class Arranger {
 
   /** Make a change to the book as one undo step, keep the draft and redraw. */
   edit(change: () => void) {
+    if (!this.host.editing(() => this.edit(change))) return;
     this.undoStack.push(JSON.stringify(this.book));
     if (this.undoStack.length > MAX_UNDO) this.undoStack.shift();
     change();
@@ -648,10 +654,9 @@ export class Arranger {
     const section = sectionFrom(this.book, lo, hi, name, s.move);
     const check = readSection(section);
     if (!check.ok) { this.say(`Not saved: ${check.issues[0].message}`); this.sectionDialog.close(); return; }
-    const existing = await this.host.library.findByName('section', name);
-    if (existing && !confirm(`Replace the saved section “${existing.name}”?`)) return;
+    let saved: string;
     try {
-      await this.host.library.save('section', name, section);
+      saved = (await this.host.library.create('section', name, section)).name; // a name already used gets " 2"; nothing is replaced
     } catch (err) {
       this.say(`Not saved: ${err instanceof Error ? err.message : String(err)}`);
       this.sectionDialog.close();
@@ -659,7 +664,7 @@ export class Arranger {
     }
     this.sectionDialog.close();
     await this.refreshDesigns();
-    this.say(`Saved the section “${name}” (${section.pages.length} page${section.pages.length === 1 ? '' : 's'}). Find it in Library, Sections, and add it to the book with Build book.`);
+    this.say(`Saved the section “${saved}” (${section.pages.length} page${section.pages.length === 1 ? '' : 's'}). Find it in Library, Sections, and add it to the book with Build book.`);
   }
 
   // ---- the book builder ------------------------------------------------------------

@@ -64,7 +64,7 @@ export function readLibraryFile(input: unknown): { ok: true; items: LibraryItem[
     if (typeof raw.updated !== 'string' || Number.isNaN(Date.parse(raw.updated))) fail('updated', `${at}.updated`, '"updated" must be an ISO date string.');
     if (raw.kind !== 'page' && raw.kind !== 'spread' && raw.kind !== 'book' && raw.kind !== 'section') return fail('kind', `${at}.kind`, `"kind" must be "page", "spread", "book" or "section", got ${JSON.stringify(raw.kind)}.`);
     const named = (d: unknown) => (isObject(d) && d.name === undefined ? { ...d, name: raw.name } : d); // the entry's name is the one copy
-    const data = raw.kind === 'page' ? readPage(named(raw.data)) : raw.kind === 'spread' ? readSpread(named(raw.data)) : raw.kind === 'section' ? readSection(raw.data) : readBook(raw.data);
+    const data = raw.kind === 'page' ? readPage(named(raw.data)) : raw.kind === 'spread' ? readSpread(named(raw.data)) : raw.kind === 'section' ? readSection(named(raw.data)) : readBook(named(raw.data));
     if (!data.ok) {
       for (const d of data.issues) issues.push({ ...d, path: `${at}.data${d.path === '(file)' ? '' : '.' + d.path}` });
       return;
@@ -79,12 +79,10 @@ export function readLibraryFile(input: unknown): { ok: true; items: LibraryItem[
   return issues.length ? { ok: false, issues } : { ok: true, items };
 }
 
-/** Pages and spreads keep their name in the entry only; `data.name` is filled in when read and left out when written. */
-const nameInEntry = (kind: LibraryKind) => kind === 'page' || kind === 'spread';
-const withName = (item: LibraryItem): LibraryItem => (nameInEntry(item.kind) ? { ...item, data: { ...item.data, name: item.name } } as LibraryItem : item);
+/** Every kind keeps its name in the entry only; `data.name` is filled in when read and left out when written. */
+const withName = (item: LibraryItem): LibraryItem => ({ ...item, data: { ...item.data, name: item.name } }) as LibraryItem;
 const withoutName = (item: LibraryItem): LibraryItem => {
-  if (!nameInEntry(item.kind)) return item;
-  const { name: _name, ...data } = item.data as Page | Spread;
+  const { name: _name, ...data } = item.data as { name?: string };
   return { ...item, data } as LibraryItem;
 };
 
@@ -151,29 +149,27 @@ export class Library {
     return name;
   }
 
-  /** Add a new page or spread under a name that is free (see `uniqueName`). Nothing is ever replaced. */
-  async create(kind: 'page' | 'spread', wanted: string, data: Page | Spread): Promise<LibraryItem> {
+  /** Add a new document under a name that is free (see `uniqueName`). Nothing is ever replaced. */
+  async create(kind: LibraryKind, wanted: string, data: Page | Spread | Book | Section): Promise<LibraryItem> {
     const name = await this.uniqueName(kind, wanted);
     const item = { id: this.newId(), kind, name, updated: this.now().toISOString(), data: structuredClone(data) } as LibraryItem;
     await this.put(item);
     return withName(item);
   }
 
-  /** Write the open page or spread over its own entry (autosave). The name is the entry's; the data keeps none. */
-  async write(kind: 'page' | 'spread', id: string, name: string, data: Page | Spread): Promise<LibraryItem> {
+  /** Write the open document over its own entry (autosave). The name is the entry's; the data keeps none. */
+  async write(kind: LibraryKind, id: string, name: string, data: Page | Spread | Book | Section): Promise<LibraryItem> {
     const item = { id, kind, name, updated: this.now().toISOString(), data: structuredClone(data) } as LibraryItem;
     await this.put(item);
     return withName(item);
   }
 
-  /** Rename; for a page or spread a name already used gets " 2" added. Returns the name it ended with. */
+  /** Rename; a name already used gets " 2" added. Returns the name it ended with. */
   async rename(id: string, name: string): Promise<string | undefined> {
     const item = await this.get(id);
     const wanted = name.trim();
     if (!item || !wanted) return;
-    let clean = wanted;
-    if (nameInEntry(item.kind)) clean = await this.uniqueName(item.kind, wanted, id);
-    else this.checkName(item.kind, clean);
+    const clean = await this.uniqueName(item.kind, wanted, id);
     await this.put({ ...item, name: clean, updated: this.now().toISOString(), data: { ...item.data, name: clean } } as LibraryItem);
     return clean;
   }

@@ -235,7 +235,7 @@ describe('the settings window', () => {
     await page.locator('[data-key="book-signatures"]').fill('2');
     await page.locator('[data-key="book-signatures"]').dispatchEvent('change');
     await page.locator('[data-key="settings-book-numbers"]').uncheck();
-    const book = await page.evaluate(() => JSON.parse(localStorage.getItem('dotwork.book')!));
+    const book = await openDoc(app, 'book');
     expect(book).toMatchObject({ name: 'Field notes', page_numbers: false, print: { signatures: 2 } });
     expect(await smallControls(app, 'dialog.settings')).toEqual([]);
     await shot(app, 'phone-settings-book');
@@ -506,10 +506,10 @@ describe('the export window', () => {
     await page.locator('dialog.picker .design', { hasText: 'Lined page' }).first().click();
 
     const now = await exported();
-    const draftBook = await page.evaluate(() => JSON.parse(localStorage.getItem('dotwork.book')!));
+    const draftBook = await openDoc(app, 'book');
     expect(now.name).toBe('Edited since opening');
     expect(now.pages[0].name).toBe('Lined page');
-    expect(now).toEqual(draftBook); // exactly the book on screen, which is what the draft keeps
+    expect(now).toEqual(draftBook); // exactly the book on screen, which is what the Library document keeps
     expect(now).not.toEqual(original);
 
     // Undo is part of "as it is now" too.

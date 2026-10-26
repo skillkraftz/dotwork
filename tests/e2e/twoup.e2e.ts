@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PDFDocument } from 'pdf-lib';
-import { bookMore, hit, missingHelp, open, shot, start, stop, type App, type Env } from './harness';
+import { bookMore, hit, missingHelp, open, openDoc, shot, start, stop, type App, type Env } from './harness';
 
 let env: Env;
 beforeAll(async () => { env = await start(); });
@@ -14,8 +14,8 @@ const type = async (app: App, selector: string, value: string) => {
   await input.dispatchEvent('change');
 };
 const profile = (app: App) => app.page.evaluate(() => JSON.parse(localStorage.getItem('dotwork.printer') ?? 'null'));
-const bookPrint = (app: App) => app.page.evaluate(() => JSON.parse(localStorage.getItem('dotwork.book') ?? 'null')?.print);
-const savedBook = (app: App) => app.page.evaluate(() => JSON.parse(localStorage.getItem('dotwork.book') ?? 'null'));
+const savedBook = (app: App) => openDoc(app, 'book');
+const bookPrint = async (app: App) => (await savedBook(app))?.print;
 const noOverflow = (app: App) => app.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
 const download = async (app: App, selector: string) => {
   const [d] = await Promise.all([app.page.waitForEvent('download'), hit(app, selector)]);

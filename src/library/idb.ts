@@ -29,7 +29,9 @@ function run<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<
 }
 
 /** The library kept in the browser's IndexedDB. */
-export const idbBackend: Backend = {
+export const idbBackend: Backend & { check(): Promise<void> } = {
+  /** Opens the database and a write transaction on it, without writing anything: private modes refuse here. */
+  check: () => run('readwrite', (s) => s.count()).then(() => undefined),
   all: () => run('readonly', (s) => s.getAll() as IDBRequest<LibraryItem[]>),
   put: (item) => run('readwrite', (s) => s.put(item)).then(() => undefined),
   remove: (id) => run('readwrite', (s) => s.delete(id)).then(() => undefined),

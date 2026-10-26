@@ -1,12 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { choose, hit, libraryItems, missingHelp, open, shot, start, stop, type App, type Device, type Env } from './harness';
+import { choose, hit, libraryItems, missingHelp, open, openDoc, shot, start, stop, type App, type Device, type Env } from './harness';
 
 let env: Env;
 beforeAll(async () => { env = await start(); });
 afterAll(async () => { await stop(env); });
 
 const noErrors = (app: App) => expect(app.errors).toEqual([]);
-const savedBook = (app: App) => app.page.evaluate(() => JSON.parse(localStorage.getItem('dotwork.book')!));
+const savedBook = (app: App) => openDoc(app, 'book');
 
 async function openLibrary(app: App) {
   await choose(app, 'edit', '#library');

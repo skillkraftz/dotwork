@@ -38,12 +38,14 @@ export interface App {
 }
 
 /** Open the app at a device size: phone and tablet get touch emulation, desktop a mouse. */
-export async function open(env: Env, device: Device): Promise<App> {
+export async function open(env: Env, device: Device, opts: { noStorage?: boolean } = {}): Promise<App> {
   const touch = device !== 'desktop';
   const ctx = await env.browser.newContext({
     viewport: SIZES[device], deviceScaleFactor: 2, hasTouch: touch, isMobile: touch, permissions: [],
   });
   const page = await ctx.newPage();
+  // A browser with no IndexedDB, as some private modes are: the app must say so and work from memory.
+  if (opts.noStorage) await page.addInitScript(() => Object.defineProperty(window, 'indexedDB', { value: undefined, configurable: true }));
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
@@ -136,8 +138,8 @@ export const libraryItems = (app: App): Promise<{ id: string; kind: string; name
   };
 }));
 
-/** The open page or spread as the Library holds it, once it is saved: its data with the entry's name put in. */
-export async function openDoc(app: App, kind: 'page' | 'spread'): Promise<any> {
+/** The open page, spread or book as the Library holds it, once it is saved: its data with the entry's name put in. */
+export async function openDoc(app: App, kind: 'page' | 'spread' | 'book'): Promise<any> {
   await waitSaved(app);
   const id = await app.page.evaluate((k) => JSON.parse(localStorage.getItem('dotwork.open') ?? '{}')[k], kind);
   const item = (await libraryItems(app)).find((i) => i.id === id);
@@ -163,7 +165,7 @@ export async function reload(app: App) {
 }
 
 /** Put a page (or spread) in the Library as a document, make it the open one, and reload into it. */
-export async function seedDoc(app: App, kind: 'page' | 'spread', data: object, name = 'Seed') {
+export async function seedDoc(app: App, kind: 'page' | 'spread' | 'book', data: object, name = 'Seed') {
   await app.page.evaluate(async ([k, d, n]) => {
     await new Promise<void>((resolve, reject) => {
       const req = indexedDB.open('dotwork', 1);
@@ -280,4 +282,13 @@ export async function bookMore(app: App, item: string) {
   const press = async (target: ReturnType<App['page']['locator']>) => { if (app.touch) { await target.tap(); await settle(app); } else await target.click(); };
   await press(app.page.locator('[data-key="book-more"]'));
   await press(app.page.getByRole('menuitem', { name: item }));
+}
+
+/** Give the open document a real name from the document bar (an Untitled one is asked for a name before it is exported). */
+export async function nameOpen(app: App, name: string) {
+  await hit(app, '#doc-name');
+  await app.page.fill('#doc-name-field', name);
+  await app.page.press('#doc-name-field', 'Enter');
+  await app.page.waitForSelector('#doc-name-field', { state: 'detached' });
+  await waitSaved(app);
 }

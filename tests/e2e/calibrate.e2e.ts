@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PDFDocument } from 'pdf-lib';
-import { hit, missingHelp, open, shot, start, stop, type App, type Env } from './harness';
+import { hit, missingHelp, open, openDoc, seedDoc, shot, start, stop, type App, type Env } from './harness';
 
 let env: Env;
 beforeAll(async () => { env = await start(); });
@@ -40,8 +40,8 @@ const small = (app: App) => app.page.evaluate(() => {
 
 const progress = (app: App) => app.page.locator('dialog.calibrate .cal-progress').innerText();
 const profile = (app: App) => app.page.evaluate(() => JSON.parse(localStorage.getItem('dotwork.printer') ?? 'null'));
-/** The book draft exactly as it is stored: no setting of the printer may ever change a byte of it. */
-const bookDraft = (app: App) => app.page.evaluate(() => localStorage.getItem('dotwork.book'));
+/** The open book exactly as the Library holds it: no setting of the printer may ever change a byte of it. */
+const bookDraft = (app: App) => openDoc(app, 'book');
 const BOOK = JSON.stringify({ format: 'dotwork-book', version: 1, name: 'Untitled book', page_count: 52, page_numbers: true, print: { signatures: 1 }, pages: Array(52).fill(null), cover: { front: null, back: null } });
 const download = async (app: App, selector: string) => {
   const [d] = await Promise.all([app.page.waitForEvent('download'), hit(app, selector)]);
@@ -51,9 +51,8 @@ const download = async (app: App, selector: string) => {
 const NONE = { front_offset_x_mm: 0, front_offset_y_mm: 0, back_offset_x_mm: 0, back_offset_y_mm: 0, scale_x_pct: 100, scale_y_pct: 100, back_rotation_deg: 0 };
 const FLAT = { creep_per_sheet_mm: 0.14, fore_edge_shift_mm: 0, cover_fore_edge_shift_mm: 0, target_fore_edge_margin_mm: 3.5, shade_light_pct: 6.3, shade_medium_pct: 13.7, shade_dark_pct: 25.9, gray_text_pct: 49.8, sheet_layout: 'half_letter', layouts: { half_letter: NONE, letter_two_up: NONE } };
 const startFlat = async (app: App, layout = 'half_letter') => {
-  await app.page.evaluate(([flat, l, book]) => { localStorage.setItem('dotwork.printer', JSON.stringify({ ...(flat as object), sheet_layout: l })); localStorage.setItem('dotwork.book', book as string); }, [FLAT, layout, BOOK] as const);
-  await app.page.reload();
-  await app.page.waitForSelector('#canvas');
+  await app.page.evaluate(([flat, l]) => { localStorage.setItem('dotwork.printer', JSON.stringify({ ...(flat as object), sheet_layout: l })); }, [FLAT, layout] as const);
+  await seedDoc(app, 'book', JSON.parse(BOOK), JSON.parse(BOOK).name);
 };
 const noOverflow = (app: App) => app.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
 const openCalibrate = async (app: App) => {
@@ -130,7 +129,7 @@ for (const device of ['phone', 'tablet', 'desktop'] as const) {
       expect((await profile(app)).layouts.half_letter).toMatchObject({ front_offset_x_mm: 1.1, front_offset_y_mm: 0.2, back_offset_x_mm: -1.5, back_offset_y_mm: 0.5, back_rotation_deg: 0, scale_x_pct: 100.5, scale_y_pct: 100.4 });
       expect((await profile(app)).layouts.letter_two_up).toMatchObject(NONE); // the other layout is left alone
       // The book holds the design only: nothing of this reached it.
-      expect(await bookDraft(app)).toBe(BOOK);
+      expect(await bookDraft(app)).toEqual(JSON.parse(BOOK));
       expect(await page.locator('dialog.calibrate .lib-msg').innerText()).toMatch(/Saved as your printer’s settings/);
       expect(await page.locator('[data-key="calibrate-read-vfold-top"]').inputValue()).toBe(''); // the readings are used up
       await hit(app, 'dialog.calibrate [data-key="calibrate-next"]');
@@ -198,7 +197,7 @@ for (const device of ['phone', 'tablet', 'desktop'] as const) {
       await hit(app, 'dialog.calibrate [data-key="calibrate-use-creep"]');
       expect(await profile(app)).toMatchObject({ creep_per_sheet_mm: 0.318, fore_edge_shift_mm: 2, cover_fore_edge_shift_mm: 2.2 });
       expect((await profile(app)).layouts.half_letter.front_offset_x_mm).toBe(1.1);
-      expect(await bookDraft(app)).toBe(BOOK);
+      expect(await bookDraft(app)).toEqual(JSON.parse(BOOK));
       expect(await progress(app)).toBe('Step 2 of 3: Creep and cover');
       expect(await page.locator('[data-key="calibrate-read-outermost"]').inputValue()).toBe(''); // the readings are used up
       await hit(app, 'dialog.calibrate [data-key="calibrate-next"]');
@@ -229,7 +228,7 @@ for (const device of ['phone', 'tablet', 'desktop'] as const) {
       for (const [key, value] of [['book-front-offset-x', '1.1'], ['book-front-offset-y', '0.2'], ['book-offset-x', '-1.5'], ['book-offset-y', '0.5'], ['book-back-rotation', '0'], ['book-scale-x', '100.5'], ['book-scale-y', '100.4'], ['book-creep', '0.318'], ['book-fore-edge-shift', '2'], ['book-cover-shift', '2.2'], ['book-tone-light', '8']]) {
         expect(await page.locator(`dialog.export [data-key="${key}"]`).inputValue(), key).toBe(value);
       }
-      expect(await bookDraft(app)).toBe(BOOK);
+      expect(await bookDraft(app)).toEqual(JSON.parse(BOOK));
       expect(app.errors).toEqual([]);
     });
 
@@ -287,16 +286,13 @@ for (const device of ['phone', 'tablet', 'desktop'] as const) {
       const app = await open(env, device);
       const { page } = app;
       // A book saved by an earlier version, with the full print settings of the time (they are ignored), and a different printer profile.
-      await page.evaluate(([none, flat]) => {
-        localStorage.setItem('dotwork.book', JSON.stringify({
-          format: 'dotwork-book', version: 1, name: 'Older book', page_count: 52, page_numbers: true,
-          print: { creep_per_sheet_mm: 0.14, fore_edge_shift_mm: 0, cover_fore_edge_shift_mm: 0, target_fore_edge_margin_mm: 3.5, sheet_layout: 'half_letter', layouts: { half_letter: none, letter_two_up: none }, signatures: 3, shade_light_pct: 6.3, shade_medium_pct: 13.7, shade_dark_pct: 25.9, gray_text_pct: 49.8 },
-          pages: Array(52).fill(null), cover: { front: null, back: null },
-        }));
-        localStorage.setItem('dotwork.printer', JSON.stringify({ ...(flat as object), creep_per_sheet_mm: 0.1, shade_light_pct: 8 }));
-      }, [{ front_offset_x_mm: 0, front_offset_y_mm: 0, back_offset_x_mm: 0, back_offset_y_mm: 0, scale_x_pct: 100, scale_y_pct: 100 }, FLAT] as const);
-      await page.reload();
-      await page.waitForSelector('#canvas');
+      const old = {
+        format: 'dotwork-book', version: 1, page_count: 52, page_numbers: true,
+        print: { creep_per_sheet_mm: 0.14, fore_edge_shift_mm: 0, cover_fore_edge_shift_mm: 0, target_fore_edge_margin_mm: 3.5, sheet_layout: 'half_letter', layouts: { half_letter: NONE, letter_two_up: NONE }, signatures: 3, shade_light_pct: 6.3, shade_medium_pct: 13.7, shade_dark_pct: 25.9, gray_text_pct: 49.8 },
+        pages: Array(52).fill(null), cover: { front: null, back: null },
+      };
+      await page.evaluate((flat) => localStorage.setItem('dotwork.printer', JSON.stringify({ ...(flat as object), creep_per_sheet_mm: 0.1, shade_light_pct: 8 })), FLAT);
+      await seedDoc(app, 'book', old, 'Older book');
       await hit(app, '#menu-page');
       await hit(app, '#view-book');
       await page.waitForSelector('.stage-page');
@@ -350,7 +346,7 @@ for (const device of ['phone', 'tablet', 'desktop'] as const) {
       await hit(app, 'dialog.calibrate [data-key="calibrate-use-sheet"]');
       expect((await profile(app)).layouts.half_letter.line_weight_x_pct).toBe(90);
       expect((await profile(app)).layouts.letter_two_up.line_weight_x_pct ?? 100).toBe(100);
-      expect(await bookDraft(app)).toBe(BOOK);
+      expect(await bookDraft(app)).toEqual(JSON.parse(BOOK));
       await set(app, 'calibrate', 'calibrate-read-ladder', '500'); // brought back inside its limits
       expect(await app.page.locator('[data-key="calibrate-sheet-result"]').innerText()).toContain('→ 120 %');
       if (app.touch) expect(await small(app)).toEqual([]);

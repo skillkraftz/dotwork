@@ -4,7 +4,7 @@ import { emptyPage, type Page } from './format/types';
 import { buildSpread, emptySpread, readSpread, withSide, type Spread, type SpreadSide } from './format/spread';
 import { validatePage, type ValidationIssue } from './format/validate';
 import { readPage } from './format/read';
-import { DocSession, type Adapter, type SaveStatus } from './documents';
+import { DocSession, statusText, type Adapter } from './documents';
 import { Canvas, type CanvasHooks } from './canvas';
 import { contextActions, deleteElement, duplicateElement, groupAction, moreActions, nudgeElement, selectAll, toggleGroup } from './actions';
 import { h, Panel } from './panel';
@@ -12,19 +12,21 @@ import { closeContextMenu, showContextMenu } from './ctxmenu';
 import { isCompact, Sheet } from './sheet';
 import { Toolbar, modeOfTool, type BarMode } from './toolbar';
 import { Store, type Tool } from './store';
-import { Library, MemoryBackend } from './library/library';
+import { Library } from './library/library';
+import { CANT_KEEP, Keeper } from './library/keeper';
 import { Favorites } from './library/favorites';
 import { idbBackend } from './library/idb';
-import { LibraryDialog, type SaveOption, type SaveWhat } from './library/dialog';
+import { LibraryDialog } from './library/dialog';
 import { Arranger } from './book/arranger';
 import { emptyBook, readBook, type Book } from './book/book';
+import { readSection } from './book/sections';
 import { DEFAULT_PRINT, clonePrint, type PrintSettings } from './book/impose';
 import { loadPrinter, savePrinter } from './printer';
 import { ExportDialog } from './exporter';
 import { SettingsDialog } from './settings';
 import { checkItem, setupMenus } from './menus';
 import { HelpMode } from './helpmode';
-import { badDraftProblem, loadDraft as loadStored, saveDraft, type DraftLoad, type DraftStorage } from './drafts';
+import type { DraftStorage } from './drafts';
 import { errorProblem, issuesProblem, problemView, type Problem } from './problems';
 import { AdvancedPicker, type AdvancedChoice } from './advanced';
 import { NameDialog } from './namedialog';
@@ -34,7 +36,6 @@ import { exampleId, spreadId } from './library/browse';
 import { isBuiltinSection } from './builtin/sections';
 
 const VIEW_KEY = 'dotwork.view';
-const BOOK_KEY = 'dotwork.book';
 /** The page and the spread that are open, by Library id (or built-in id), so a reload comes back to them. The old draft keys are no longer read or written. */
 const OPEN_KEY = 'dotwork.open';
 
@@ -46,7 +47,7 @@ type View = 'page' | 'spread' | 'book';
 const stored = (key: string) => { try { return localStorage.getItem(key); } catch { return null; } };
 
 const draftStorage = (): DraftStorage | null => { try { return localStorage; } catch { return null; } };
-/** Drafts that couldn't be read at start-up; shown (with the way to get them back) once the screen exists. */
+/** Problems found at start-up (a printer profile that couldn't be read); shown once the screen exists. */
 const startupProblems: Problem[] = [];
 
 /** The printer profile (the Calibrate page and the PDF tab change it): what every book prints with. The defaults until there are saved settings. */
@@ -55,14 +56,6 @@ let printerSettings: PrintSettings = (() => {
   if (loaded.status === 'bad') startupProblems.push(loaded.problem);
   return loaded.status === 'ok' ? loaded.value : clonePrint(DEFAULT_PRINT);
 })();
-
-/** Offer a draft that couldn't be read as a download. It is already kept under a backup key. */
-function badDraft(label: string, filename: string, d: Extract<DraftLoad<unknown>, { status: 'bad' }>) {
-  startupProblems.push(badDraftProblem(label, d, [
-    { label: 'Download the draft', help: 'draft-download', run: () => download(new Blob([d.raw], { type: 'application/json' }), filename) },
-    { label: 'Start fresh', help: 'draft-fresh', run: () => dismissNotice() },
-  ]));
-}
 
 const blank = emptySpread();
 /** The page being edited alone, and the two pages of the spread being edited. Each has its own undo history, kept in memory. */
@@ -75,8 +68,7 @@ const all = [stores.page, stores.left, stores.right];
 const storedView = stored(VIEW_KEY);
 let view: View = storedView === 'spread' || storedView === 'book' ? storedView : 'page';
 let active: SpreadSide = 'left';
-/** The book being arranged and its view; made the first time the book view is shown. */
-let book: Book | null = null;
+/** The book view; made the first time it is shown. */
 let arranger: Arranger | null = null;
 /** The store that undo, the panel and the keyboard act on. */
 const cur = () => (view === 'page' ? stores.page : stores[active]);
@@ -84,31 +76,46 @@ const cur = () => (view === 'page' ? stores.page : stores[active]);
 const widgets = new WidgetStore((() => { try { return localStorage; } catch { return null; } })());
 const nameDialog = new NameDialog();
 
-const library = new Library(typeof indexedDB === 'undefined' ? new MemoryBackend() : idbBackend, undefined, undefined, (kind, name) => (kind === 'section' ? isBuiltinSection(name) : isBuiltinName(kind, name)));
+const keeper = new Keeper(typeof indexedDB === 'undefined' ? null : idbBackend);
+const library = new Library(keeper, undefined, undefined, (kind, name) => (kind === 'section' ? isBuiltinSection(name) : isBuiltinName(kind, name)));
 
 // ---- the open documents ----------------------------------------------------
 
 /** Above zero while a document is being put on screen: that is not an edit, and it is not written. */
 let loading = 0;
 const showing = (fn: () => void) => { loading++; try { fn(); } finally { loading--; } };
+/** Whether a document is the empty one a new document starts as (its name aside). */
+const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 const pageAdapter: Adapter<Page> = {
   read: (name) => ({ ...stores.page.page, name }),
   show: (data) => showing(() => stores.page.load(structuredClone(data))),
   blank: emptyPage,
+  isBlank: () => sameJson({ ...stores.page.page, name: '' }, { ...emptyPage(), name: '' }),
 };
 const spreadAdapter: Adapter<Spread> = {
   read: (name) => buildSpread(name, stores.left.page, stores.right.page),
   show: (data) => showing(() => { stores.left.load(withSide(data.left, 'left')); stores.right.load(withSide(data.right, 'right')); }),
   blank: emptySpread,
+  isBlank: () => { const b = emptySpread(); return sameJson(buildSpread('', stores.left.page, stores.right.page), buildSpread('', withSide(b.left, 'left'), withSide(b.right, 'right'))); },
 };
-/** The open page and the open spread, each a Library document (or a built-in, read-only) that every change is written to. */
-const sessions = { page: new DocSession('page', library, pageAdapter), spread: new DocSession('spread', library, spreadAdapter) };
-type Session = typeof sessions.page | typeof sessions.spread;
+/** The book being arranged, before the arranger exists and after (it keeps its own copy in step through `changed`). */
+let book: Book | null = null;
+const bookAdapter: Adapter<Book> = {
+  read: (name) => ({ ...currentBook(), name }),
+  // the book carries the document's name, so exports and the PDFs read the right one
+  show: (data) => showing(() => { book = { ...structuredClone(data), name: sessions.book.name }; arranger?.setBook(book); }),
+  blank: emptyBook,
+  isBlank: () => sameJson({ ...currentBook(), name: '' }, { ...emptyBook(), name: '' }),
+};
+/** The open page, spread and book, each a Library document (or a built-in, read-only) that every change is written to. */
+const sessions = { page: new DocSession('page', library, pageAdapter), spread: new DocSession('spread', library, spreadAdapter), book: new DocSession('book', library, bookAdapter) };
+type Session = typeof sessions.page | typeof sessions.spread | typeof sessions.book;
+const allSessions: Session[] = [sessions.page, sessions.spread, sessions.book];
 const sessionOf = (key: 'page' | 'left' | 'right') => (key === 'page' ? sessions.page : sessions.spread);
-/** The document on screen; none in the book view. */
 /** Redraws the document bar (set below, once it exists). */
 let renderDocbarHook: () => void = () => {};
-const docSession = (): Session | null => (view === 'book' ? null : view === 'spread' ? sessions.spread : sessions.page);
+/** The document on screen. */
+const docSession = (): Session => sessions[view];
 
 // ---- notices -------------------------------------------------------------
 
@@ -160,15 +167,6 @@ const canvases = {
   left: new Canvas($('canvas-left') as unknown as SVGSVGElement, stores.left, notify, hooksFor(() => stores.left)),
   right: new Canvas($('canvas-right') as unknown as SVGSVGElement, stores.right, notify, hooksFor(() => stores.right)),
 };
-/** Keep the book draft; if it can't be kept, say why (once per reason, so typing doesn't repeat it). */
-let lastDraftProblem = '';
-function reportDraft(problem: Problem | null) {
-  if (!problem) { lastDraftProblem = ''; return; }
-  const id = problem.title + problem.lines.join('\n');
-  if (id === lastDraftProblem) return;
-  lastDraftProblem = id;
-  notifyProblems([problem]);
-}
 function persistSettings() {
   try { localStorage.setItem(VIEW_KEY, view); } catch { /* ignore */ }
 }
@@ -370,7 +368,7 @@ function setView(next: View) {
   view = next;
   persistSettings();
   refresh();
-  if (next !== 'book') void ensureOpen(next);
+  void ensureOpen(next);
 }
 
 function setActive(side: SpreadSide) {
@@ -396,36 +394,29 @@ for (const half of document.querySelectorAll<HTMLElement>('.half')) {
 
 // ---- view: the book ----------------------------------------------------------
 
-function loadBook(): Book {
-  const d = loadStored<Book>(draftStorage(), BOOK_KEY, (data) => { const r = readBook(data); return r.ok ? { ok: true, value: r.book } : r; });
-  if (d.status === 'ok') return d.value;
-  if (d.status === 'bad') {
-    badDraft('book', 'dotwork-book-draft.json', d);
-    notifyProblems(startupProblems.slice(-1), true);
-  }
-  return emptyBook();
-}
-
-/** Keep the book draft, or say why not. A book that breaks the format is never written over the last good draft. */
-const keepBook = (b: Book) => reportDraft(saveDraft(draftStorage(), BOOK_KEY, b, 'book', (x) => { const r = readBook(x); return r.ok ? [] : r.issues; }));
-
-
 function ensureArranger() {
   if (arranger) { void arranger.refreshDesigns(); return; }
-  book ??= loadBook();
+  book ??= emptyBook();
   arranger = new Arranger($('book'), {
     library,
     examples,
     changed(b) {
       book = b;
-      keepBook(b);
+      if (sessions.book.name) b.name = sessions.book.name; // an undo brings back the name it had; the document's name wins
+      if (!loading) sessions.book.changed(); // every committed change is written, after a pause
+    },
+    editing(apply) {
+      const session = sessions.book;
+      if (started && session.name && !session.readOnly) return true;
+      if (started && session.readOnly) void askCopy(session, apply); // the copy is asked for, and the change is made in it
+      return false;
     },
     exportFiles: () => exportDialog.show('pdf'),
     async nameSaved(id, name, kind) {
       const asked = await nameDialog.ask(`Name this ${kind} before it goes in the book`, name);
       if (asked === null) return null;
       const final = (await library.rename(id, asked)) ?? name;
-      for (const x of [sessions.page, sessions.spread]) x.renamedElsewhere(id, final);
+      for (const x of allSessions) x.renamedElsewhere(id, final);
       return final;
     },
     printer: () => printerSettings,
@@ -433,17 +424,7 @@ function ensureArranger() {
   void arranger.refreshDesigns();
 }
 
-const currentBook = (): Book => arranger?.current ?? (book ??= loadBook());
-
-function openBook(next: Book) {
-  notify(null);
-  book = structuredClone(next);
-  keepBook(book);
-  arranger?.setBook(book);
-  view = 'book';
-  persistSettings();
-  refresh();
-}
+const currentBook = (): Book => arranger?.current ?? (book ??= emptyBook());
 
 $('view-page').onclick = () => setView('page');
 $('view-spread').onclick = () => setView('spread');
@@ -473,6 +454,12 @@ async function openPage(page: Page, id: string | null) {
   if (ok) setView('page');
 }
 
+async function openBook(next: Book, id: string | null) {
+  notify(null);
+  const ok = await switchDocument(sessions.book, () => (id ? sessions.book.open({ id, kind: 'book', name: next.name, updated: '', data: next }) : sessions.book.openBuiltin(next)));
+  if (ok) setView('book');
+}
+
 async function openSpread(spread: Spread, id: string | null) {
   notify(null);
   const ok = await switchDocument(sessions.spread, () => (id ? sessions.spread.open({ id, kind: 'spread', name: spread.name, updated: '', data: spread }) : sessions.spread.openBuiltin(spread)));
@@ -489,22 +476,23 @@ function placePage(page: Page, side: SpreadSide) {
 }
 
 /** The document that was open at the last visit, or a new one named Untitled: the start of each view. */
-async function ensureOpen(kind: 'page' | 'spread') {
+async function ensureOpen(kind: View) {
   const session = sessions[kind];
   if (session.name) return;
   let ids: Record<string, string> = {};
   try { ids = JSON.parse(stored(OPEN_KEY) ?? '{}') ?? {}; } catch { /* start fresh */ }
   const id = ids[kind];
   try {
-    if (id?.startsWith('example:')) {
+    if (id?.startsWith('example:') && kind !== 'book') {
       const found = kind === 'page' ? BUILTIN_PAGES.find((p) => exampleId(p) === id) : BUILTIN_SPREADS.find((x) => spreadId(x) === id);
       if (found) { await (kind === 'page' ? sessions.page.openBuiltin(found as Page) : sessions.spread.openBuiltin(found as Spread)); return; }
     } else if (id) {
       const item = await library.get(id);
-      if (item?.kind === kind) { await session.open(item); return; }
+      if (item?.kind === kind) { await session.open(item as never); return; }
     }
   } catch (err) { notifyProblems([errorProblem('Your saved documents couldn’t be read.', err)]); }
   await session.startNew();
+  renderDocbar();
 }
 
 // ---- toolbar and menu ------------------------------------------------------
@@ -533,12 +521,7 @@ $('redo').onclick = () => cur().redo();
 
 $('new').onclick = () => {
   notify(null);
-  if (view === 'book') {
-    if (currentBook().pages.some(Boolean) && !confirm('Start a new book? The current draft is replaced (save it to the Library first to keep it).')) return;
-    openBook(emptyBook());
-    return;
-  }
-  const session = docSession()!;
+  const session = docSession();
   void switchDocument(session, () => session.startNew());
 };
 
@@ -569,7 +552,7 @@ function jsonToExport(): { ok: true; data: unknown; name: string } | { ok: false
   return r.ok ? { ok: true, data: spread, name: spread.name } : { ok: false, problem: issuesProblem('Can’t export: the spread breaks the format.', r.issues) };
 }
 
-/** Open a chosen file as a page, spread or book. Says why not, in plain words, if it can't be. */
+/** Add a chosen file as a new page, spread, book or section (the first three are opened). Says why not, in plain words, if it can't be. */
 async function importFromFile(file: File): Promise<{ ok: true } | { ok: false; problem: Problem }> {
   let parsed: unknown;
   try {
@@ -584,8 +567,18 @@ async function importFromFile(file: File): Promise<{ ok: true } | { ok: false; p
   if (format === 'dotwork-book') {
     const r = readBook(parsed);
     if (!r.ok) return refuse('book', r.issues);
-    openBook(r.book);
+    if (!(await switchDocument(sessions.book, () => sessions.book.importAs(r.book)))) return { ok: false, problem: errorProblem('The book was not added.', sessions.book.autosave.error) };
+    setView('book');
     if (r.converted) notify(converted);
+    return { ok: true };
+  }
+  if (format === 'dotwork-section') {
+    const r = readSection(parsed);
+    if (!r.ok) return refuse('section', r.issues);
+    try {
+      const saved = await library.create('section', r.section.name, r.section);
+      notify(`Added the section “${saved.name}”. Find it in Library, Sections.`);
+    } catch (err) { return { ok: false, problem: errorProblem('The section was not added.', err) }; }
     return { ok: true };
   }
   if (format === 'dotwork-spread') {
@@ -637,7 +630,8 @@ const settingsDialog = new SettingsDialog({
   setPageName: (name) => renameOpen(sessions.page, name),
   spreadName: () => sessions.spread.name,
   setSpreadName: (name) => renameOpen(sessions.spread, name),
-  nameLocked: () => !!docSession()?.readOnly,
+  nameLocked: () => docSession().readOnly,
+  setBookName: (name) => renameOpen(sessions.book, name),
   book: currentBook,
   editBook: (change) => { ensureArranger(); arranger!.edit(() => change(arranger!.current)); },
 });
@@ -662,19 +656,13 @@ const libraryDialog = new LibraryDialog(library, {
     setTools('widget');
     notify(`Tap the page to put “${widget.name}” there; drag to choose the spot.`);
   },
-  saveOptions(): SaveOption[] {
-    return view === 'book' ? [{ what: 'book', label: 'This book', name: currentBook().name }] : [];
-  },
-  data(_what: SaveWhat) {
-    return structuredClone(currentBook());
-  },
   openPage,
   openSpread,
   askName: (title, initial) => nameDialog.ask(title, initial),
-  renamed(id, name) { for (const s of [sessions.page, sessions.spread]) s.renamedElsewhere(id, name); },
+  renamed(id, name) { for (const s of allSessions) s.renamedElsewhere(id, name); },
   removed(id) {
     // The open document was deleted in the Library: carry on in a new one rather than quietly writing it back.
-    for (const s of [sessions.page, sessions.spread]) if (s.id === id) void switchDocument(s, () => s.startNew());
+    for (const s of allSessions) if (s.id === id) void switchDocument(s, () => s.startNew());
   },
   openBook,
   placePage,
@@ -693,14 +681,14 @@ function renameOpen(session: Session, name: string) {
 
 const docName = $('doc-name');
 const docStatus = $('doc-status');
-const STATUS_TEXT: Record<SaveStatus, string> = { saved: 'Saved', unsaved: 'Saving…', saving: 'Saving…', failed: 'Not saved' };
 /** The notice that says why a write failed, so that it goes away when the next write works. */
 let failureShown = false;
 
 function renderDocbar() {
   const session = docSession();
-  $('docbar').hidden = !session || !session.name;
-  if (!session) return;
+  $('docbar').hidden = !session.name;
+  $('keep-warning').hidden = keeper.keeping;
+  $('export').classList.toggle('attention', !keeper.keeping);
   const untitled = session.untitled;
   docName.classList.toggle('untitled', untitled);
   docName.replaceChildren(untitled ? h('span', { class: 'doc-chip' }, `${session.name}: name it`) : session.name);
@@ -709,10 +697,10 @@ function renderDocbar() {
   $('builtin-bar').hidden = !session.readOnly;
   docStatus.hidden = session.readOnly;
   const status = session.status;
-  docStatus.textContent = STATUS_TEXT[status];
-  docStatus.classList.toggle('failed', status === 'failed');
-  $('doc-retry').hidden = status !== 'failed';
-  if (status === 'failed' && !failureShown) {
+  docStatus.textContent = statusText(status, keeper.keeping);
+  docStatus.classList.toggle('failed', status === 'failed' || !keeper.keeping);
+  $('doc-retry').hidden = status !== 'failed' || !keeper.keeping;
+  if (status === 'failed' && keeper.keeping && !failureShown) {
     failureShown = true;
     notifyProblems([errorProblem(`This ${session.kind} is not saved: the browser refused the write. Your changes are still on screen; Retry, or export it.`, session.autosave.error)]);
   } else if (status === 'saved' && failureShown) {
@@ -724,7 +712,7 @@ function renderDocbar() {
 /** Tap the name (or the "name it" chip) to rename in place. */
 docName.onclick = () => {
   const session = docSession();
-  if (!session || session.readOnly) return;
+  if (session.readOnly) return;
   const input = h('input', { type: 'text', id: 'doc-name-field', value: session.name, maxlength: 80, autocomplete: 'off', 'aria-label': 'Name', 'data-help': 'doc-name-field', enterkeyhint: 'done' });
   let done = false;
   const finish = (commit: boolean) => {
@@ -742,7 +730,8 @@ docName.onclick = () => {
   input.select();
 };
 renderDocbarHook = renderDocbar;
-$('doc-retry').onclick = () => { const s = docSession(); if (s) void s.flush(); };
+$('keep-text').textContent = CANT_KEEP;
+$('doc-retry').onclick = () => { void docSession().flush(); };
 
 /** A built-in is open: an edit isn't made; the name of a copy is asked for, and the edit is made in the copy. */
 let copying: { edit: (() => void) | null } | null = null;
@@ -754,7 +743,7 @@ async function askCopy(session: Session, edit: (() => void) | null) {
   if (name === null) return; // cancelled: the built-in is as it was
   try { await session.makeCopy(name, () => pending.edit?.()); } catch (err) { notifyProblems([errorProblem('The copy couldn’t be made.', err)]); }
 }
-$('doc-copy').onclick = () => { const s = docSession(); if (s?.readOnly) void askCopy(s, null); };
+$('doc-copy').onclick = () => { const s = docSession(); if (s.readOnly) void askCopy(s, null); };
 
 /** Stores of a built-in are guarded; until the first document is open every edit is ignored. */
 let started = false;
@@ -763,6 +752,7 @@ function applyGuards() {
   for (const [session, keys] of [[sessions.page, ['page']], [sessions.spread, ['left', 'right']]] as const) {
     for (const key of keys) stores[key].guard = !started || session.readOnly ? guard(session) : null;
   }
+  // The book's edits go through the arranger, which asks `editing` first.
 }
 
 /** What to say on the open key: saved documents by id, built-ins by their example id. */
@@ -773,18 +763,24 @@ function rememberOpen() {
   // a view not opened yet in this visit keeps what it had
   if (sessions.page.name) ids.page = idOf(sessions.page, (n) => `example:${n}`);
   if (sessions.spread.name) ids.spread = idOf(sessions.spread, (n) => `example:spread:${n}`);
+  if (sessions.book.id) ids.book = sessions.book.id; // a built-in book (a template's) is not remembered: the last saved one comes back
   try { localStorage.setItem(OPEN_KEY, JSON.stringify(ids)); } catch { /* the document is in the Library; only the reopen is lost */ }
 }
 
-for (const session of [sessions.page, sessions.spread]) {
-  session.subscribe(() => { applyGuards(); rememberOpen(); renderDocbar(); });
+for (const session of allSessions) {
+  session.subscribe(() => {
+    if (session === sessions.book && book && session.name) book.name = session.name;
+    applyGuards(); rememberOpen(); renderDocbar();
+  });
 }
+keeper.subscribe(renderDocbar);
+$('keep-export').onclick = () => { notify(null); exportDialog.show('export'); };
 
 /** Before the first export of an Untitled page or spread: a small window asks for a name (keeping Untitled is allowed). */
 const askedBeforeExport = new Set<string>();
 async function nameBeforeExport(): Promise<boolean> {
   const session = docSession();
-  if (!session?.untitled) return true;
+  if (!session.untitled) return true;
   const key = `${session.kind}:${session.id ?? session.name}`;
   if (askedBeforeExport.has(key)) return true;
   const name = await nameDialog.ask(`Name this ${session.kind} before you export it`, session.name);
@@ -796,13 +792,15 @@ async function nameBeforeExport(): Promise<boolean> {
 }
 
 /** Every committed change is written after a short pause; leaving the tab writes it at once. */
-const flushAll = () => { void sessions.page.flush(); void sessions.spread.flush(); };
+const flushAll = () => { for (const s of allSessions) void s.flush(); };
 addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushAll(); });
-addEventListener('pagehide', flushAll);
+// Closing the tab: an Untitled document nobody drew on is not kept.
+addEventListener('pagehide', () => { flushAll(); for (const s of allSessions) void s.discardIfPristine(); });
 
 applyGuards();
 void (async () => {
-  if (view !== 'book') await ensureOpen(view);
+  await keeper.start(); // does the browser keep documents? If not, the notice says so before anything is opened
+  await ensureOpen(view);
   started = true;
   applyGuards();
   renderDocbar();
