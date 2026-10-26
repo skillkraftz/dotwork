@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { box, cellToClient, choose, draft, drag, hit, open, shot, start, stop, tap, tool, type App, type Env } from './harness';
 
 let env: Env;
@@ -460,6 +461,47 @@ describe('the export window', () => {
     await page.waitForSelector('dialog.export', { state: 'hidden' });
     expect(await pageData(app)).toMatchObject({ name: 'Round trip' });
     expect((await pageData(app)).elements).toHaveLength(1);
+    noErrors(app);
+  });
+
+  for (const [device, fixture] of [['phone', 'november-2026-journal'], ['desktop', 'november-2026-journal'], ['desktop', 'monthly-log-book']] as const) it(`Export saves the book as it is now, including edits made since the file was opened (${device}, ${fixture})`, async () => {
+    const app = await open(env, device);
+    const { page } = app;
+    const opened = readFileSync(`tests/fixtures/${fixture}.json`);
+    const original = JSON.parse(opened.toString());
+    const exported = async () => {
+      await hit(app, '#export');
+      await tab(app, 'export');
+      expect(await page.locator('dialog.export .export-what').innerText()).toContain('book');
+      const d = await download(app);
+      await closeDialog(app, 'export');
+      return JSON.parse((await bytes(d)).toString('utf8'));
+    };
+
+    await hit(app, '#export');
+    await tab(app, 'import');
+    await page.setInputFiles('dialog.export input[type="file"]', { name: 'journal.json', mimeType: 'application/json', buffer: opened });
+    await page.waitForSelector('dialog.export', { state: 'hidden' });
+    await page.waitForSelector('.stage-page');
+    expect((await exported()).pages[0].name).toBe(original.pages[0].name); // untouched: the file as opened
+
+    // Edit the book three ways, none of them saved to the Library: its name, a page's design, and a page's date.
+    await choose(app, 'page', '#settings');
+    await page.locator('[data-key="settings-book-name"]').fill('Edited since opening');
+    await closeDialog(app, 'settings');
+    await page.getByRole('button', { name: 'Choose design…' }).click();
+    await page.locator('dialog.picker .design', { hasText: 'Lined page' }).first().click();
+
+    const now = await exported();
+    const draftBook = await page.evaluate(() => JSON.parse(localStorage.getItem('dotwork.book')!));
+    expect(now.name).toBe('Edited since opening');
+    expect(now.pages[0].name).toBe('Lined page');
+    expect(now).toEqual(draftBook); // exactly the book on screen, which is what the draft keeps
+    expect(now).not.toEqual(original);
+
+    // Undo is part of "as it is now" too.
+    await page.getByRole('button', { name: 'Undo' }).first().click();
+    expect((await exported()).pages[0].name).toBe(original.pages[0].name);
     noErrors(app);
   });
 
