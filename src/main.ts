@@ -703,7 +703,7 @@ function renderDocbar() {
   if (!session) return;
   const untitled = session.untitled;
   docName.classList.toggle('untitled', untitled);
-  docName.replaceChildren(untitled ? h('span', { class: 'chip' }, `${session.name}: name it`) : session.name);
+  docName.replaceChildren(untitled ? h('span', { class: 'doc-chip' }, `${session.name}: name it`) : session.name);
   docName.title = session.readOnly ? session.name : 'Tap to rename';
   docName.toggleAttribute('disabled', session.readOnly);
   $('builtin-bar').hidden = !session.readOnly;

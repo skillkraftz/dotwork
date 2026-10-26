@@ -400,6 +400,11 @@ describe('the export window', () => {
     const [d] = await Promise.all([app.page.waitForEvent('download'), hit(app, 'dialog.export .export-actions .primary')]);
     return d;
   };
+  /** Download an Untitled page or spread: it asks for a name first, and keeping Untitled is allowed. */
+  const downloadNamed = async (app: App) => {
+    const [d] = await Promise.all([app.page.waitForEvent('download'), hit(app, 'dialog.export .export-actions .primary'), app.page.locator('dialog.ask[open] .primary').click()]);
+    return d;
+  };
   const bytes = async (d: Awaited<ReturnType<typeof download>>) => {
     const { readFile } = await import('node:fs/promises');
     return readFile((await d.path())!);
@@ -520,7 +525,7 @@ describe('the export window', () => {
     await tab(app, 'png');
     expect(await page.locator('dialog.export [name="png-scope"]').count()).toBe(0); // a lone page has nothing to choose
     await page.locator('dialog.export [data-key="png-dpi"]').selectOption('150');
-    const one = await download(app);
+    const one = await downloadNamed(app);
     expect(one.suggestedFilename()).toBe('untitled.png');
     const png = await bytes(one);
     expect(png.readUInt32BE(16)).toBe(525); // 3.5 in at 150 DPI
@@ -532,8 +537,8 @@ describe('the export window', () => {
     await tab(app, 'png');
     await page.locator('dialog.export [data-key="png-spread"]').check();
     await page.locator('dialog.export [data-key="png-dpi"]').selectOption('150');
-    const both = await download(app);
-    expect(both.suggestedFilename()).toBe('untitled-spread.png');
+    const both = await downloadNamed(app);
+    expect(both.suggestedFilename()).toBe('untitled.png');
     expect((await bytes(both)).readUInt32BE(16)).toBe(1050); // both pages side by side
     await closeDialog(app, 'export');
 

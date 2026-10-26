@@ -63,7 +63,7 @@ for (const device of ['phone', 'tablet', 'desktop'] as Device[]) {
       await renameTo(app, 'Garden');
       await waitSaved(app);
       expect(await page.innerText('#doc-name')).toBe('Garden');
-      expect(await page.locator('#doc-name .chip').count()).toBe(0);
+      expect(await page.locator('#doc-name .doc-chip').count()).toBe(0);
       await shot(app, `documents-${device}-saved`);
       await reload(app);
       expect(await page.innerText('#doc-name')).toBe('Garden');
@@ -261,9 +261,10 @@ for (const device of ['phone', 'tablet', 'desktop'] as Device[]) {
   });
 }
 
-describe('saving, honestly (desktop)', () => {
+for (const device of ['phone', 'tablet', 'desktop'] as Device[]) {
+  describe(`saving, honestly (${device})`, () => {
   it('a write the browser refuses shows Not saved with the real reason and Retry, never Saved', async () => {
-    const app = await open(env, 'desktop');
+    const app = await open(env, device);
     const { page } = app;
     await waitSaved(app);
     await page.evaluate(() => {
@@ -277,23 +278,23 @@ describe('saving, honestly (desktop)', () => {
     const notice = page.locator('#notice');
     await notice.waitFor({ state: 'visible' });
     expect(await notice.innerText()).toContain('storage is full');
-    await shot(app, 'documents-desktop-not-saved');
+    await shot(app, `documents-${device}-not-saved`);
     await notice.locator('[data-key="copy-details"]').click();
     await page.waitForFunction(() => /Copied|Couldn’t copy/.test(document.querySelector('#notice [data-key="copy-details"]')!.textContent!));
     await page.waitForTimeout(1200);
     expect(await status(app)).toBe('Not saved'); // it does not turn into Saved by itself
-    await page.click('#doc-retry');
+    await hit(app, '#doc-retry');
     await page.waitForTimeout(200);
     expect(await status(app)).toBe('Not saved'); // still full
     await page.evaluate(() => { IDBObjectStore.prototype.put = (window as any).__put; });
-    await page.click('#doc-retry');
+    await hit(app, '#doc-retry');
     await waitSaved(app);
     expect(await notice.isVisible()).toBe(false);
     expect((await openDoc(app, 'page')).elements).toMatchObject([{ type: 'box' }]);
   });
 
   it('writes after a pause, and at once when the tab is hidden', async () => {
-    const app = await open(env, 'desktop');
+    const app = await open(env, device);
     const { page } = app;
     await waitSaved(app);
     // the 400 ms pause never ends on its own here, so only the hide can write
@@ -312,4 +313,5 @@ describe('saving, honestly (desktop)', () => {
     await waitSaved(app);
     expect((await libraryItems(app))[0].data.elements).toMatchObject([{ type: 'box' }]);
   });
-});
+  });
+}
