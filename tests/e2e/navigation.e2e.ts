@@ -464,10 +464,10 @@ describe('the export window', () => {
     noErrors(app);
   });
 
-  for (const device of ['phone', 'desktop'] as const) it(`Export saves the book as it is now, including edits made since the file was opened (${device})`, async () => {
+  for (const [device, fixture] of [['phone', 'november-2026-journal'], ['desktop', 'november-2026-journal'], ['desktop', 'monthly-log-book']] as const) it(`Export saves the book as it is now, including edits made since the file was opened (${device}, ${fixture})`, async () => {
     const app = await open(env, device);
     const { page } = app;
-    const opened = readFileSync('tests/fixtures/november-2026-journal.json');
+    const opened = readFileSync(`tests/fixtures/${fixture}.json`);
     const original = JSON.parse(opened.toString());
     const exported = async () => {
       await hit(app, '#export');

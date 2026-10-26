@@ -4,9 +4,7 @@ This describes what the code does now (commit `25cf010`, the head of `main`), re
 comments. Where the code and a doc disagree, the code wins and the disagreement is listed in **Things that disagree** at the end.
 Anything I could not confirm from the code is marked **(unsure)**.
 
-**Not covered:** the owner's example, `tests/fixtures/monthly-log-book.json`, was not in the repository (not on `main`, not on any
-branch) when this was written, so nothing here was checked against it. The three symptoms the owner described are explained
-from the code only, as the ways the code *can* produce them; see **The owner's monthly log book**.
+The owner's example, `tests/fixtures/monthly-log-book.json`, was checked against the code; see **The owner's monthly log book**.
 
 ## 1. The parts, in one picture
 
@@ -157,14 +155,16 @@ Keyboard shortcuts (page and spread views only; the Book view has none except �
 - **Imported:** `readBook` checks `dates` has `page_count` entries, each a real day or `null`. The recipe is checked for shape only (month format, repeat kinds, at most one `fill`); nothing checks that `recipe.month` agrees with `dates`.
 - **Library "Open" of a book, or a template:** the book's dates are copied as they are.
 
-### The owner's monthly log book (from the code only; the file was not available)
+### The owner's monthly log book (`tests/fixtures/monthly-log-book.json`)
 
-I could not open `monthly-log-book.json`, so I cannot say which of these happened to it. These are the places in the code that
-produce each symptom.
+What the file holds: a 52-page book with `dates`, and a `recipe` of **one step**: `{ repeat: fill, no start }` of a section "Week Log"
+(11 pages, `days` = `[null, 0, null, 14, 21, 28, 35, 42, 49, null, null]`, `weekday` 1, `move` `none`, starts on a right page), `recipe.month`
+`2027-11`, no gap page. `tests/monthly-log-book.test.ts` pins the findings below.
 
-1. **Month 2027-11.** `book.recipe.month` can only come from: the Month and Year fields in the builder (Year accepts 1900–2200 and the number box has up/down arrows, so one tap of ▲ on 2026 gives 2027); the builder's starting value when the book has no recipe, which is the month of the **first dated page** (`arranger.ts:658–662`), else today; or a step's own *Other month* box. Because a book that already has a recipe opens the builder on `recipe.month`, **not** on the dates actually on its pages, a book's recipe month and its page dates can differ with nothing noticing. If the first dated page was in 2027-11 (for instance dated with the Dates window's *Year* field), the builder offers 2027-11. Which of these it was **(unsure)**: it needs the file's `recipe.month`, `dates[0]` and any step `start`.
-2. **Daily pages a week apart.** The Dates window opens in *Each page is one week* (`dating.mode` starts as `'week'`, `arranger.ts:113`) and only switches to *one day* when the current page has **no** date **and** the book already has some (`:530`). So on a book with no dates, or on a page that is already dated, pressing **Set dates** on a run of daily pages gives them Sundays seven days apart. In week mode a page that already has a Tuesday date is also snapped to its Sunday. (The same result comes from a saved section with `move: week` whose daily pages were dated a week apart.)
-3. **Every week section has the same dates.** Adding a step from the builder's **Add a step** list creates `{ repeat: { kind: 'times', count: 1 } }` with **no `start`** (`arranger.ts:795`, and `:698` when a step's repeat is switched back to *A number of times*). Every `times` step with no `start` starts on the 1st of `recipe.month`. So several steps, each adding a week section once, all get the same dates. A `times` step with count > 1 on a section whose `move` is `none` repeats identical dates too. Only the *Each week of a month* repeat spaces the weeks out by itself. Whether the file has several `times ×1` steps or one `none`-move section **(unsure)**.
+1. **Why the month is 2027-11.** The recipe's month and the section's dates both start at 2027-11-01, a Monday (the section's `weekday` is 1), and every dated page in the book is in 2027-11 or 2027-12. So the book was dated from 2027-11-01 before the section was saved from it, and the builder then offered, and kept, 2027-11 as `recipe.month` (a book with dates opens the builder on its first dated page's month, `arranger.ts:662`; one with a recipe keeps the recipe's). The file cannot say *how* 2027 was chosen in the first place. A Monday start means the Dates window's *one day* mode, with a start date typed or picked, or a builder date field; its *week* mode only produces Sundays. Which year was typed or picked is **(unsure)**: nothing in the code supplies 2027 (the defaults are the clock, and 2026 in the window's unused initial state).
+2. **Why the daily pages are a week apart.** The section was saved from pages dated 14, 21, 28, 35, 42 and 49 days after the first dated page: seven days apart, one daily page per week. That is what the Dates window's *Each page is one week* mode gives a run of daily pages (it is the mode the window opens in, §4 above), and the book's own pages show the same thing (pages 4–9: Nov 15, 22, 29, Dec 6, 13, 20). Page 2 is dated 0 and page 3 is not dated at all, so the run was dated in pieces (why page 3 has no date is **(unsure)**).
+3. **Why every week section has the same dates.** The step is *Fill what's left* with no `start`, on a section whose `move` is `none`. A fill repeat starts on `start`, else the 1st of `recipe.month`, and repeat *k* moves by the section's `move`, which is `none`: so each of the four repeats (pages 1–12, 13–24, 25–36, 37–48; each is 11 pages plus a Notes gap page to keep the next repeat on a right page) is dated 2027-11-01, 11-15, 11-22 … identically. (`weeks` would have spaced them out; so would `move: week`.)
+4. **Extra: the last four pages were edited by hand.** Rebuilding from this recipe would leave pages 49–52 blank (the plan fills four 12-page repeats), but the book has a tracker, two daily pages and a "Patterns & takeaways" page there. The recipe describes pages 1–48, not the book.
 
 ## 5. Saving and export
 
@@ -190,7 +190,7 @@ The book has four cover pages: **inside front** (left page, `cover.front`), **in
 **Behaviour that contradicts itself or its own words**
 
 1. **Recipe month vs. dates.** `openBuild` prefers `book.recipe.month` over the dates on the pages (`arranger.ts:662`); the Dates window and any later change never update the recipe. Nothing reports the mismatch. The month a book "is" is stored in two places.
-2. **A newly added step has no `start`.** `arranger.ts:795` adds `times ×1`; all such steps start on the same day (see the owner's example 3).
+2. **A newly added step has no `start`.** `arranger.ts:795` adds `times ×1`; all such steps start on the same day (a second way to get the owner's finding 3).
 3. **Dates window defaults to weeks.** `arranger.ts:113` and `:530`; daily pages get a week apart on first use (example 2).
 4. **`weeks` ignores `move`; `times` and `fill` honour it.** The section list says "dates a week later" for a section, which describes only the `times`/`fill` behaviour.
 5. **`guessMove` guesses `week` for any run with two or more distinct dates** (e.g. 30 daily pages in November), where `month` would be the repeat people mean (`build.ts:44`).
@@ -237,7 +237,7 @@ The book has four cover pages: **inside front** (left page, `cover.front`), **in
 
 ## 8. Open questions
 
-1. `tests/fixtures/monthly-log-book.json` is missing; the three explanations in §4 need it to be confirmed.
+1. In the Monthly Log Book, which action chose the year 2027 (finding 1)? Nothing in the code does, so it was typed or picked.
 2. Should the recipe's month follow the dates (or the dates the recipe), and should a new step start where the previous one ended instead of on the 1st?
 3. Should Dates open in *one day* mode unless the current page is a week page?
 4. Should PNG fill tokens and the page number like the PDFs, or stay a sample?
