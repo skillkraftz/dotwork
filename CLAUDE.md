@@ -50,8 +50,8 @@ Dotwork's print export follows the same physical rules as journal-system
   order; the stack goes back in the tray the same way; `print-second.pdf`
   holds the backs in forward order. Keep this exactly. Add a back-side x/y
   offset setting for printers that shift on the second pass.
-- Covers are printed separately, single-sided: inside front cover (a left
-  page) and inside back cover (a right page) as one centered spread.
+- Covers are printed separately, single-sided, as two centered spreads: `cover-outside.pdf` (outside back, a left page, and outside
+  front, a right page; first pass) and `cover-inside.pdf` (inside front, a left page, and inside back, a right page; second pass).
 - journal-system implements all of this in `pocketjournal/imposition.py`. Match
   its behavior and test cases.
 
@@ -69,9 +69,10 @@ Dotwork's print export follows the same physical rules as journal-system
 - Static web app: Vite + TypeScript, plain DOM and SVG, no backend. Deploys to
   GitHub Pages.
 - Pages render as SVG in millimeters so the screen, the PNG and the PDF match.
-- Drafts and the library live in the browser (localStorage or IndexedDB). Files
+- Drafts, widgets, art, favorites and the printer profile live in the browser's localStorage and the library in IndexedDB. Files
   people export are the source of truth.
-- Vitest for tests. Keep dependencies few.
+- Vitest for unit tests (`npm test`) and, for end-to-end tests, Vitest driving headless Chromium through Playwright
+  (`npm run test:e2e`). Keep dependencies few.
 
 ## Working rules
 
@@ -96,6 +97,13 @@ Dotwork's print export follows the same physical rules as journal-system
   are at least 44 px. Test every UI change at phone, tablet and desktop sizes,
   with touch emulation, and include screenshots of all three in the PR.
 
+## Docs
+
+`README.md` says what the app is and how to run it. `docs/product-map.md` is how it works today (every screen, store and rule, read from the code);
+`docs/product-model.md` is how it should work next, as decisions in phases; `docs/page-format.md`, `docs/book-format.md`,
+`docs/library-format.md` and `docs/print-pipeline.md` are the formats and the print pipeline. When a change makes one of these wrong, fix it in the
+same PR. Where the code and a doc disagree, the code is right and the doc is a bug.
+
 ## How to finish a task
 
 - Run the full unit suite, then the full e2e suite. Fix failures; re-run only the failing files until they pass, then run
@@ -105,8 +113,8 @@ Dotwork's print export follows the same physical rules as journal-system
   depends on it, and list it in the PR.
 - Screenshots go in `docs/screenshots/` and are committed; nothing stays in a scratch folder. Take them after the last UI
   change.
-- Last step, always: commit, push, open the PR (`gh pr create`), and end your final message with the PR's URL. If opening
-  it fails, quote the error.
+- Last step, always: commit, push, open the PR (`gh pr create`, or the GitHub tool when `gh` isn't installed), and end your
+  final message with the PR's URL. If opening it fails, quote the error.
 
 ## Roadmap
 
@@ -129,13 +137,13 @@ Dotwork's print export follows the same physical rules as journal-system
     line weights (done).
 11. Navigation overhaul: Page, Edit and Export menus, a settings window, a library browser with search, tabs and favorites, one import/export window, drawable header row when the identity is empty (done).
 12. Rotated sequence items, date tokens with day offsets and {months}, dates on book pages, and one Download for
-    pages.pdf, cover.pdf and the print files (done).
+    pages.pdf, the covers and the print files (done).
 13. Built-in library: every reference page, paired spreads, starter widgets, and book templates (year planner,
     monthly journal, blank, lined, dot grid and idea books); built-ins can't be overwritten (done).
-14. Printer calibration: a Calibrate page and calibration PDF set, printer tone settings in the book's print settings, settings
+14. Printer calibration: a Calibrate page and calibration PDF set, printer tone settings (later moved to the printer profile), settings
     listed in summary.txt (done).
-15. Local-date fixes, dates that travel with their pages, Build by week (a section repeated for each week of a month, with a
-    recipe to rebuild for another month), and Flip through (done).
+15. Local-date fixes, dates that travel with their pages, a section repeated for each week of a month with a recipe to rebuild
+    it for another month (now the "Weekly journal" preset of builder steps), and Flip through (done).
 16. Sections (a Library item made from a run of book pages, with how its dates move) and the book builder (steps that
     repeat sections: a number of times, each week of a month, or fill what's left; Build by week is now a preset of
     steps), Flip through at 1 s by default, the Good Time page matched to its reference, and a Book bar that fits a phone
@@ -144,4 +152,6 @@ Dotwork's print export follows the same physical rules as journal-system
     and scale kept per layout, a Size step in Calibrate, and the outside covers (cover-outside.pdf, cover-inside.pdf) (done).
 18. Books hold the design only (every printer and calibration setting is in the printer profile, so old books always open), one double-sided calibration sheet per layout with a back rotation and a scale per paper edge, and the outside covers in preview.png and Flip through (done).
 19. Print pipeline in stages (layout, then the printer's positions-only correction, then the PDF), so a stretched sheet never stretches lines, dots or glyphs; line weight by direction with a pairs-and-ladder block on the calibration sheet; the 3 mm edge check as a warning; fold twist readout (done; see `docs/print-pipeline.md`).
-20. Later: dials and other components, color, sharing, a page gallery.
+20. The product model (`docs/product-model.md`): documents that save themselves, a book as an outline of repeated blocks with a
+    calendar, links to designs and book versions, the Design / Plan / Print areas, then a database (planned, in ten phases).
+21. Later: dials and other components, color, sharing, a page gallery.

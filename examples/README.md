@@ -8,7 +8,7 @@ and drop the file in the right folder.
 |--------|-----------------|-------------|
 | `pages/` | Page files (`dotwork-page`, see [docs/page-format.md](../docs/page-format.md)). The page's own `name` is its name. | Library > Pages, marked as an example. Opening one makes a copy. |
 | `widgets/` | `{ "name": "Habit row", "elements": [ ... ] }`: page elements placed relative to each other (the first row is row 1). | Library > Widgets, and the Widgets button. |
-| `art/` | SVG files. The file name is the art's name (`half-donut.svg` is "Half donut"). Give a shape an `id` (`id="needle"`) and each placement can change its fill or line. | Library > Art, and the Art button. |
+| `art/` | SVG files. The file name is the art's name (`gauge.svg` is "Gauge"). Give a shape an `id` (`id="needle"`) and each placement can change its fill or line. | Library > Art, and the Art button. |
 
 Art can come with presets: a `.json` file with the same name as the SVG, listing the same art with some named paths
 filled or lined differently. `art/gauge.json` makes the Engagement and Energy gauges from `art/gauge.svg`:
@@ -20,6 +20,6 @@ filled or lined differently. `art/gauge.json` makes the Engagement and Energy ga
 `fills` take `none`, `light`, `medium` or `dark`; `strokes` take `none`, `gray` or `black`.
 
 A file that isn't valid is skipped (the console says which and why), and `npm test` fails on it.
-Some built-in spreads and book templates use pages from `pages/` by name (Lined page, Dot grid page, Idea page, Daily Good Time Journal).
+Some built-in spreads, sections and book templates use pages from `pages/` by name (Lined page, Dot grid page, Idea page, Daily Good Time Journal).
 Without one, the spreads that need it are left out and the books use a notes page there; the Library says which, in one line
 at the top of its Spreads or Books tab.

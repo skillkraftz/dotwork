@@ -188,6 +188,10 @@ Each path is `{ "id": "right-half", "d": "...", "fill": "light", "stroke": "blac
 Fit scales the view box by the larger of what fits the width and the height (mm per unit = `min(w x 3 / view_box width, h x 3 / view_box height)`),
 centered; stretch scales the two directions separately. A reader draws `d` through that scale and offset and leaves `stroke_mm` alone.
 
+The importer reads shapes (paths, circles, ellipses, rectangles, lines, polylines, polygons) and applies every transform. It leaves out text, images,
+gradients, filters, masks, scripts, styles, links to other files and presentation attributes it cannot honor (line joins, even-odd fills and so on), and
+lists what it left out; an empty or oversized result is refused with the reason.
+
 ### `text`: a label or heading
 
 | Field | Meaning |
@@ -263,6 +267,6 @@ which rule failed. Overlap is allowed.
 
 ## Version 1 files
 
-Readers should convert version 1 files: each region becomes a `pattern` (or
+Dotwork still converts version 1 files when it reads them (`src/format/convert.ts`), though it no longer writes them. Readers should convert version 1 files: each region becomes a `pattern` (or
 `checkboxes` plus `lines`), a `box` for its borders, and `text` elements for
 its labels, in that order.

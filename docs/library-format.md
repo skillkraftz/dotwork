@@ -1,11 +1,11 @@
 # Dotwork library file, version 1
 
-Dotwork keeps saved pages, spreads, sections and books in the browser. **Export library** writes
-all of them to one JSON file as a backup, and **Import library** reads it back.
+Dotwork keeps saved pages, spreads, sections and books in the browser (IndexedDB). **Back up library** (in the Library window) writes
+all of them to one JSON file, and **Restore backup** reads it back. Widgets, art and favorites are kept in `localStorage`, not in the
+Library store, so a backup does not carry them.
 This file is only for Dotwork's own backups; journal-system reads the page and
 spread files described in `page-format.md`, which sit inside it unchanged. Books
-(`book-format.md`) were added to the same version 1 file: a reader from before
-books rejects a file that holds one, and says so.
+(`book-format.md`) and sections are in the same version 1 file.
 
 ```json
 {
@@ -27,7 +27,7 @@ books rejects a file that holds one, and says so.
 | `kind` | `"page"`, `"spread"`, `"section"` or `"book"`. |
 | `name` | The name it is saved under. The `name` inside `data` matches it. |
 | `updated` | ISO date and time of the last change. |
-| `data` | A complete page file (version 1 pages are converted), spread file, section or book file. |
+| `data` | A complete page file, spread file, section or book file. A version 1 page is converted when read, as everywhere the app reads a page. |
 
 A reader rejects the whole file, and says which rule failed and where, if the
 format or version is wrong, an id is missing or repeated, `kind` is unknown, or
