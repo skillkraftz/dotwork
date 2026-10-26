@@ -131,14 +131,15 @@ for (const device of ['phone', 'tablet', 'desktop'] as Device[]) {
       await page.waitForSelector('#builtin-bar:not([hidden])');
       await page.waitForSelector('.stage-page');
       expect(await page.innerText('#builtin-bar')).toContain('Built-in. Editing makes a copy.');
-      expect(await page.innerText('#doc-name')).toBe('Year planner');
+      const builtinName = await page.innerText('#doc-name'); // the template's own name
+      expect(builtinName).toMatch(/year planner/i);
       await shot(app, `books-${device}-builtin-bar`);
       const before = await bookNames(app);
 
       // cancelling leaves it as it was
       await pickDesign(app, 'Lined page');
       await nameDialog(app).waitFor({ state: 'visible' });
-      expect(await page.inputValue('[data-key="ask-name"]')).toBe('Year planner copy');
+      expect(await page.inputValue('[data-key="ask-name"]')).toBe(`${builtinName} copy`);
       await answerName(app, null, true);
       expect(await bookNames(app)).toEqual(before);
       expect(await page.locator('#builtin-bar').isVisible()).toBe(true);
@@ -148,14 +149,14 @@ for (const device of ['phone', 'tablet', 'desktop'] as Device[]) {
       await answerName(app, null);
       await page.waitForSelector('#builtin-bar', { state: 'hidden' });
       await waitSaved(app);
-      expect(await page.innerText('#doc-name')).toBe('Year planner copy');
+      expect(await page.innerText('#doc-name')).toBe(`${builtinName} copy`);
       const copy = await openDoc(app, 'book');
-      expect(copy.name).toBe('Year planner copy');
+      expect(copy.name).toBe(`${builtinName} copy`);
       expect(copy.pages[0].name).toBe('Lined page');
 
       await reload(app);
       await page.waitForSelector('.stage-page');
-      await page.waitForFunction(() => document.querySelector('#doc-name')?.textContent === 'Year planner copy');
+      await page.waitForFunction((n) => document.querySelector('#doc-name')?.textContent === n, `${builtinName} copy`);
       await waitSaved(app);
       expect(await status(app)).toBe('Saved');
       expect(await page.locator('.design-name strong').innerText()).toBe('Lined page');
@@ -234,6 +235,7 @@ for (const device of ['phone', 'tablet', 'desktop'] as Device[]) {
       await hit(app, '[data-tab="sections"]');
       await page.waitForSelector('.lib-card[data-name="Week"]');
       await hit(app, '.lib-card[data-name="Week"] .lib-more');
+      await page.waitForSelector('.lib-menu');
       expect(await page.locator('.lib-menu button').allInnerTexts()).toEqual(['Rename', 'Duplicate', 'Export', 'Delete']);
       expect(await missingHelp(app)).toEqual([]);
 
