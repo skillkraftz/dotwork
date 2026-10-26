@@ -3,12 +3,14 @@ import {
   cellToClient, choose, drag, hit, libraryItems, missingHelp, open, openDoc, reload, shot, start, stop, tool, waitSaved, type App, type Device, type Env,
 } from './harness';
 
+import { emptyPage } from '../../src/format/types';
+
 let env: Env;
 beforeAll(async () => { env = await start(); });
 afterAll(async () => { await stop(env); });
 
 const status = (app: App) => app.page.innerText('#doc-status');
-const nameDialog = (app: App) => app.page.locator('dialog.ask');
+const nameDialog = (app: App) => app.page.locator('dialog.ask[open]');
 
 /** Draw one box on the page being edited. */
 async function drawBox(app: App, from: [number, number] = [3, 4], to: [number, number] = [8, 9]) {
@@ -19,9 +21,9 @@ async function drawBox(app: App, from: [number, number] = [3, 4], to: [number, n
 /** Answer the small name window: type a name (or keep what is there) and Save, or Cancel. */
 async function answerName(app: App, name: string | null, cancel = false) {
   await nameDialog(app).waitFor({ state: 'visible' });
-  if (cancel) { await hit(app, 'dialog.ask button:not(.primary)'); return; }
+  if (cancel) { await hit(app, 'dialog.ask[open] button:not(.primary)'); return; }
   if (name !== null) await app.page.fill('[data-key="ask-name"]', name);
-  await hit(app, 'dialog.ask .primary');
+  await hit(app, 'dialog.ask[open] .primary');
   await nameDialog(app).waitFor({ state: 'hidden' });
 }
 
@@ -46,7 +48,7 @@ async function exportTab(app: App, tab: 'import' | 'export' | 'png') {
   await hit(app, `dialog.export [data-tab="${tab}"]`);
 }
 
-const pageFile = (name: string, x: number) => JSON.stringify({ format: 'dotwork-page', version: 2, name, grid: { cols: 27, rows: 44 }, elements: [{ type: 'box', x, y: 3, w: 4, h: 3 }] });
+const pageFile = (name: string, x: number) => JSON.stringify({ ...emptyPage(), name, elements: [{ type: 'box', x, y: 3, w: 4, h: 3 }] });
 
 for (const device of ['phone', 'tablet', 'desktop'] as Device[]) {
   describe(`documents on a ${device}`, () => {
@@ -86,9 +88,11 @@ for (const device of ['phone', 'tablet', 'desktop'] as Device[]) {
       // a name already used gets 2 added
       await renameTo(app, 'Untitled');
       await page.waitForFunction(() => document.querySelector('#doc-name')?.textContent === 'Untitled 2: name it');
-      await renameTo(app, 'Notes');
-      await renameTo(app, 'Notes'); // renaming to its own name changes nothing
-      expect(await page.innerText('#doc-name')).toBe('Notes');
+      await renameTo(app, 'Ideas jar');
+      await renameTo(app, 'Ideas jar'); // renaming to its own name changes nothing
+      await page.waitForFunction(() => document.querySelector('#doc-name')?.textContent === 'Ideas jar');
+      await renameTo(app, 'Weekly reflection'); // a built-in's name counts as taken
+      await page.waitForFunction(() => document.querySelector('#doc-name')?.textContent === 'Weekly reflection 2');
       expect(app.errors).toEqual([]);
     });
 
@@ -197,7 +201,7 @@ for (const device of ['phone', 'tablet', 'desktop'] as Device[]) {
       await drawBox(app);
       await renameTo(app, 'First');
       await choose(app, 'edit', '#new'); // no waiting for the pause: the first is written before the switch
-      await page.waitForFunction(() => document.querySelector('#doc-name')?.textContent === 'Untitled 2: name it');
+      await page.waitForFunction(() => document.querySelector('#doc-name')?.textContent === 'Untitled: name it');
       await drawBox(app, [2, 10], [6, 14]);
       await drawBox(app, [10, 10], [14, 14]);
       await renameTo(app, 'Second');
@@ -303,7 +307,7 @@ describe('saving, honestly (desktop)', () => {
     expect((await libraryItems(app))[0].data.elements).toEqual([]);
     await page.evaluate(() => {
       Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
-      document.dispatchEvent(new Event('visibilitychange'));
+      document.dispatchEvent(new Event('visibilitychange', { bubbles: true }));
     });
     await waitSaved(app);
     expect((await libraryItems(app))[0].data.elements).toMatchObject([{ type: 'box' }]);

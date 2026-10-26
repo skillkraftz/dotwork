@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ICONS, ICON_NAMES } from '../../src/icons/icons';
-import { bar, box, cellToClient, choose, draft, drag, missingHelp, open, shot, start, stop, tap, type App, type Env, tool, seedPage,} from './harness';
+import { bar, box, cellToClient, draft, drag, missingHelp, open, shot, start, stop, tap, type App, type Env, tool, newDoc, seedPage,
+} from './harness';
 
 let env: Env;
 beforeAll(async () => { env = await start(); });
@@ -163,7 +164,7 @@ describe('Advanced on a phone (390 x 844, touch)', () => {
     expect(await page.locator('#notice').innerText()).toContain('Notes box');
 
     // another page: a new, blank one
-    await choose(app, 'edit', '#new');
+    await newDoc(app);
     expect(await elements(app)).toEqual([]);
     await tool(app, 'widget');
     await page.waitForSelector('.widget-row');

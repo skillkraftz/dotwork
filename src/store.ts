@@ -215,6 +215,7 @@ export class Store {
 
   /** Select just this element (or nothing). */
   select(index: number | null) {
+    if (index !== null && index >= this.page.elements.length) index = null; // a change a guard is holding back has not made it yet
     if (index === this.selected && this.others.size === 0) return;
     this.selected = index;
     this.others.clear();
@@ -236,6 +237,7 @@ export class Store {
 
   /** Select several elements at once; the last is the main one. */
   selectMany(indexes: readonly number[]) {
+    indexes = indexes.filter((i) => i < this.page.elements.length);
     this.selected = indexes.length ? indexes[indexes.length - 1] : null;
     this.others = new Set(indexes.slice(0, -1).map((i) => this.ids[i]));
     this.emit();

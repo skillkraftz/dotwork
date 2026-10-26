@@ -147,10 +147,17 @@ export async function openDoc(app: App, kind: 'page' | 'spread'): Promise<any> {
 /** The open page, once saved. */
 export const draft = (app: App): Promise<{ elements: Record<string, unknown>[]; [k: string]: any }> => openDoc(app, 'page');
 
+/** Choose New and wait until another document is open (it switches after the old one is written). */
+export async function newDoc(app: App) {
+  const before = await app.page.innerText('#doc-name');
+  await choose(app, 'edit', '#new');
+  await app.page.waitForFunction((b) => document.querySelector('#doc-name')?.textContent !== b, before);
+}
+
 /** Reload and wait for the open document to come back. */
 export async function reload(app: App) {
   await app.page.reload();
-  await app.page.waitForSelector('#canvas');
+  await app.page.waitForSelector('#canvas', { state: 'attached' }); // hidden in a spread
   await app.page.waitForSelector('body[data-ready]');
   await app.page.evaluate(() => document.fonts.ready);
 }

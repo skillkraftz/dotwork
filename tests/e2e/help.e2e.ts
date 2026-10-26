@@ -258,8 +258,7 @@ describe('every control has a help entry', () => {
     await choose(app, 'edit', '#library');
     await page.waitForSelector('dialog[aria-label="Library"][open]');
     expect(await missingHelp(app)).toEqual([]);
-    await page.click('dialog[aria-label="Library"] .lib-save .primary');
-    await page.waitForSelector('.lib-card[data-name="Untitled"]');
+    await page.waitForSelector('.lib-card[data-name="Untitled"]'); // the open page is already in the Library
     expect(await missingHelp(app)).toEqual([]);
     await page.click('.lib-card[data-name="Untitled"] .lib-more');
     await page.waitForSelector('.lib-menu');

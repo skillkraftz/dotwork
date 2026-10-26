@@ -145,8 +145,9 @@ export class DocSession<K extends DocKind> {
     if (!this.readOnly) this.autosave.touch();
   }
 
-  /** Write what is waiting. Resolves true when nothing is left unwritten. */
+  /** Write what is waiting (a rename still being checked first). Resolves true when nothing is left unwritten. */
   async flush(): Promise<boolean> {
+    await this.renaming;
     await this.autosave.flush();
     return this.autosave.status === 'saved';
   }
@@ -212,14 +213,17 @@ export class DocSession<K extends DocKind> {
   /** Give the open document a name; one that is taken gets " 2" added. Returns the name it got. */
   async rename(name: string): Promise<string> {
     if (this.readOnly) return this.name;
-    const clean = await this.library.uniqueName(this.kind, name, this.id ?? undefined);
+    this.autosave.touch(); // the mark stops saying Saved at once, while the name is checked
+    const check = this.library.uniqueName(this.kind, name, this.id ?? undefined);
+    this.renaming = check.then(() => undefined, () => undefined);
+    const clean = await check;
     if (clean !== this.name) {
       this.name = clean;
       this.emit();
-      this.autosave.touch();
     }
     return clean;
   }
+  private renaming: Promise<void> = Promise.resolve();
 
   /** The entry this session shows was renamed or removed elsewhere (the Library window). */
   renamedElsewhere(id: string, name: string) {

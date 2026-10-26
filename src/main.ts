@@ -768,7 +768,11 @@ function applyGuards() {
 /** What to say on the open key: saved documents by id, built-ins by their example id. */
 function rememberOpen() {
   const idOf = (s: Session, example: (name: string) => string) => (s.builtin ? example(s.builtin) : s.id);
-  const ids = { page: idOf(sessions.page, (n) => `example:${n}`), spread: idOf(sessions.spread, (n) => `example:spread:${n}`) };
+  let ids: Record<string, string | null> = {};
+  try { ids = JSON.parse(stored(OPEN_KEY) ?? '{}') ?? {}; } catch { /* start again */ }
+  // a view not opened yet in this visit keeps what it had
+  if (sessions.page.name) ids.page = idOf(sessions.page, (n) => `example:${n}`);
+  if (sessions.spread.name) ids.spread = idOf(sessions.spread, (n) => `example:spread:${n}`);
   try { localStorage.setItem(OPEN_KEY, JSON.stringify(ids)); } catch { /* the document is in the Library; only the reopen is lost */ }
 }
 
