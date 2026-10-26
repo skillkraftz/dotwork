@@ -1,7 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
-  bar, box, cellToClient, choose, doubleTap, draft, drag, open, pinch, press, shot, stagger, start, stop, tap, twoFingerDrag, viewBoxOf, type App, type Env, tool,
-} from './harness';
+  bar, box, cellToClient, choose, doubleTap, draft, drag, open, pinch, press, shot, stagger, start, stop, tap, twoFingerDrag, viewBoxOf, type App, type Env, tool, openDoc,} from './harness';
 
 let env: Env;
 beforeAll(async () => { env = await start(); });
@@ -113,8 +112,6 @@ describe('phone layout (390 x 844, touch)', () => {
     await page.waitForSelector('dialog[aria-label="Library"][open]');
     const dialog = (await box(app, 'dialog[aria-label="Library"]'))!;
     expect([dialog.width, dialog.height]).toEqual([390, 844]); // a full-screen sheet
-    await page.tap('dialog[aria-label="Library"] .lib-save .primary');
-    await page.waitForSelector('.lib-msg:not([hidden])');
     await page.waitForSelector('.lib-card[data-name="Untitled"]');
     expect(await page.locator('.lib-card .lib-name', { hasText: /^Untitled$/ }).count()).toBe(1);
     expect((await box(app, '.lib-card[data-name="Untitled"] .thumb svg'))!.height).toBeGreaterThan(90); // a thumbnail you can read
@@ -437,7 +434,7 @@ describe('spreads on a phone', () => {
     // drawing on a page of the spread
     await tool(app, 'box');
     await drag(app, await cellToClient(app, 3, 4, '#canvas-left'), await cellToClient(app, 8, 9, '#canvas-left'));
-    expect(await page.evaluate(() => JSON.parse(localStorage.getItem('dotwork.spread.left')!).elements.length)).toBe(1);
+    expect((await openDoc(app, 'spread')).left.elements).toHaveLength(1);
     noErrors(app);
   });
 });

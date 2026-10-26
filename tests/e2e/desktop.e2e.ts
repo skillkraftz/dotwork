@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { box, cellToClient, choose, draft, drag, open, shot, start, stop, tap, viewBoxOf, type Env } from './harness';
+import { box, cellToClient, choose, draft, drag, open, shot, start, stop, tap, viewBoxOf, type Env, openDoc} from './harness';
 
 let env: Env;
 beforeAll(async () => { env = await start(); });
@@ -107,7 +107,7 @@ describe('desktop (1280 x 800, mouse and keyboard)', () => {
     expect(await page.locator('#canvas').isVisible()).toBe(false);
     await page.keyboard.press('b');
     await drag(app, await cellToClient(app, 3, 4, '#canvas-right'), await cellToClient(app, 8, 9, '#canvas-right'));
-    expect(await page.evaluate(() => JSON.parse(localStorage.getItem('dotwork.spread.right')!).elements.length)).toBe(1);
+    expect((await openDoc(app, 'spread')).right.elements).toHaveLength(1);
     await shot(app, 'desktop-spread');
     await tap(app, { x: 5, y: 5 });
     expect(app.errors).toEqual([]);

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ICONS, ICON_NAMES } from '../../src/icons/icons';
-import { bar, box, cellToClient, choose, draft, drag, missingHelp, open, shot, start, stop, tap, type App, type Env, tool,
+import { bar, box, cellToClient, draft, drag, missingHelp, open, shot, start, stop, tap, type App, type Env, tool, newDoc, seedPage,
 } from './harness';
 
 let env: Env;
@@ -34,10 +34,7 @@ const SEED = {
   ],
 };
 async function seed(app: App) {
-  await app.page.evaluate((p) => localStorage.setItem('dotwork.page', JSON.stringify(p)), SEED);
-  await app.page.reload();
-  await app.page.waitForSelector('#canvas');
-  await app.page.evaluate(() => document.fonts.ready);
+  await seedPage(app, SEED);
 }
 
 describe('Advanced on a phone (390 x 844, touch)', () => {
@@ -167,7 +164,7 @@ describe('Advanced on a phone (390 x 844, touch)', () => {
     expect(await page.locator('#notice').innerText()).toContain('Notes box');
 
     // another page: a new, blank one
-    await choose(app, 'edit', '#new');
+    await newDoc(app);
     expect(await elements(app)).toEqual([]);
     await tool(app, 'widget');
     await page.waitForSelector('.widget-row');

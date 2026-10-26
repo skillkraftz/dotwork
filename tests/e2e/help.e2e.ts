@@ -1,7 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { HELP } from '../../src/help';
-import { bar, box, cellToClient, choose, draft, drag, missingHelp, open, press, shot, start, stop, tap, type App, type Env, tool,
-} from './harness';
+import { bar, box, cellToClient, choose, draft, drag, missingHelp, open, press, shot, start, stop, tap, type App, type Env, tool, seedPage,} from './harness';
 
 let env: Env;
 beforeAll(async () => { env = await start(); });
@@ -237,9 +236,7 @@ describe('every control has a help entry', () => {
   it('on a desktop: every kind of element in the side panel, locked, and the layers', async () => {
     const app = await open(env, 'desktop');
     const { page } = app;
-    await page.evaluate((p) => localStorage.setItem('dotwork.page', JSON.stringify(p)), EVERYTHING);
-    await page.reload();
-    await page.waitForSelector('#canvas');
+    await seedPage(app, EVERYTHING);
     expect(await missingHelp(app)).toEqual([]);
     const rows = await page.locator('#panel .layer-name').count();
     expect(rows).toBe(EVERYTHING.elements.length);
@@ -261,8 +258,7 @@ describe('every control has a help entry', () => {
     await choose(app, 'edit', '#library');
     await page.waitForSelector('dialog[aria-label="Library"][open]');
     expect(await missingHelp(app)).toEqual([]);
-    await page.click('dialog[aria-label="Library"] .lib-save .primary');
-    await page.waitForSelector('.lib-card[data-name="Untitled"]');
+    await page.waitForSelector('.lib-card[data-name="Untitled"]'); // the open page is already in the Library
     expect(await missingHelp(app)).toEqual([]);
     await page.click('.lib-card[data-name="Untitled"] .lib-more');
     await page.waitForSelector('.lib-menu');

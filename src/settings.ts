@@ -14,8 +14,13 @@ export interface SettingsHost {
   view(): SettingsView;
   /** The page or pages being edited: one for a page, left then right for a spread. */
   pages(): { store: Store; side: SpreadSide | null }[];
+  /** The open page's name: the Library document's, not part of its data. */
+  pageName(): string;
+  setPageName(name: string): void;
   spreadName(): string;
   setSpreadName(name: string): void;
+  /** A built-in is open: it can't be renamed (editing it makes a copy first). */
+  nameLocked(): boolean;
   book(): Book;
   /** Change the book (with its own undo step) and keep the draft. */
   editBook(change: (book: Book) => void): void;
@@ -81,9 +86,12 @@ export class SettingsDialog {
     const say = (el: HTMLElement, text: string | null) => { el.textContent = text ?? ''; el.hidden = !text; };
     const tag = side ?? 'page';
 
+    // The single page's name is the document's name; the two pages of a spread keep a name of their own inside the spread.
     const name = h('input', {
-      type: 'text', value: store.page.name, maxlength: 80, autocomplete: 'off', 'data-key': `settings-name-${tag}`, 'data-help': 'page-name', 'aria-label': 'Name',
-      oninput: () => { edit(`page-name`, (p) => { p.name = name.value; }); },
+      type: 'text', value: side ? store.page.name : this.host.pageName(), maxlength: 80, autocomplete: 'off', 'data-key': `settings-name-${tag}`, 'data-help': 'page-name', 'aria-label': 'Name',
+      readOnly: !side && this.host.nameLocked(),
+      oninput: () => { if (side) edit(`page-name`, (p) => { p.name = name.value; }); else this.host.setPageName(name.value); },
+      onchange: () => { if (!side) name.value = this.host.pageName(); }, // a name already used got " 2" added
       onfocus: () => name.select(),
     });
 
@@ -138,8 +146,10 @@ export class SettingsDialog {
 
   private spreadSections(): HTMLElement[] {
     const name = h('input', {
-      type: 'text', value: this.host.spreadName(), placeholder: 'Untitled spread', maxlength: 80, autocomplete: 'off', 'data-key': 'settings-spread-name', 'data-help': 'spread-name', 'aria-label': 'Spread name',
+      type: 'text', value: this.host.spreadName(), placeholder: 'Untitled', maxlength: 80, autocomplete: 'off', 'data-key': 'settings-spread-name', 'data-help': 'spread-name', 'aria-label': 'Spread name',
+      readOnly: this.host.nameLocked(),
       oninput: () => this.host.setSpreadName(name.value),
+      onchange: () => { name.value = this.host.spreadName(); },
       onfocus: () => name.select(),
     });
     return [labelled('Spread name', name), ...this.host.pages().flatMap((p) => this.pageSection(p, true))];

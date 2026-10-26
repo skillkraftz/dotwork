@@ -1,7 +1,7 @@
 # Dotwork product model: how the app should work
 
-This is the target. [product-map.md](product-map.md) says how the app works at commit `4366849`; this says how it should. Nothing
-here is built yet. The printer, calibration and the page and spread drawing tools stay as they are (the editor, Advanced, layers,
+This is the target. [product-map.md](product-map.md) says how the app works now; this says how it should. Phase 1 (section 10) is built:
+pages and spreads are documents that save themselves (D3–D6 for pages and spreads). Everything else here is not built yet. The printer, calibration and the page and spread drawing tools stay as they are (the editor, Advanced, layers,
 properties, the print pipeline, creep, imposition and the PDFs): this model changes where things are kept, how they are saved,
 how a book is put together and dated, and how pages are linked to their designs.
 
@@ -454,7 +454,7 @@ generated elements) and one change of meaning (phase 4); the library backup gain
 
 | # | Phase | What it does | What the owner can try after it |
 |---|---|---|---|
-| 1 | **Documents: pages and spreads** | One Library store; the open page or spread autosaves; "Saved" mark; New starts Untitled with the name-it chip and asks before export, placing and saving as a section; built-ins read-only with Edit a copy; the open document is remembered; Open and Import add documents. The old drafts are no longer read (the owner exported first). | Draw a page, close the tab, come back: it is there. Open a built-in and tap Edit a copy. |
+| 1 | **Documents: pages and spreads** (done) | One Library store; the open page or spread autosaves; "Saved" mark; New starts Untitled with the name-it chip and asks before export, placing and saving as a section; built-ins read-only with Edit a copy; the open document is remembered; Open and Import add documents. The old drafts are no longer read (the owner exported first). | Draw a page, close the tab, come back: it is there. Open a built-in and tap Edit a copy. |
 | 2 | **Documents: books and sections** | Books and sections open and autosave the same way; Open and Import of a book make documents; Export exports the open document; the "can't keep documents" notice. The book view is otherwise unchanged. | Open two books and switch between them without losing either. Import a book twice and get two. |
 | 3 | **Full backup** ★ library file | Widgets, art and favorites become documents in the store (widgets and art are moved once from `localStorage`, D8, so nothing saved is lost); Back up and Restore carry every document, favorite, widget and art, and never replace. | Back up, clear the browser, restore: pages, spreads, books, widgets and art are all back. |
 | 4 | **Token units and `@end`** (meaning change) | `{month+1}`, `{year+1}`, `{week+1}` count in their own unit; week pages read their week; `@end`; the built-in Weekly reflection and the examples are rewritten; the editor shows the new samples. The one-time widget and art move from phase 3 is removed. Books still store dates, so they print as before. | See `{month+1}` and `NOV 29 – DEC 5` on a week page in the editor. |

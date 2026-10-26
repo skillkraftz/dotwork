@@ -15,6 +15,7 @@ import { MOVES, MOVE_LABEL, readSection, type Move, type Recipe, type Section, t
 import { notesPage } from '../builtin/pages';
 import { BUILTIN_SECTIONS, PRESETS } from '../builtin/sections';
 import { flipThrough } from './flip';
+import { isUntitled } from '../documents';
 import { contentsRows, datesLabel, datesStart, datesSummary, designName, endOfRun, listPages, opening, planDates, scopeSlots, slotLabel, whatChanges, type DatePlan, type Scope } from './plan';
 
 export interface ArrangerHost {
@@ -24,6 +25,8 @@ export interface ArrangerHost {
   /** Called after every change to the book, so the draft can be kept. */
   changed(book: Book): void;
   exportFiles(book: Book): void;
+  /** A saved page or spread that is still Untitled is about to be placed: ask for its name first. Returns the name it ended with, or null if that was cancelled. */
+  nameSaved(id: string, name: string, kind: 'page' | 'spread'): Promise<string | null>;
   /** The printer profile, to warn when the book can't be printed with it. */
   printer(): PrintSettings;
 }
@@ -47,7 +50,7 @@ const slotSvg = (book: Book, slot: number, extra = '', attrs = '') => {
 const outline = `<rect class="outline" x="0.15" y="0.15" width="${PAGE_W_MM - 0.3}" height="${PAGE_H_MM - 0.3}" fill="none"/>`;
 
 /** What can be put on a page: a page, or a spread (which fills this page and the one beside it). */
-type Choice = { name: string; kind: 'blank' | 'page' | 'spread'; data: Page | Spread | null };
+type Choice = { name: string; kind: 'blank' | 'page' | 'spread'; data: Page | Spread | null; /** The Library entry, for a saved design. */ id?: string };
 
 type ScopeMode = Scope['mode'];
 const SCOPE_MODES: { mode: ScopeMode; label: string }[] = [
@@ -411,7 +414,7 @@ export class Arranger {
       items.length ? h('div', { class: 'design-list' }, ...items.map(card)) : h('p', { class: 'hint' }, empty ?? ''),
     ];
     const choice = (kind: 'page' | 'spread') => (data: Page | Spread): Choice => ({ name: data.name, kind, data });
-    const saved = (kind: 'page' | 'spread') => this.saved.filter((i) => i.kind === kind).map((i) => choice(kind)(i.data as Page | Spread));
+    const saved = (kind: 'page' | 'spread') => this.saved.filter((i) => i.kind === kind).map((i) => ({ ...choice(kind)(i.data as Page | Spread), id: i.id }));
     this.pickerBody.replaceChildren(...(tab === 'pages'
       ? [
         h('div', { class: 'design-list' }, card({ name: 'Blank', kind: 'blank', data: null })),
@@ -424,7 +427,13 @@ export class Arranger {
       ]));
   }
 
-  private choose(c: Choice) {
+  private async choose(c: Choice) {
+    if (c.id && c.data && isUntitled(c.name)) {
+      const name = await this.host.nameSaved(c.id, c.name, c.kind as 'page' | 'spread');
+      if (name === null) return;
+      c = { ...c, name, data: { ...c.data, name } as Page | Spread };
+      void this.refreshDesigns();
+    }
     this.picker.close();
     const at = this.slot;
     let numberOff: number[] = [];

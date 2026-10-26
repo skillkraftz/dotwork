@@ -186,3 +186,37 @@ describe('setPngDpi', () => {
     expect(dv.getUint32(50)).toBe(zcrc(out.subarray(37, 50)));
   });
 });
+
+describe('opening a document and guarding a built-in', () => {
+  const box = (x: number) => ({ ...emptyPage(), elements: [{ type: 'box' as const, x, y: 1, w: 2, h: 2 }] });
+
+  it('load shows another page with undo, redo and selection cleared', () => {
+    const store = new Store(box(1));
+    store.commit(box(2));
+    store.select(0);
+    store.load(box(5));
+    expect(store.page.elements[0]).toMatchObject({ x: 5 });
+    expect(store.canUndo || store.canRedo).toBe(false);
+    expect(store.selected).toBeNull();
+  });
+
+  it('a guard receives the change instead of making it, and the change can be made later', () => {
+    const store = new Store(box(1));
+    let pending: (() => void) | null = null;
+    store.guard = (apply) => { pending = apply; };
+    store.commit(box(9));
+    expect(store.page.elements[0]).toMatchObject({ x: 1 });
+    expect(store.canUndo).toBe(false);
+    store.guard = null;
+    pending!();
+    expect(store.page.elements[0]).toMatchObject({ x: 9 });
+    expect(store.canUndo).toBe(true);
+  });
+
+  it('load is not a change, so it passes the guard', () => {
+    const store = new Store(box(1));
+    store.guard = () => { throw new Error('should not be asked'); };
+    store.load(box(3));
+    expect(store.page.elements[0]).toMatchObject({ x: 3 });
+  });
+});

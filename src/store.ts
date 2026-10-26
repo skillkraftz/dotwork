@@ -35,6 +35,12 @@ export class Store {
   hidden = new Set<number>();
   locked = new Set<number>();
 
+  /**
+   * Set while a built-in is open. A change is not made; it is handed here with a function that makes it, to be called
+   * once the built-in has a copy to carry on in.
+   */
+  guard: ((apply: () => void) => void) | null = null;
+
   private nextId = 0;
   private undoStack: Snapshot[] = [];
   private redoStack: Snapshot[] = [];
@@ -124,6 +130,11 @@ export class Store {
    * undo step, so typing in a field is undone as a whole.
    */
   commit(next: Page, coalesceKey?: string, ids?: number[], now = Date.now()) {
+    if (this.guard) {
+      const guard = this.guard;
+      guard(() => this.commit(next, coalesceKey, ids, now));
+      return;
+    }
     const merge = coalesceKey !== undefined && coalesceKey === this.lastKey && now - this.lastAt < COALESCE_MS;
     if (!merge) {
       this.undoStack.push({ page: this.page, ids: this.ids });
@@ -149,7 +160,22 @@ export class Store {
     return ids;
   }
 
-  /** Start over with a different page (new, imported or an example); undo can still bring the old one back. */
+  /** Open another document: its page, with the selection and the undo history of the one before cleared (undo is per open document). */
+  load(page: Page) {
+    this.selected = null;
+    this.others.clear();
+    this.editingGroup = null;
+    this.hidden.clear();
+    this.locked.clear();
+    this.undoStack = [];
+    this.redoStack = [];
+    this.lastKey = null;
+    this.page = page;
+    this.ids = page.elements.map(() => this.nextId++);
+    this.emit();
+  }
+
+  /** Put a different page in place of this one as a change (a page chosen from the Library for one side of a spread); undo brings the old one back. */
   replace(page: Page) {
     this.selected = null;
     this.others.clear();
@@ -189,6 +215,7 @@ export class Store {
 
   /** Select just this element (or nothing). */
   select(index: number | null) {
+    if (index !== null && index >= this.page.elements.length) index = null; // a change a guard is holding back has not made it yet
     if (index === this.selected && this.others.size === 0) return;
     this.selected = index;
     this.others.clear();
@@ -210,6 +237,7 @@ export class Store {
 
   /** Select several elements at once; the last is the main one. */
   selectMany(indexes: readonly number[]) {
+    indexes = indexes.filter((i) => i < this.page.elements.length);
     this.selected = indexes.length ? indexes[indexes.length - 1] : null;
     this.others = new Set(indexes.slice(0, -1).map((i) => this.ids[i]));
     this.emit();

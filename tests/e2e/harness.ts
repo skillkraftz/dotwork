@@ -49,6 +49,7 @@ export async function open(env: Env, device: Device): Promise<App> {
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   await page.goto(env.url);
   await page.waitForSelector('#canvas');
+  await page.waitForSelector('body[data-ready]'); // the open document is loaded
   await page.evaluate(() => document.fonts.ready);
   const cdp = touch ? await ctx.newCDPSession(page) : null;
   return { page, ctx, cdp, touch, errors };
@@ -120,10 +121,66 @@ export async function pinch(app: App, center: Pt, from: number, to: number, step
   await settle(app);
 }
 
-/** The draft page as the app keeps it. */
-export async function draft(app: App): Promise<{ elements: Record<string, unknown>[] }> {
-  return app.page.evaluate(() => JSON.parse(localStorage.getItem('dotwork.page') ?? '{"elements":[]}'));
+/** Wait until the Saved mark says the open document is written. */
+export const waitSaved = (app: App) => app.page.waitForFunction(() => document.querySelector('#doc-status')?.textContent === 'Saved');
+
+/** Every document in the Library store (IndexedDB), as stored. */
+export const libraryItems = (app: App): Promise<{ id: string; kind: string; name: string; updated: string; data: any }[]> => app.page.evaluate(() => new Promise((resolve, reject) => {
+  const req = indexedDB.open('dotwork', 1);
+  req.onupgradeneeded = () => req.result.createObjectStore('library', { keyPath: 'id' });
+  req.onerror = () => reject(req.error);
+  req.onsuccess = () => {
+    const q = req.result.transaction('library').objectStore('library').getAll();
+    q.onsuccess = () => { req.result.close(); resolve(q.result); };
+    q.onerror = () => reject(q.error);
+  };
+}));
+
+/** The open page or spread as the Library holds it, once it is saved: its data with the entry's name put in. */
+export async function openDoc(app: App, kind: 'page' | 'spread'): Promise<any> {
+  await waitSaved(app);
+  const id = await app.page.evaluate((k) => JSON.parse(localStorage.getItem('dotwork.open') ?? '{}')[k], kind);
+  const item = (await libraryItems(app)).find((i) => i.id === id);
+  return item ? { ...item.data, name: item.name } : null;
 }
+
+/** The open page, once saved. */
+export const draft = (app: App): Promise<{ elements: Record<string, unknown>[]; [k: string]: any }> => openDoc(app, 'page');
+
+/** Choose New and wait until another document is open (it switches after the old one is written). */
+export async function newDoc(app: App) {
+  const before = await app.page.innerText('#doc-name');
+  await choose(app, 'edit', '#new');
+  await app.page.waitForFunction((b) => document.querySelector('#doc-name')?.textContent !== b, before);
+}
+
+/** Reload and wait for the open document to come back. */
+export async function reload(app: App) {
+  await app.page.reload();
+  await app.page.waitForSelector('#canvas', { state: 'attached' }); // hidden in a spread
+  await app.page.waitForSelector('body[data-ready]');
+  await app.page.evaluate(() => document.fonts.ready);
+}
+
+/** Put a page (or spread) in the Library as a document, make it the open one, and reload into it. */
+export async function seedDoc(app: App, kind: 'page' | 'spread', data: object, name = 'Seed') {
+  await app.page.evaluate(async ([k, d, n]) => {
+    await new Promise<void>((resolve, reject) => {
+      const req = indexedDB.open('dotwork', 1);
+      req.onupgradeneeded = () => req.result.createObjectStore('library', { keyPath: 'id' });
+      req.onerror = () => reject(req.error);
+      req.onsuccess = () => {
+        const tx = req.result.transaction('library', 'readwrite');
+        tx.objectStore('library').put({ id: `seed-${k}`, kind: k, name: n, updated: new Date().toISOString(), data: d });
+        tx.oncomplete = () => { req.result.close(); resolve(); };
+        tx.onerror = () => reject(tx.error);
+      };
+    });
+    localStorage.setItem('dotwork.open', JSON.stringify({ ...JSON.parse(localStorage.getItem('dotwork.open') ?? '{}'), [k as string]: `seed-${k}` }));
+  }, [kind, data, name] as const);
+  await reload(app);
+}
+export const seedPage = (app: App, page: object, name = 'Seed') => seedDoc(app, 'page', page, name);
 
 export const box = (app: App, selector: string) => app.page.locator(selector).boundingBox();
 

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { choose, hit, open, start, stop, type App, type Env } from './harness';
+import { choose, hit, open, openDoc, start, stop, type App, type Env } from './harness';
 
 let env: Env;
 beforeAll(async () => { env = await start(); });
@@ -90,16 +90,19 @@ describe('a draft that can’t be read is never lost', () => {
     expect(app.errors).toEqual([]);
   });
 
-  it('does the same for a page draft', async () => {
+  it('no longer reads the old page and spread drafts, and leaves them where they are', async () => {
     const app = await open(env, 'desktop');
     const { page } = app;
-    await page.evaluate(() => localStorage.setItem('dotwork.page', '{"format":"dotwork-page","version":2,"elements":"nope"}'));
+    const old = '{"format":"dotwork-page","version":2,"name":"Old draft","elements":[{"type":"box","x":1,"y":2,"w":3,"h":3}]}';
+    await page.evaluate((raw) => { localStorage.setItem('dotwork.page', raw); localStorage.setItem('dotwork.spread.left', raw); localStorage.setItem('dotwork.spread.name', 'Old spread'); }, old);
     await page.reload();
-    const notice = page.locator('#notice');
-    await notice.waitFor({ state: 'visible' });
-    expect(await notice.innerText()).toContain('Your saved page draft couldn’t be opened');
-    expect(await backups(app, 'dotwork.page')).toHaveLength(1);
-    await notice.locator('[data-key="copy-details"]').click();
-    await page.waitForFunction(() => /Copied|Couldn’t copy/.test(document.querySelector('#notice [data-key="copy-details"]')!.textContent!));
+    await page.waitForSelector('body[data-ready]');
+    await page.waitForFunction(() => document.querySelector('#doc-status')?.textContent === 'Saved');
+    expect((await openDoc(app, 'page')).elements).toEqual([]); // the page on screen is not the draft
+    expect(await page.innerText('#doc-name')).not.toContain('Old draft');
+    expect(await stored(app, 'dotwork.page')).toBe(old);
+    expect(await stored(app, 'dotwork.spread.name')).toBe('Old spread');
+    expect(await backups(app, 'dotwork.page')).toHaveLength(0);
+    expect(await page.locator('#notice').isVisible()).toBe(false);
   });
 });

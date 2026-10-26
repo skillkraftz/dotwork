@@ -63,7 +63,8 @@ export function readLibraryFile(input: unknown): { ok: true; items: LibraryItem[
     if (typeof raw.name !== 'string') fail('name', `${at}.name`, '"name" is required and must be a string.');
     if (typeof raw.updated !== 'string' || Number.isNaN(Date.parse(raw.updated))) fail('updated', `${at}.updated`, '"updated" must be an ISO date string.');
     if (raw.kind !== 'page' && raw.kind !== 'spread' && raw.kind !== 'book' && raw.kind !== 'section') return fail('kind', `${at}.kind`, `"kind" must be "page", "spread", "book" or "section", got ${JSON.stringify(raw.kind)}.`);
-    const data = raw.kind === 'page' ? readPage(raw.data) : raw.kind === 'spread' ? readSpread(raw.data) : raw.kind === 'section' ? readSection(raw.data) : readBook(raw.data);
+    const named = (d: unknown) => (isObject(d) && d.name === undefined ? { ...d, name: raw.name } : d); // the entry's name is the one copy
+    const data = raw.kind === 'page' ? readPage(named(raw.data)) : raw.kind === 'spread' ? readSpread(named(raw.data)) : raw.kind === 'section' ? readSection(raw.data) : readBook(raw.data);
     if (!data.ok) {
       for (const d of data.issues) issues.push({ ...d, path: `${at}.data${d.path === '(file)' ? '' : '.' + d.path}` });
       return;
@@ -78,7 +79,16 @@ export function readLibraryFile(input: unknown): { ok: true; items: LibraryItem[
   return issues.length ? { ok: false, issues } : { ok: true, items };
 }
 
-/** Saved pages, spreads, sections and books: save, open, rename, duplicate, delete, back up and restore. */
+/** Pages and spreads keep their name in the entry only; `data.name` is filled in when read and left out when written. */
+const nameInEntry = (kind: LibraryKind) => kind === 'page' || kind === 'spread';
+const withName = (item: LibraryItem): LibraryItem => (nameInEntry(item.kind) ? { ...item, data: { ...item.data, name: item.name } } as LibraryItem : item);
+const withoutName = (item: LibraryItem): LibraryItem => {
+  if (!nameInEntry(item.kind)) return item;
+  const { name: _name, ...data } = item.data as Page | Spread;
+  return { ...item, data } as LibraryItem;
+};
+
+/** Saved pages, spreads, sections and books: open, autosave, rename, duplicate, delete, back up and restore. */
 export class Library {
   constructor(
     private backend: Backend,
@@ -92,18 +102,26 @@ export class Library {
     if (this.reserved(kind, name)) throw new Error(`“${name.trim()}” is the name of a built-in example. Choose another name; the built-in can't be replaced.`);
   }
 
+  private async items(): Promise<LibraryItem[]> {
+    return (await this.backend.all()).map(withName);
+  }
+
+  private put(item: LibraryItem): Promise<void> {
+    return this.backend.put(withoutName(structuredClone(item)));
+  }
+
   /** Newest first. */
   async list(): Promise<LibraryItem[]> {
-    return (await this.backend.all()).sort((a, b) => b.updated.localeCompare(a.updated) || a.name.localeCompare(b.name));
+    return (await this.items()).sort((a, b) => b.updated.localeCompare(a.updated) || a.name.localeCompare(b.name));
   }
 
   async get(id: string): Promise<LibraryItem | undefined> {
-    return (await this.backend.all()).find((i) => i.id === id);
+    return (await this.items()).find((i) => i.id === id);
   }
 
   async findByName(kind: LibraryKind, name: string): Promise<LibraryItem | undefined> {
     const want = name.trim();
-    return (await this.backend.all()).find((i) => i.kind === kind && i.name === want);
+    return (await this.items()).find((i) => i.kind === kind && i.name === want);
   }
 
   /** Save under a name, keeping the page's or spread's own name in step. Saving over an existing name replaces it. */
@@ -116,26 +134,58 @@ export class Library {
     this.checkName(kind, clean);
     const existing = await this.findByName(kind, clean);
     const item = { id: existing?.id ?? this.newId(), kind, name: clean, updated: this.now().toISOString(), data: { ...structuredClone(data), name: clean } } as LibraryItem;
-    await this.backend.put(item);
+    await this.put(item);
     return item;
   }
 
-  async rename(id: string, name: string): Promise<void> {
+  /**
+   * `wanted` as a name nobody has in this kind: with " 2" added (then " 3"…) when it is taken, by a saved item or a
+   * built-in. `exceptId` is the item being renamed, which may keep its own name.
+   */
+  async uniqueName(kind: LibraryKind, wanted: string, exceptId?: string): Promise<string> {
+    const base = wanted.trim() || 'Untitled';
+    const taken = new Set((await this.items()).filter((i) => i.kind === kind && i.id !== exceptId).map((i) => i.name));
+    const isTaken = (n: string) => taken.has(n) || this.reserved(kind, n);
+    let name = base;
+    for (let n = 2; isTaken(name); n++) name = `${base} ${n}`;
+    return name;
+  }
+
+  /** Add a new page or spread under a name that is free (see `uniqueName`). Nothing is ever replaced. */
+  async create(kind: 'page' | 'spread', wanted: string, data: Page | Spread): Promise<LibraryItem> {
+    const name = await this.uniqueName(kind, wanted);
+    const item = { id: this.newId(), kind, name, updated: this.now().toISOString(), data: structuredClone(data) } as LibraryItem;
+    await this.put(item);
+    return withName(item);
+  }
+
+  /** Write the open page or spread over its own entry (autosave). The name is the entry's; the data keeps none. */
+  async write(kind: 'page' | 'spread', id: string, name: string, data: Page | Spread): Promise<LibraryItem> {
+    const item = { id, kind, name, updated: this.now().toISOString(), data: structuredClone(data) } as LibraryItem;
+    await this.put(item);
+    return withName(item);
+  }
+
+  /** Rename; for a page or spread a name already used gets " 2" added. Returns the name it ended with. */
+  async rename(id: string, name: string): Promise<string | undefined> {
     const item = await this.get(id);
-    const clean = name.trim();
-    if (!item || !clean) return;
-    this.checkName(item.kind, clean);
-    await this.backend.put({ ...item, name: clean, updated: this.now().toISOString(), data: { ...item.data, name: clean } } as LibraryItem);
+    const wanted = name.trim();
+    if (!item || !wanted) return;
+    let clean = wanted;
+    if (nameInEntry(item.kind)) clean = await this.uniqueName(item.kind, wanted, id);
+    else this.checkName(item.kind, clean);
+    await this.put({ ...item, name: clean, updated: this.now().toISOString(), data: { ...item.data, name: clean } } as LibraryItem);
+    return clean;
   }
 
   async duplicate(id: string): Promise<LibraryItem | undefined> {
     const item = await this.get(id);
     if (!item) return;
-    const names = new Set((await this.backend.all()).filter((i) => i.kind === item.kind).map((i) => i.name));
+    const names = new Set((await this.items()).filter((i) => i.kind === item.kind).map((i) => i.name));
     let name = `${item.name} copy`;
     for (let n = 2; names.has(name); n++) name = `${item.name} copy ${n}`;
     const copy = { ...item, id: this.newId(), name, updated: this.now().toISOString(), data: { ...structuredClone(item.data), name } } as LibraryItem;
-    await this.backend.put(copy);
+    await this.put(copy);
     return copy;
   }
 
@@ -144,7 +194,7 @@ export class Library {
   }
 
   async exportAll(): Promise<LibraryFile> {
-    return { format: 'dotwork-library', version: 1, exported: this.now().toISOString(), items: await this.list() };
+    return { format: 'dotwork-library', version: 1, exported: this.now().toISOString(), items: await this.list() }; // list() gives every page and spread its name back in data
   }
 
   /** Add everything in a backup; an item with the same id as one already here replaces it. Nothing is added if any item is invalid. */
@@ -152,7 +202,7 @@ export class Library {
     const r = readLibraryFile(input);
     if (!r.ok) return r;
     const have = new Set((await this.backend.all()).map((i) => i.id));
-    for (const item of r.items) await this.backend.put(item);
+    for (const item of r.items) await this.put(item);
     const replaced = r.items.filter((i) => have.has(i.id)).length;
     return { ok: true, added: r.items.length - replaced, replaced };
   }

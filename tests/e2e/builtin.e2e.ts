@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { choose, hit, missingHelp, open, shot, start, stop, type App, type Device, type Env } from './harness';
+import { choose, hit, libraryItems, missingHelp, open, shot, start, stop, type App, type Device, type Env } from './harness';
 
 let env: Env;
 beforeAll(async () => { env = await start(); });
@@ -51,19 +51,26 @@ for (const device of ['phone', 'tablet', 'desktop'] as Device[]) {
       expect(await missingHelp(app)).toEqual([]);
       if (app.touch) expect(await smallControls(app, 'dialog.library.browser')).toEqual([]);
 
-      // an example's menu can only copy it; saving under its name is refused
+      // an example's menu can only copy it; Duplicate asks for a name, prefilled
       await hit(app, '[data-tab="pages"]');
       await page.waitForSelector('.lib-card[data-name="Questions"]');
       await hit(app, '.lib-card[data-name="Questions"] .lib-more');
       await page.waitForSelector('.lib-menu');
       expect(await page.locator('.lib-menu button').allInnerTexts()).toEqual(['Duplicate']);
       await hit(app, '.lib-menu button');
+      await page.waitForSelector('dialog.ask[open]');
+      expect(await page.inputValue('[data-key="ask-name"]')).toBe('Questions copy');
+      await hit(app, 'dialog.ask .primary');
       await page.waitForSelector('.lib-card[data-name="Questions copy"]');
 
-      // opening one gives a copy under another name
+      // opening one is read-only: nothing is created until it is edited
+      const before = (await libraryItems(app)).length;
       await hit(app, '.lib-card[data-name="Questions"] .lib-open');
       await page.waitForSelector('dialog.library.browser', { state: 'hidden' });
-      expect(await page.evaluate(() => JSON.parse(localStorage.getItem('dotwork.page')!).name)).toBe('Questions copy');
+      await page.waitForSelector('#builtin-bar:not([hidden])');
+      expect(await page.innerText('#doc-name')).toBe('Questions');
+      expect(await page.innerText('#builtin-bar')).toContain('Built-in. Editing makes a copy.');
+      expect((await libraryItems(app)).length).toBe(before);
       noErrors(app);
     });
 
