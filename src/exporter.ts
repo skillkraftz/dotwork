@@ -29,7 +29,7 @@ export interface ExportHost extends Pick<CalibrateHost, 'printer'> {
   savedBooks(): Promise<{ id: string; name: string; book: Book }[]>;
   editBook(change: (book: Book) => void): void;
   /** Called before a page, spread or book is downloaded: asks for a name if it is still Untitled. False if that was cancelled (nothing is downloaded). */
-  beforeExport(): Promise<boolean>;
+  beforeExport(what?: 'book'): Promise<boolean>;
   /** Add a chosen file as a new page, spread, book or section. */
   importFile(file: File): Promise<{ ok: true } | { ok: false; problem: Problem }>;
   download(blob: Blob, filename: string): void;
@@ -234,7 +234,7 @@ export class ExportDialog {
   }
 
   private async buildPdf() {
-    if (!(await this.host.beforeExport())) return;
+    if (!(await this.host.beforeExport('book'))) return; // the print zip is the book, whichever view is showing
     const book = this.host.book(), print = this.host.printer.get();
     const include: Include = { ...this.pdf };
     this.say('Building the PDFs…');

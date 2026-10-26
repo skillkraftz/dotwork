@@ -6,7 +6,16 @@ beforeAll(async () => { env = await start(); });
 afterAll(async () => { await stop(env); });
 
 const noErrors = (app: App) => expect(app.errors).toEqual([]);
-const savedBook = (app: App) => openDoc(app, 'book');
+/** A template's book opens read-only, so it is not in the Library; take Edit a copy to read what was built (the copy's name loses its " copy"). */
+const savedBook = async (app: App) => {
+  await app.page.waitForSelector('#builtin-bar:not([hidden])');
+  await hit(app, '#doc-copy');
+  await app.page.waitForSelector('dialog.ask[open]');
+  await hit(app, 'dialog.ask[open] .primary');
+  await app.page.waitForSelector('#builtin-bar', { state: 'hidden' });
+  const book = await openDoc(app, 'book');
+  return { ...book, name: book.name.replace(/ copy$/, '') };
+};
 
 async function openLibrary(app: App) {
   await choose(app, 'edit', '#library');
@@ -64,13 +73,13 @@ for (const device of ['phone', 'tablet', 'desktop'] as Device[]) {
       await page.waitForSelector('.lib-card[data-name="Questions copy"]');
 
       // opening one is read-only: nothing is created until it is edited
-      const before = (await libraryItems(app)).length;
+      const before = (await libraryItems(app)).filter((i) => i.name === 'Questions').length;
       await hit(app, '.lib-card[data-name="Questions"] .lib-open');
       await page.waitForSelector('dialog.library.browser', { state: 'hidden' });
       await page.waitForSelector('#builtin-bar:not([hidden])');
       expect(await page.innerText('#doc-name')).toBe('Questions');
       expect(await page.innerText('#builtin-bar')).toContain('Built-in. Editing makes a copy.');
-      expect((await libraryItems(app)).length).toBe(before);
+      expect((await libraryItems(app)).filter((i) => i.name === 'Questions').length).toBe(before); // still no document named Questions
       noErrors(app);
     });
 

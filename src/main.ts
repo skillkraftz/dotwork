@@ -778,8 +778,8 @@ $('keep-export').onclick = () => { notify(null); exportDialog.show('export'); };
 
 /** Before the first export of an Untitled page or spread: a small window asks for a name (keeping Untitled is allowed). */
 const askedBeforeExport = new Set<string>();
-async function nameBeforeExport(): Promise<boolean> {
-  const session = docSession();
+async function nameBeforeExport(what?: 'book'): Promise<boolean> {
+  const session = what === 'book' ? sessions.book : docSession();
   if (!session.untitled) return true;
   const key = `${session.kind}:${session.id ?? session.name}`;
   if (askedBeforeExport.has(key)) return true;

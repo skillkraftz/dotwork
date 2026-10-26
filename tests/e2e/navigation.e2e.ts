@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { box, cellToClient, choose, draft, drag, hit, open, shot, start, stop, tap, tool, type App, type Env, openDoc} from './harness';
+import { box, cellToClient, choose, draft, drag, hit, nameOpen, open, shot, start, stop, tap, tool, type App, type Env, openDoc} from './harness';
 
 let env: Env;
 beforeAll(async () => { env = await start(); });
@@ -333,6 +333,7 @@ describe('the library', () => {
     // tapping the item opens it and closes the library
     await page.click('.lib-card[data-name="Lined page"] .lib-open');
     await page.waitForSelector('dialog[aria-label="Library"]', { state: 'hidden' });
+    await page.waitForFunction(() => document.querySelector('#doc-name')?.textContent === 'Lined page');
     expect(await page.innerText('#doc-name')).toBe('Lined page'); // a built-in opens read-only, as itself
     expect(await page.locator('#builtin-bar').isVisible()).toBe(true);
 
@@ -554,6 +555,7 @@ describe('the export window', () => {
     const { page } = app;
     await choose(app, 'page', '#view-book');
     await page.waitForSelector('.stage-page');
+    await nameOpen(app, 'Untitled book'); // an Untitled book is asked for a name before its zip
     await hit(app, '#export');
     await page.waitForSelector('dialog.export[open]');
     expect(await page.locator('dialog.export [data-tab="pdf"]').getAttribute('aria-selected')).toBe('true'); // the book view opens on PDF
