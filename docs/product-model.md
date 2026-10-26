@@ -6,8 +6,7 @@ properties, the print pipeline, creep, imposition and the PDFs): this model chan
 how a book is put together and dated, and how pages are linked to their designs.
 
 Each decision has a **Why** and what it **Replaces** in the map (`map §n` is a section of the map; `map §7.n` is item *n* of its
-list of things that disagree). Section 10 puts the decisions in order, section 11 is the database that comes after, section 12 answers the PR #29 questions
-and section 13 lists what I still need from the owner.
+list of things that disagree). Section 10 puts the decisions in order, section 11 is the database that comes after, and section 12 answers the PR #29 questions.
 
 ## 1. Two kinds of book, one tool
 
@@ -86,7 +85,7 @@ memory with Export prominent. It never looks like it saved when it did not.
   spreads do not change format, so they simply keep working. `data.name` is dropped the next time an entry is written.
 - **Sections and books** keep their stored shape until phase 5 changes the book format. After it, an old-format section or book is listed in
   the Library as "Old format" with Export and Delete, and cannot be opened. The owner's page designs are the work that matters and they
-  survive; the books are built again from the outline (a few minutes each, which phase 6 makes quick).
+  survive; the books are built again from the outline (a few minutes each, which phases 6 and 7 make quick).
 - **Widgets and art** are Library items, not drafts. In phase 3, on first start, the contents of `dotwork.widgets` (`localStorage`) are
   copied once into the Library store as documents of kind `widget` and `art`, and the key is removed. It is a move of the same objects, a
   few lines, and it is deleted again in phase 4 (so it exists for exactly one release).
@@ -115,9 +114,11 @@ of blocks, or **free pages**. Page, spread and group blocks have a **repeat**:
 
 - **Free pages** is a block of pages the owner fills by hand (book notes, ideas, anything). It takes whatever pages the other blocks leave, like
   fill, but each page is its own: blank, or a design chosen or drawn there. **Free pages and what is in them are kept when the book is
-  re-dated**: free page *i* stays free page *i* when the calendar change moves it to another page number. A blank free page that no longer
-  fits just disappears; one that holds something is never dropped: it stays in the block, is shown in red ("3 free pages don't fit"), and
-  Make the book N pages makes room. A book has at most one block that takes what's left (a fill or free pages).
+  re-dated**: free page *i* stays free page *i* when the calendar change moves it to another page number. The block is padded with blank
+  pages up to the room there is, and **never trimmed**: a free page that no longer fits after a re-date is **kept**, marked **doesn't fit**, and
+  the outline says **over by N pages** (red, like any overflow; printing waits until the book fits). The owner decides what to remove (delete
+  those pages, or **Remove empty ones**, which takes only blank pages from the end) or makes room with Make the book N pages. Nothing is
+  dropped automatically. A book has at most one block that takes what's left (a fill or free pages).
 - **Pin to page.** Any block can be pinned to a page: a page number, or *last page* (which follows the book if it is resized). The pinned block
   is placed there first and the others flow around it; the free pages or fill before it take up the slack. A pinned spread needs a left
   page; a pin that collides with other blocks turns the count red and says which.
@@ -209,8 +210,9 @@ are handled by the week block (D16) and the day pages that fall outside the mont
 - `{day+1}` is the next day, `{weekday+1}` the next weekday, **`{week+1}` the next week**, **`{month+1}` the next month**, **`{year+1}` the
   next year**. (The map's rule that every offset is in days, so `{month+1}` was "the month of tomorrow", goes.)
 - A **week page** reads its week: `{weekday}`, `{day}`, `{month}`, `{year}` are the week's first day, `{week}` its number, `{day+6}` its last
-  day. A **day page** reads its day. A **month page** reads the 1st. Weeks are numbered from the week that holds 1 January, counted from the
-  book's week start (as written in `page-format.md`).
+  day. A **day page** reads its day. A **month page** reads the 1st. **A week is numbered by its book's year** (the year the calendar starts in): the week holding 1 January of that year is week 1, counted from
+  the book's week start. So in a December 2026 book the week Dec 27 – Jan 2 is **week 53**, and in a January 2027 book the same week is
+  **week 1**; the weekly review reads `WEEK 53  DEC 27-JAN 2` in one and `WEEK 1  DEC 27-JAN 2` in the other.
 - **`@end`**: any token can end in `@end` to read the **last day** of what the page covers: a week page its last day, a month page the last day of
   the month, a day page its own day, a cover the calendar's last day. `{month} {day} – {month@end} {day@end}` on the week of 29 Nov 2026 prints
   `NOV 29 – DEC 5`. `@end` takes no offset.
@@ -232,10 +234,15 @@ page's preview and the PDFs.
   its week (D13) and the block asks the calendar which of the week's seven days are inside it. Row height is the same in every week (it comes
   from the box: (box height − goals − outcomes) ÷ 7, in half cells); the space of the days that are outside the calendar becomes **lined
   writing space** of exactly that many rows, separated by a rule:
+  - **Every weekday is at the same vertical position on every page.** Day rows have one fixed place each, the same as in a full week. The days
+    outside the calendar are always at one end of the week (the start in the first week, the end in the last), so anchoring the rest to the
+    opposite end puts every present day on its full-week row:
   - **Full week**: goals, 7 day rows, outcomes. No lined space.
-  - **First (partial) week**: lined space and a rule on top, then goals, the days, outcomes at the bottom.
-  - **Last (partial) week**: goals, the days, outcomes on top, then a rule and lined space.
-  - A calendar shorter than a week gets both, lined space above and below.
+  - **First (partial) week**: the present days sit on their usual rows at the bottom, the outcomes under them, the goals directly above the first
+    present day, and above the goals a rule and lined space in place of the missing days.
+  - **Last (partial) week**: the present days sit on their usual rows from the top, the goals directly above the first (as in a full week), the
+    outcomes directly under the last present day, and under the outcomes a rule and lined space in place of the missing days.
+  - A calendar shorter than a week keeps its days on their usual rows with goals and outcomes around them, and lined space above and below.
 
   **One week page design covers all three.** Each day row carries its weekday and date (`FRI 1`) and writing lines. Properties: goals rows,
   outcomes rows, labels on or off. For editing only, the sample can be previewed as a full, first or last week.
@@ -275,7 +282,7 @@ Month review             ×1   pinned: last page (p.52)   reads: the month
 ```
 
 The generated pages are `2 × weeks + days of the month` (at most 2×6 + 31 = 43), the month review is one, and the free pages are the rest of
-the 52. Week numbers are the week-of-year (the week holding 1 January is week 1).
+the 52. Week numbers follow D15 (the week holding 1 January of the book's year is week 1).
 
 ### November 2026: 5 weeks, the last partial (29-30). 40 pages used, 11 free
 
@@ -286,7 +293,7 @@ the 52. Week numbers are the week-of-year (the week holding 1 January is week 1)
 | 1 | Week page (full: goals, 7 days, outcomes) | week 45, Nov 1-7 |
 | 2-8 | Daily log ×7 | SUN NOV 1 … SAT NOV 7 |
 | 9 | Weekly review | WEEK 45  NOV 1-NOV 7 |
-| 10 | **★ Covers from the book** | The other `generated` kinds (Page index, Month tracker); cover tokens read the calendar; the templates' covers use them. | The cover and the page index follow the calendar; twelve monthly books show their page maps side by side in the Library. |
+| 10 | Week page | week 46, Nov 8-14 |
 | 11-17 | Daily log ×7 | SUN NOV 8 … SAT NOV 14 |
 | 18 | Weekly review | WEEK 46 |
 | 19 · 20-26 · 27 | Week page · Daily log ×7 · Weekly review | week 47, Nov 15-21 |
@@ -304,9 +311,9 @@ one.
 
 | Page | What | Reads |
 |---|---|---|
-| 1 | Week page, **first week**: lined space and a rule on top (five days outside the month), then goals, FRI 1, SAT 2, outcomes at the bottom | week 1, Dec 27-Jan 2, in book: Jan 1-2 |
+| 1 | Week page, **first week**: lined space and a rule on top (five days outside the month), then goals, FRI 1 and SAT 2 on their usual rows, outcomes under them | week 1, Dec 27-Jan 2, in book: Jan 1-2 |
 | 2-3 | Daily log ×2 | FRI JAN 1, SAT JAN 2 |
-| 4 | **Token units and `@end`** (meaning change) | `{month+1}`, `{year+1}`, `{week+1}` count in their own unit; week pages read their week; `@end`; the built-in Weekly reflection and the examples are rewritten; the editor shows the new samples. The one-time widget and art move from phase 3 is removed. Books still store dates, so they print as before. | See `{month+1}` and `NOV 29 – DEC 5` on a week page in the editor. |
+| 4 | Weekly review | WEEK 1  DEC 27-JAN 2 |
 | 5 · 6-12 · 13 | Week page · Daily log ×7 · Weekly review | week 2, Jan 3-9 |
 | 14 · 15-21 · 22 | the same | week 3, Jan 10-16 |
 | 23 · 24-30 · 31 | the same | week 4, Jan 17-23 |
@@ -324,7 +331,7 @@ one.
 
 | Page | What | Reads |
 |---|---|---|
-| 1 | Week page, **first week**: lined space (one day) and a rule on top, then goals, MON-SAT, outcomes | week 6, Jan 31-Feb 6, in book: Feb 1-6 |
+| 1 | Week page, **first week**: lined space (one day) and a rule on top, then goals, MON-SAT on their usual rows, outcomes under them | week 6, Jan 31-Feb 6, in book: Feb 1-6 |
 | 2-7 | Daily log ×6 | MON FEB 1 … SAT FEB 6 |
 | 8 | Weekly review | WEEK 6  JAN 31-FEB 6 |
 | 9 · 10-16 · 17 | Week page · Daily log ×7 · Weekly review | week 7, Feb 7-13 |
@@ -341,23 +348,23 @@ contents, in order, and move to pages 39-51.
 
 ### Every month of 2026 and 2027 fits
 
-Each month is a calendar with its first and last days; the columns are the weeks that touch it (and their week-of-year numbers), the days inside
+Each month is a calendar with its first and last days; the columns are the weeks that touch it (and their week numbers in that book's year), the days inside
 the first and last week, the pages the generated part uses (`2 × weeks + days`), and the free pages (`51 − used`, the 52nd is the month review).
 
 | Month | 1st, days | Weeks | Week numbers | Days in first / last week | Used | Free |
 |---|---|---|---|---|---|---|
-| Jan 2026 | Thu, 31 | 5 | **★ The outline (undated)** | The book becomes an outline: pages, spreads, groups and free pages; ×N and fill; pin to page; drag, Up/Down, Duplicate, Group/Ungroup, Collapse, Delete; save a group as a section; thumbnails, repeat, pages and the live "N of 52 pages"; gap pages for spreads; Make the book N pages; Edit here / Split out; moving blocks. Links (`from`) are recorded but not used yet. Removes `pages`, `dates`, `recipe`, the Build, Dates and Apply windows. Old books and sections become "Old format". | Build a 52-page undated book as an outline on a phone: blank ×10, an idea spread ×6, free pages for the rest, a closing page pinned to the last page. Drag a group around. |
+| Jan 2026 | Thu, 31 | 5 | 1…5 | 3 / 7 | 41 | 10 |
 | Feb 2026 | Sun, 28 | 4 | 6…9 | 7 / 7 | 36 | 15 |
 | Mar 2026 | Sun, 31 | 5 | 10…14 | 7 / 3 | 41 | 10 |
 | Apr 2026 | Wed, 30 | 5 | 14…18 | 4 / 5 | 40 | 11 |
-| May 2026 | Fri, 31 | 6 | **★ The calendar and derived dates** | `calendar`, the "each day / week / month" repeats, "of the span", week start, the repeat suggested from a page's tokens and the "reads:" line on every row, spread coverage, short-repeat leave-out, dates on every page, the Page map, and the first `generated` element, the **Week block** (placed from the widget picker, sample data in the editor). The book's dates reach the PDFs, previews and Flip through. Rebuilds the November book fixture as the **Monthly log** for November 2026 and its test. | Make the November 2026 monthly log (40 pages used, 11 free), fill some free pages, change the calendar to January 2027 and see the six weeks, the partial first and last week pages and your free pages kept. Drag a row and see no date move. |
+| May 2026 | Fri, 31 | 6 | 18…23 | 2 / 1 | 43 | 8 |
 | Jun 2026 | Mon, 30 | 5 | 23…27 | 6 / 3 | 40 | 11 |
 | Jul 2026 | Wed, 31 | 5 | 27…31 | 4 / 6 | 41 | 10 |
 | Aug 2026 | Sat, 31 | 6 | 31…36 | 1 / 2 | 43 | 8 |
 | Sep 2026 | Tue, 30 | 5 | 36…40 | 5 / 4 | 40 | 11 |
 | Oct 2026 | Thu, 31 | 5 | 40…44 | 3 / 7 | 41 | 10 |
 | Nov 2026 | Sun, 30 | 5 | 45…49 | 7 / 2 | 40 | 11 |
-| Dec 2026 | Tue, 31 | 5 | 49…1 | 5 / 5 | 41 | 10 |
+| Dec 2026 | Tue, 31 | 5 | 49…53 | 5 / 5 | 41 | 10 |
 | Jan 2027 | Fri, 31 | 6 | 1…6 | 2 / 1 | 43 | 8 |
 | Feb 2027 | Mon, 28 | 5 | 6…10 | 6 / 1 | 38 | 13 |
 | Mar 2027 | Mon, 31 | 5 | 10…14 | 6 / 4 | 41 | 10 |
@@ -369,11 +376,11 @@ the first and last week, the pages the generated part uses (`2 × weeks + days`)
 | Sep 2027 | Wed, 30 | 5 | 36…40 | 4 / 5 | 40 | 11 |
 | Oct 2027 | Fri, 31 | 6 | 40…45 | 2 / 1 | 43 | 8 |
 | Nov 2027 | Mon, 30 | 5 | 45…49 | 6 / 3 | 40 | 11 |
-| Dec 2027 | Wed, 31 | 5 | 49…1 | 4 / 6 | 41 | 10 |
+| Dec 2027 | Wed, 31 | 5 | 49…53 | 4 / 6 | 41 | 10 |
 
 All 24 fit: the most any month uses is 43 pages (a six-week month of 31 days), so at least 8 pages are free and the month review is always page 52.
-The week numbers were worked out by hand with the rule "the week holding 1 January is week 1" (the Dec 27 2026 week is week 1 of 2027, the
-Dec 26 2027 week is week 1 of 2028).
+The week numbers were worked out by hand with D15 (a week is numbered by its book's year). In the December books the last week is
+week 53 (Dec 27, 2026 – Jan 2, 2027; Dec 26, 2027 – Jan 1, 2028); the same weeks are week 1 in the January books that follow.
 
 ## 7. Links between designs and books
 
@@ -442,21 +449,22 @@ monthly log book (section 6) is one of them: **Monthly log**, which asks for the
 ## 10. Phases
 
 Each phase leaves the app working and deployable, passes the unit and e2e suites, and updates the docs it touches in place (the working rule:
-no migrations, old files break). **★** marks a change to a page, book or library **file**. There are three file changes (phases 5, 6 and 10: the book outline; the calendar with the first `generated` element; the other generated
-elements) and one change of meaning (phase 4); the library backup gains two kinds in phase 3.
+no migrations, old files break). **★** marks a change to a page, book or library **file**. There are four file changes (phases 5, 6, 7 and 11: the book outline; the calendar; the first `generated` element, the week block; the other
+generated elements) and one change of meaning (phase 4); the library backup gains two kinds in phase 3.
 
 | # | Phase | What it does | What the owner can try after it |
 |---|---|---|---|
 | 1 | **Documents: pages and spreads** | One Library store; the open page or spread autosaves; "Saved" mark; New starts Untitled with the name-it chip and asks before export, placing and saving as a section; built-ins read-only with Edit a copy; the open document is remembered; Open and Import add documents. The old drafts are no longer read (the owner exported first). | Draw a page, close the tab, come back: it is there. Open a built-in and tap Edit a copy. |
 | 2 | **Documents: books and sections** | Books and sections open and autosave the same way; Open and Import of a book make documents; Export exports the open document; the "can't keep documents" notice. The book view is otherwise unchanged. | Open two books and switch between them without losing either. Import a book twice and get two. |
 | 3 | **Full backup** ★ library file | Widgets, art and favorites become documents in the store (widgets and art are moved once from `localStorage`, D8, so nothing saved is lost); Back up and Restore carry every document, favorite, widget and art, and never replace. | Back up, clear the browser, restore: pages, spreads, books, widgets and art are all back. |
-| 4 | **Token units and `@end`** (meaning change) | `{month+1}`, `{year+1}`, `{week+1}` count in their own unit; week pages read their week; `@end`; the built-in Weekly reflection and the examples are rewritten; the editor shows the new samples. Books still store dates, so they print as before. | See `{month+1}` and `NOV 29 – DEC 5` on a week page in the editor. |
-| 5 | **★ The outline (undated)** | The book becomes an outline: pages, spreads and groups; ×N and fill; drag, Up/Down, Duplicate, Group/Ungroup, Collapse, Delete; save a group as a section; thumbnails, repeat, pages and the live "N of 52 pages"; gap pages for spreads; Make the book N pages; Edit here / Split out; moving blocks. Links (`from`) are recorded but not used yet. Removes `pages`, `dates`, `recipe`, the Build, Dates and Apply windows. Old books and sections become "Old format". | Build a 52-page undated book as an outline on a phone: blank ×10, an idea spread ×6, notes to fill the rest. Drag a group around. |
-| 6 | **★ The calendar and derived dates** | `calendar`, the "each day / week / month" repeats, "of the span", week start, short-repeat leave-out, spread coverage, dates on every page and in the editor's row text; the book's dates in PDFs, PNG-less previews and Flip through. Rebuilds the November book fixture as the November 2026 outline and its test. | Make the November 2026 book (52 pages), change the calendar to February 2027, and get a 52-page book with the fill absorbing the difference. Drag a row and see no date move. |
-| 7 | **Links and the updates list** | `from` is used: the update line, the list (Update this book, Choose, Make an updated copy, Keep, edited-here marks), Edit here / Edit the design, sections' own update line. No file change. | Change a page design, open the book, update only the pages you pick. |
-| 8 | **Book versions** | Snapshots (automatic and Save version), the timeline, view, print, copy as new book, restore. They are Library records, not part of the book file. | Update a book, then restore the version from before it. |
-| 9 | **The three areas** | The Design / Plan / Print switcher, Library tabs per area, the Print screen (the PDF tab, Calibrate and Printer), settings per area, help entries. | On a phone, go draw → arrange → print without opening a menu to change views. |
-| 10 | **★ Covers from the book** | The `generated` element (Page index, Month tracker); cover tokens read the calendar; the templates' covers use them. | The cover and the page index follow the calendar. |
+| 4 | **Token units and `@end`** (meaning change) | `{month+1}`, `{year+1}`, `{week+1}` count in their own unit; week pages read their week; `@end`; the built-in Weekly reflection and the examples are rewritten; the editor shows the new samples. The one-time widget and art move from phase 3 is removed. Books still store dates, so they print as before. | See `{month+1}` and `NOV 29 – DEC 5` on a week page in the editor. |
+| 5 | **★ The outline (undated)** | The book becomes an outline: pages, spreads, groups and free pages; ×N and fill; pin to page; drag, Up/Down, Duplicate, Group/Ungroup, Collapse, Delete; save a group as a section; thumbnails, repeat, pages and the live "N of 52 pages"; gap pages for spreads; Make the book N pages; Edit here / Split out; moving blocks. Links (`from`) are recorded but not used yet. Removes `pages`, `dates`, `recipe`, the Build, Dates and Apply windows. Old books and sections become "Old format". | Build a 52-page undated book as an outline on a phone: blank ×10, an idea spread ×6, free pages for the rest, a closing page pinned to the last page. Drag a group around. |
+| 6 | **★ The calendar and derived dates** | `calendar`, the "each day / week / month" repeats, "of the span", week start, week numbers by the book's year, the repeat suggested from a page's tokens and the "reads:" line on every row, spread coverage, short-repeat leave-out, dates on every page, the Page map. The book's dates reach the PDFs, previews and Flip through. Free pages that do not fit after a re-date are kept and marked. | Make a November 2026 book from ordinary pages (a week group: a tracker page, a daily log for each day, a review page), change the calendar to January 2027 and watch every date move. Drag a row and see no date move. |
+| 7 | **★ The week block and the monthly log book** | The first `generated` element in the page format, the **Week block** (placed from the widget picker, resizes to its box, sample data and a full / first / last preview in the editor; every weekday at the same row on every page). The built-in **Monthly log** template. Rebuilds the November book fixture as the Monthly log for November 2026 and its test. | Make the Monthly log for November 2026 (40 pages used, 11 free), then January 2027 (six weeks, partial first and last week pages), fill some free pages and re-date: your free pages stay, and the month review stays on page 52. |
+| 8 | **Links and the updates list** | `from` is used: the update line, the list (Update this book, Choose, Make an updated copy, Keep, edited-here marks), Edit here / Edit the design, sections' own update line. No file change. | Change a page design, open the book, update only the pages you pick. |
+| 9 | **Book versions** | Snapshots (automatic and Save version), the timeline, view, print, copy as new book, restore. They are Library records, not part of the book file. | Update a book, then restore the version from before it. |
+| 10 | **The three areas** | The Design / Plan / Print switcher, Library tabs per area, the Print screen (the PDF tab, Calibrate and Printer), settings per area, help entries. | On a phone, go draw → arrange → print without opening a menu to change views. |
+| 11 | **★ Covers from the book** | The other `generated` kinds (Page index, Month tracker); cover tokens read the calendar; the templates' covers use them. | The cover and the page index follow the calendar; twelve monthly books show their page maps side by side in the Library. |
 
 The old code that goes away with the formats is removed in the phase that makes it unreachable: version-1 page support and its converters, the
 old-book tolerance in `readBook` / `readPrinter`, `dates`, the recipe, `findBuiltinSection`, `monthSpan` and the dead helpers listed in map §7.
@@ -491,14 +499,3 @@ printer profile (it belongs to a printer), not the snapshots (D22).
 
 **Q6. Moving and swapping pages.** Both are the outline (and pin to page for a block that must stay put): drag a row or use Up / Down, and Duplicate. Dates follow the block's repeat, so moving
 never changes them (D10, D13). Swapping two blocks is dragging one past the other.
-
-## 13. Still open
-
-1. **The week block's rows.** I read "each at its weekday's position" as *in weekday order, at the same row height every week*, so in a partial week the
-   day rows sit lower (first week) or higher (last week) than in a full week, with the lined space taking the rest. If you meant that each
-   weekday keeps the same vertical position on every page (so a first week's Friday is where a full week's Friday is, with lined space only in the
-   rows of the missing days), say so: it changes the layout in D16 but not the outline or the page counts.
-2. **Week 1 across the new year.** The last week of December 2026 (Dec 27 - Jan 2) is week 1 under the "week holding 1 January" rule, so December's
-   last weekly review reads `WEEK 1  DEC 27-JAN 2`. That follows `page-format.md`; say if you want the review to carry the old year's numbering.
-3. **Free pages that no longer fit.** A free page with content is never dropped when the calendar change leaves fewer free pages; it is shown in red
-   until there is room. Is that right, or should it be dropped with a snapshot to go back to?
