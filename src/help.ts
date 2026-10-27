@@ -168,6 +168,11 @@ export const HELP: Record<string, HelpEntry> = {
   'prop-align': e('Align', 'Which end of the text sits on the x position: left, center or right.', 'Tap and pick an alignment.', 'Pick an alignment.'),
   'prop-rotate': e('Rotate', 'Turns the text to read up the page (90°) or down it (270°).', 'Tap and pick an angle.', 'Pick an angle.'),
   'prop-seq-rotate': e('Rotate items', 'Turns every number, letter or icon in the run about the center of its own cell: 90° reads bottom to top, 270° top to bottom. The run keeps its place and size.', 'Tap and pick an angle.', 'Pick an angle.'),
+  'prop-week-goals': e('Goals widget', 'The widget the week block draws above its days. Choosing one puts a copy of it in the block; the block grows to hold it.', 'Tap and pick a widget.', 'Click and pick a widget.'),
+  'prop-week-day': e('Day widget', 'The widget the week block draws once for each day of the page’s week that is inside the book’s calendar. In it, {weekday}, {day} and {month} read that row’s own day.', 'Tap and pick a widget.', 'Click and pick a widget.'),
+  'prop-week-outcomes': e('Outcomes widget', 'The widget the week block draws under its days. Choosing one puts a copy of it in the block; the block grows to hold it.', 'Tap and pick a widget.', 'Click and pick a widget.'),
+  'prop-week-preview': e('Preview week', 'Which sample week the block shows while you design: a full week, a first week with only Friday and Saturday, or a last week with only Sunday and Monday. A book shows the real week; this only changes the editor.', 'Tap one to see the block as that week.', 'Click one to see the block as that week.'),
+  'prop-days': e('Show on', 'Limits the element to the weekends or to the weekdays of the day it reads: a row of a week block, or a day page. Where no day is read (the editor, a week page) it always shows.', 'Tap and pick every day, weekends or weekdays.', 'Click and pick every day, weekends or weekdays.'),
   'prop-widget': e('Save as widget', 'Keeps the selected elements, with their positions relative to each other, to place again on any page from Advanced, Widgets.', 'Tap, give it a name, then tap Save.', 'Click, give it a name, then click Save.'),
   'prop-values': e('Values', 'What the items say: numbers, letters, a repeating list of short items, or icons.', 'Tap and pick one.', 'Pick one.'),
   'prop-start': e('Start', 'The first number of the sequence.', 'Tap − or + to step by 1; hold to repeat. Tap the number to type one, then Done.', 'Click − or + to step by 1. Click the number and type a value, then press Enter.'),
@@ -187,6 +192,7 @@ export const HELP: Record<string, HelpEntry> = {
 
   // ---- advanced, icons and widgets ----------------------------------------------
   'advanced-close': e('Close', 'Closes the window without choosing anything.', 'Tap to close.', 'Click to close, or press Escape.'),
+  'advanced-generated': e('Week block', 'A block drawn from the book: goals, a row for each day of the page’s week that is inside the calendar, and outcomes. Days outside the calendar become lined writing space, and every weekday keeps its row from page to page.', 'Tap to pick it, then tap the page where it goes.', 'Click to pick it, then click the page where it goes.'),
   'advanced-widget': e('Saved widget', 'A group of elements you saved. Placing it adds them to the page as a group that moves as one.', 'Tap to pick it, then tap the page where it goes.', 'Click to pick it, then click the page where it goes.'),
   'advanced-widget-rename': e('Rename widget', 'Changes the name of the saved widget.', 'Tap, type a name, then tap Save.', 'Click, type a name, then press Enter.'),
   'advanced-widget-delete': e('Delete widget', 'Removes the saved widget. Pages that already use it keep their copies.', 'Tap to delete it, after a check.', 'Click to delete it, after a check.'),

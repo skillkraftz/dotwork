@@ -1,5 +1,5 @@
 import { addDays, addMonths, dateValues, monthEnd, parts, sundayOf, weekNumberIn } from './dates';
-import type { Page } from './types';
+import type { Page, PageElement } from './types';
 
 export const TOKENS = ['weekday', 'month', 'monthname', 'day', 'year', 'week', 'months'] as const;
 export type Token = (typeof TOKENS)[number];
@@ -116,31 +116,45 @@ export function expandTokens(text: string, from: Reading | string = SAMPLE_DATE,
   });
 }
 
+/**
+ * How text turns its tokens into what is printed. When the page is in a book it also says what the page reads (`read`: a reading, or null
+ * for a page that reads nothing and prints blank), which a week block needs to draw the right days. A plain function (the editor's sample)
+ * has no `read`.
+ */
+export type Expander = ((text: string) => string) & { read?: Reading | null };
+
 /** For print when there is no date: a known token is left empty, so the date can be written in by hand. Unknown tokens are left as typed. */
-export const blankTokens = (text: string) => text.replace(TOKEN_RE, (whole, inner: string) => (parseToken(inner) ? '' : whole));
+export const blankTokens: Expander = Object.assign(
+  (text: string) => text.replace(TOKEN_RE, (whole, inner: string) => (parseToken(inner) ? '' : whole)),
+  { read: null },
+);
 
 /** How a book page turns tokens into text: by what its block reads, or, with no reading (no calendar), blank. */
-export const expandRead = (read: Reading | null): ((text: string) => string) => (read ? (text) => expandTokens(text, read) : blankTokens);
+export const expandRead = (read: Reading | null): Expander => (read ? Object.assign((text: string) => expandTokens(text, read), { read }) : blankTokens);
 
 /** How a page with this date (or none) turns tokens into text. Without the page it reads as a day page. */
-export const expandFor = (date: string | null, page?: Page | null): ((text: string) => string) => {
+export const expandFor = (date: string | null, page?: Page | null): Expander => {
   const kind = page ? pageKind(page) : 'day';
   return date ? (text) => expandTokens(text, date, kind) : blankTokens;
 };
 
 /** The editor's samples: the sample date, read the way the page's kind reads it. */
-export const sampleFor = (page: Page): ((text: string) => string) => expandFor(SAMPLE_DATE, page);
+export const sampleFor = (page: Page): Expander => expandFor(SAMPLE_DATE, page);
 
 /** The tokens in some text. */
 const tokensIn = (text: string) => [...text.matchAll(TOKEN_RE)].flatMap((m) => parseToken(m[1]) ?? []);
 
-/** Every token a page prints: in its identity and in its text. */
+/** Whether a page has a week block: it reads a week, and prints its days whatever else it says. */
+export const hasWeekBlock = (page: Page | null): boolean => !!page && page.elements.some((el) => el.type === 'generated' && el.kind === 'week');
+
+/** Every token a page prints: in its identity and in its text, and in the pieces of a generated element. */
 export function pageTokens(page: Page): TokenRef[] {
-  return [page.identity ?? '', ...page.elements.flatMap((el) => (el.type === 'text' ? [el.text] : []))].flatMap(tokensIn);
+  const texts = (els: readonly PageElement[]): string[] => els.flatMap((el) => (el.type === 'text' ? [el.text] : el.type === 'generated' ? [el.goals, el.day, el.outcomes].flatMap((p) => texts(p.elements)) : []));
+  return [page.identity ?? '', ...texts(page.elements)].flatMap(tokensIn);
 }
 
 /** Whether a page prints anything from a date. A page that doesn't has no use for one. */
-export const usesDates = (page: Page | null): boolean => !!page && pageTokens(page).length > 0;
+export const usesDates = (page: Page | null): boolean => !!page && (hasWeekBlock(page) || pageTokens(page).length > 0);
 
 /** Tokens that count in days; an offset of 6 or more reaches past one day. */
 const DAY_UNITS: readonly Token[] = ['day', 'weekday', 'months'];
@@ -150,7 +164,7 @@ const DAY_UNITS: readonly Token[] = ['day', 'weekday', 'months'];
  * any @end, or a day offset of 6 or more; otherwise a day page.
  */
 export const pageKind = (page: Page): PageKind =>
-  pageTokens(page).some((t) => t.token === 'week' || t.end || t.start || (DAY_UNITS.includes(t.token) && Math.abs(t.offset) >= 6)) ? 'week' : 'day';
+  hasWeekBlock(page) || pageTokens(page).some((t) => t.token === 'week' || t.end || t.start || (DAY_UNITS.includes(t.token) && Math.abs(t.offset) >= 6)) ? 'week' : 'day';
 
 /** The kind of a dated page, or null for one that prints no dates. */
 export const pageSpan = (page: Page): PageKind | null => (usesDates(page) ? pageKind(page) : null);
@@ -164,6 +178,7 @@ export const hasTokens = (text: string): boolean => tokensIn(text).length > 0;
  * date token is a month. Null for a page that prints no dates.
  */
 export function suggestUnit(...pages: (Page | null)[]): Unit | null {
+  if (pages.some(hasWeekBlock)) return 'week';
   const t = pages.flatMap((p) => (p ? pageTokens(p) : []));
   if (!t.length) return null;
   if (t.some((x) => x.end || x.start || (DAY_UNITS.includes(x.token) && Math.abs(x.offset) >= 6))) return 'week';

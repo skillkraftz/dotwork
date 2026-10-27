@@ -1,0 +1,13 @@
+{
+  "name": "Week day",
+  "elements": [
+    { "type": "shade", "tones": "L", "x": 25, "y": 1, "w": 2, "h": 4, "days": "weekends" },
+    { "type": "pattern", "pattern": "lines", "x": 0, "y": 1, "w": 25, "h": 4 },
+    { "type": "rule", "x1": 0, "y1": 1, "x2": 27, "y2": 1, "weight": "thin" },
+    { "type": "rule", "x1": 25, "y1": 1, "x2": 25, "y2": 5, "weight": "thin" },
+    { "type": "rule", "x1": 18, "y1": 1, "x2": 18, "y2": 5 },
+    { "type": "text", "x": 26, "y": 1, "text": "{weekday}", "align": "center" },
+    { "type": "text", "x": 26, "y": 3, "text": "{day}", "align": "center", "size": "heading", "style": "bold", "tone": "black" },
+    { "type": "checkboxes", "x": 0, "y": 1, "count": 4 }
+  ]
+}

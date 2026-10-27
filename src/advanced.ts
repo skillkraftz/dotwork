@@ -3,11 +3,12 @@ import { iconGlyph } from './icons/glyph';
 import { ICON_GROUPS } from './icons/groups';
 import { ICON_SIZES, type IconSize, type TextTone } from './format/types';
 import type { IconChoice } from './geometry';
-import type { Widget, WidgetStore } from './widgets';
+import { makeWidget, type Widget, type WidgetStore } from './widgets';
 import type { NameDialog } from './namedialog';
 import { isArtWidget } from './art/widget';
 import { importArtFile } from './art/report';
 import { BUILTIN_ART } from './builtin/library';
+import { weekBlock } from './builtin/week';
 import { widgetThumbnail } from './library/dialog';
 import { problemView, type Problem } from './problems';
 
@@ -100,7 +101,16 @@ export class AdvancedPicker {
     this.view = 'menu';
     this.title.textContent = 'Widgets';
     const saved = this.widgets.list().filter((w) => !isArtWidget(w));
+    const block = weekBlock();
     this.body.replaceChildren(
+      ...(block ? [
+        h('h3', {}, 'Generated'),
+        h('ul', { class: 'widget-list' }, h('li', { class: 'generated-row', 'data-name': 'Week block' },
+          h('button', {
+            type: 'button', class: 'generated-use widget-btn', 'data-key': 'generated-use', 'data-help': 'advanced-generated',
+            onclick: () => this.done({ kind: 'widget', widget: makeWidget('generated-week', 'Week block', [block]) }),
+          }, h('strong', {}, 'Week block'), h('small', {}, 'goals, a row for each day of the week, outcomes'))))] : []),
+      ...(block ? [h('h3', {}, 'Saved')] : []),
       saved.length
         ? h('ul', { class: 'widget-list' }, ...saved.map((w) => this.widgetRow(w)))
         : h('p', { class: 'hint' }, 'Nothing saved yet. Select one or more elements on the page, then tap More and Save as widget to keep them here for other pages.'));

@@ -202,6 +202,7 @@ export class Canvas {
       inside: store.editingGroup !== null && !preview ? membersOf(page.elements, store.editingGroup) : undefined,
       draft,
       marquee,
+      weekPreview: store.weekPreview,
       handleMm: this.handlePx() * this.mmPerPx(),
     });
     if (preview) this.svg.style.cursor = 'default';

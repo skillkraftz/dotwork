@@ -1,6 +1,6 @@
 import {
   ALIGNS, ALONGS, DEFAULTS, DIRECTIONS, DOT_SIZES, ICON_SIZES, PATTERNS, RULE_WEIGHTS, SEQUENCE_VALUES, SIDES, TEXT_SIZES, TEXT_STYLES,
-  TEXT_TONES, WEIGHTS, type Art, type BoxSide, type PageElement, type Pattern, type Sequence, type SequenceValues, type Shade,
+  TEXT_TONES, WEIGHTS, DAY_FILTERS, type Art, type BoxSide, type Generated, type PageElement, type Pattern, type Sequence, type SequenceValues, type Shade,
 } from './format/types';
 import { ART_FILLS, ART_SCALINGS, ART_STROKES, canFill, canStroke, type ArtPath } from './format/art';
 import { cleanTones, toneAt } from './format/shade';
@@ -11,6 +11,8 @@ import { validateElement } from './format/validate';
 import { headerOf } from './format/bounds';
 import { canNudge, deleteElement, deleteElements, duplicateElement, nudgeButton, nudgeStep, reorderElement } from './actions';
 import type { Store } from './store';
+import type { Widget } from './widgets';
+import { naturalSize, partHeight, rowHeight, WEEK_PREVIEWS, WEEK_PREVIEW_LABELS } from './format/week';
 import type { ValidationIssue } from './format/validate';
 
 type Child = Node | string | null | false;
@@ -72,6 +74,9 @@ function icon(name: keyof typeof ICONS, label: string, onclick: () => void, opts
 
 const fmt = (v: number) => String(+v.toFixed(2));
 
+/** What “Show on” offers: every day (nothing stored), or only the weekends or the weekdays. */
+const DAY_OPTIONS = ['every day', ...DAY_FILTERS] as const;
+
 /** Change what a sequence is made of, giving the new kind what it needs and dropping what it doesn't use. */
 function switchValues(x: Sequence, to: SequenceValues) {
   x.values = to;
@@ -93,6 +98,7 @@ export function describe(el: PageElement): string {
     case 'rule': return `rule · ${fmt(el.x1)},${fmt(el.y1)} → ${fmt(el.x2)},${fmt(el.y2)}${group}`;
     case 'checkboxes': return `checkboxes · ${fmt(el.x)},${fmt(el.y)} ×${el.count}${group}`;
     case 'text': return `text · “${el.text.length > 22 ? el.text.slice(0, 21) + '…' : el.text}”${group}`;
+    case 'generated': return `${el.kind} block · ${fmt(el.x)},${fmt(el.y)} ${fmt(el.w)}×${fmt(el.h)}${group}`;
   }
 }
 
@@ -150,6 +156,8 @@ export class Panel {
   onTab: ((tab: PanelTab) => void) | null = null;
   /** Save the selected elements as a widget. */
   saveWidget: (() => void) | null = null;
+  /** The widgets a week block can be built from (the built-in ones and the saved ones). */
+  widgetList: (() => readonly Widget[]) | null = null;
   /** Open the icon grid and call back with the icon picked. */
   pickIcon: ((pick: (name: string) => void) => void) | null = null;
 
@@ -539,6 +547,9 @@ export class Panel {
           choice('weight', 'Weight', WEIGHTS, DEFAULTS.boxWeight)];
         break;
       }
+      case 'generated':
+        fields = [h('div', { class: 'grid2' }, ...area()), ...this.weekFields(store, i, id, ctls)];
+        break;
       case 'art':
         fields = [h('div', { class: 'grid2' }, ...area()), choice('scaling', 'Scaling', ART_SCALINGS, DEFAULTS.scaling, 'prop-scaling'), ...this.artFills(store, i, id, el, ctls)];
         break;
@@ -571,6 +582,8 @@ export class Panel {
       }
     }
 
+    // Any element can be limited to the weekends or the weekdays of the day it reads (a day row of a week block, a day page).
+    fields.push(choice('days', 'Show on', DAY_OPTIONS, 'every day', 'prop-days', (x) => { if (x.days as string === 'every day') delete x.days; }));
     const fieldset = h('fieldset', { disabled: locked }, ...fields);
     this.fieldset = fieldset;
     const pad = this.nudgePad(i);
@@ -588,6 +601,54 @@ export class Panel {
     this.lockedHint.hidden = !locked;
     this.propCtls = ctls;
     for (const c of ctls) c.sync();
+  }
+
+  /**
+   * The fields of a week block: the three widgets it is built from and, for the editor only, which sample week to show.
+   * Choosing a widget puts a copy of its elements in the block (the page keeps no link to the widget); the box grows to hold the new parts.
+   */
+  private weekFields(store: Store, i: number, id: number, ctls: Ctl[]): Child[] {
+    const current = () => (store.idAt(i) === id ? (store.page.elements[i] as Generated) : null);
+    const part = (key: 'goals' | 'day' | 'outcomes', label: string) => {
+      const names = () => [...new Set([current()?.[key].name ?? '', ...(this.widgetList?.() ?? []).map((w) => w.name)].filter(Boolean))];
+      const select = h('select', {
+        'data-key': `prop-week-${key}`, 'data-help': `prop-week-${key}`,
+        onchange: () => {
+          const chosen = this.widgetList?.().find((w) => w.name === select.value);
+          if (!chosen) return;
+          const problem = this.edit(store, i, id, null, (x) => {
+            const g = x as Generated;
+            g[key] = { name: chosen.name, elements: structuredClone(chosen.elements) };
+            // The box grows to hold the new widget: as wide as the widest, and tall enough for a day row of the day widget.
+            const size = naturalSize(g);
+            g.w = Math.max(g.w, size.w);
+            if (rowHeight(g) < partHeight(g.day)) g.h = size.h;
+          });
+          if (problem) sync();
+        },
+      });
+      const sync = () => {
+        const g = current();
+        if (!g) return;
+        const want = names();
+        if (select.options.length !== want.length || want.some((n, k) => select.options[k].value !== n)) select.replaceChildren(...want.map((n) => h('option', { value: n }, n)));
+        if (select.value !== g[key].name) select.value = g[key].name;
+      };
+      ctls.push({ sync, flush() {} });
+      sync();
+      return h('label', { class: 'field' }, label, select);
+    };
+    const buttons = WEEK_PREVIEWS.map((p) => h('button', {
+      type: 'button', 'data-key': `week-preview-${p}`, 'data-help': 'prop-week-preview', 'aria-pressed': String(store.weekPreview === p),
+      onclick: () => store.setWeekPreview(p),
+    }, WEEK_PREVIEW_LABELS[p]));
+    ctls.push({ sync: () => buttons.forEach((b, k) => b.setAttribute('aria-pressed', String(store.weekPreview === WEEK_PREVIEWS[k]))), flush() {} });
+    return [
+      part('goals', 'Goals widget'), part('day', 'Day widget'), part('outcomes', 'Outcomes widget'),
+      h('h3', {}, 'Preview week'),
+      h('div', { class: 'seg week-preview', role: 'group', 'aria-label': 'Sample week to show while designing' }, ...buttons),
+      h('p', { class: 'hint' }, 'Only for designing: a book shows the days of the page’s own week that are inside its calendar.'),
+    ];
   }
 
   /**

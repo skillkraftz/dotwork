@@ -5,7 +5,8 @@ import {
 import { isIcons, itemOrigin, itemSize, sequenceItems } from './format/sequence';
 import { ICON_GRID, ICONS } from './icons/icons';
 import { elementArea, headerOf, TEXT_INSET_MM, TEXT_SIZE_MM } from './format/bounds';
-import { expandTokens, sampleFor } from './format/tokens';
+import { expandTokens, sampleFor, type Expander } from './format/tokens';
+import { resolveWeek, shownOn, type WeekPreview } from './format/week';
 import { shadeRects } from './format/shade';
 import { artPaths, type ArtTone } from './format/art';
 import { boundsOf, handlesFor, type Pt } from './geometry';
@@ -59,13 +60,15 @@ export interface RenderOptions {
   handleMm?: number;
   /** The number in the header's outer corner. Defaults to a sample; null leaves it out. */
   pageNumber?: string | null;
-  /** How text turns its {tokens} into what is drawn. Defaults to sample values. */
-  expand?: (text: string) => string;
+  /** How text turns its {tokens} into what is drawn, and what the page reads (a week block draws the days of it). Defaults to sample values. */
+  expand?: Expander;
+  /** Which sample week a week block shows when the page reads nothing (the editor): full, first or last. */
+  weekPreview?: WeekPreview;
 }
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const n = (v: number) => +v.toFixed(3);
-const sample = (text: string) => expandTokens(text);
+const sample: Expander = (text: string) => expandTokens(text);
 
 /** Positions of the boundaries inside [from, from+len]: every `step`, plus the far edge. */
 export function ticks(from: number, len: number, step: number, includeStart: boolean): number[] {
@@ -133,7 +136,7 @@ function checkboxesMarkup(e: Checkboxes): string {
   return `<g fill="none" stroke="#000" stroke-width="${n(w)}">${boxes}</g>`;
 }
 
-function textMarkup(e: Text, expand: (t: string) => string): string {
+function textMarkup(e: Text, expand: Expander): string {
   const size = TEXT_SIZE_MM[e.size ?? DEFAULTS.textSize];
   const align = e.align ?? DEFAULTS.align;
   const anchor = align === 'left' ? 'start' : align === 'center' ? 'middle' : 'end';
@@ -195,7 +198,11 @@ function artMarkup(e: Art): string {
   }).join('');
 }
 
-export function elementMarkup(e: PageElement, expand: (t: string) => string = sample): string {
+/** Which day an element limited to weekends or weekdays is drawn for: the day a day page reads; none (it shows) where no single day is read. */
+const dayOf = (expand: Expander): string | null => (expand.read?.kind === 'day' ? expand.read.first : null);
+
+export function elementMarkup(e: PageElement, expand: Expander = sample, weekPreview?: WeekPreview): string {
+  if (!shownOn(e.days, dayOf(expand))) return '';
   switch (e.type) {
     case 'pattern': return patternMarkup(e);
     case 'shade': return shadeMarkup(e);
@@ -205,13 +212,14 @@ export function elementMarkup(e: PageElement, expand: (t: string) => string = sa
     case 'text': return textMarkup(e, expand);
     case 'sequence': return sequenceMarkup(e);
     case 'art': return artMarkup(e);
+    case 'generated': return resolveWeek(e, expand.read, weekPreview).map((x) => elementMarkup(x, expand)).join('');
   }
 }
 
 export interface HeaderItem { text: string; x: number; bold: boolean; anchor: 'start' | 'end' }
 
 /** Header row, in cells' mm from the grid's corner: page number at the outer top corner, identity by the spine. The spine is right of a left page. */
-export function headerItems(page: Page, pageNumber: string | null, expand: (t: string) => string = sampleFor(page)): HeaderItem[] {
+export function headerItems(page: Page, pageNumber: string | null, expand: Expander = sampleFor(page)): HeaderItem[] {
   const spineRight = page.side === 'left';
   const edge = (atEnd: boolean) => (atEnd ? COLS * P : 0);
   const items: HeaderItem[] = [];
@@ -223,7 +231,7 @@ export function headerItems(page: Page, pageNumber: string | null, expand: (t: s
 export const HEADER_BASELINE_MM = 2.1;
 export const HEADER_COLOR = '#404040';
 
-function headerMarkup(page: Page, pageNumber: string | null, expand: (t: string) => string): string {
+function headerMarkup(page: Page, pageNumber: string | null, expand: Expander): string {
   return headerItems(page, pageNumber, expand).map((i) =>
     `<text x="${i.x}" y="${HEADER_BASELINE_MM}" font-size="${TEXT_SIZE_MM.label}" fill="${HEADER_COLOR}"` +
     `${i.bold ? ' font-weight="700"' : ''}${i.anchor === 'end' ? ' text-anchor="end"' : ''}${i.bold ? ' xml:space="preserve"' : ''}>${esc(i.text)}</text>`).join('');
@@ -277,7 +285,8 @@ export function pageContent(page: Page, opts: RenderOptions): string {
   const inside = edit && opts.inside?.length ? new Set(opts.inside) : null;
   page.elements.forEach((e, i) => {
     if (edit && opts.hidden?.has(i)) return;
-    const markup = elementMarkup(e, expand);
+    // The editor shows every element, whatever days it is limited to: it has no day to read.
+    const markup = elementMarkup(edit ? { ...e, days: undefined } : e, expand, opts.weekPreview);
     out += inside && !inside.has(i) ? `<g opacity="0.3">${markup}</g>` : markup;
   });
   out += headerMarkup(page, opts.pageNumber === undefined ? SAMPLE_PAGE_NUMBER : opts.pageNumber, expand);
@@ -294,7 +303,7 @@ export function pageContent(page: Page, opts: RenderOptions): string {
     if (m) out += `<rect x="${n(m.x * P)}" y="${n(m.y * P)}" width="${n(m.w * P)}" height="${n(m.h * P)}" fill="rgba(0,0,0,0.04)" stroke="#000" stroke-width="0.3" stroke-dasharray="1 0.8"/>`;
     const draft = opts.draft ? [opts.draft].flat() : [];
     if (draft.length) {
-      out += `<g opacity="0.55">${draft.map((d) => elementMarkup(d, expand)).join('')}</g>`;
+      out += `<g opacity="0.55">${draft.map((d) => elementMarkup(d, expand, opts.weekPreview)).join('')}</g>`;
       out += draft.map((d) => selectionMarkup(d, false)).join('');
     }
   }

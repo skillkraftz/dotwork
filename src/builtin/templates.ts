@@ -1,5 +1,5 @@
 import { emptyBook, resizeBook, setCover, type Book } from '../book/book';
-import { fillRepeat, groupBlock, pageBlock, spreadBlock, type Block, type Child } from '../book/outline';
+import { fillRepeat, freeBlock, groupBlock, pageBlock, spreadBlock, type Block, type Child } from '../book/outline';
 import { calendarFor, type Calendar } from '../format/calendar';
 import { addDays, weekStart } from '../format/dates';
 import { buildSpread } from '../format/spread';
@@ -73,6 +73,20 @@ const monthlyJournal: BookTemplate = {
   },
 };
 
+const monthlyLog: BookTemplate = {
+  id: 'monthly-log',
+  name: 'Monthly log',
+  description: 'One month, week by week: a week planner (its days outside the month become lined space), a daily log for each day of the week inside the month, and the weekly reflection. Free pages take the rest of the book, and the month review is the last page. The book has the month as its calendar, so every page prints its day, week or month.',
+  uses: ['Week planner', ...DAILY_BOOK.slice(0, 1)],
+  fields: [YEAR, { key: 'month', label: 'Month', min: 1, max: 12, value: new Date().getMonth() + 1, hint: (v) => MONTH_NAMES[v - 1] ?? '' }],
+  build(a = {}) {
+    const year = a.year ?? YEAR.value, month = a.month ?? 1;
+    const weeks: Block = { ...groupBlock('Weeks', [pageBlock(example('Week planner')), eachDayOfWeek(example('Daily Log')), pageBlock(weeklyReflection())]), repeat: { each: 'week' } };
+    const review: Block = { ...pageBlock(patternsPage()), repeat: { each: 'month' }, pin: 'last' };
+    return assemble(`${MONTH_NAMES[month - 1]} ${year} log`, [weeks, freeBlock(), review], purposeCover(), plainIndex(), calendarFor(year, month));
+  },
+};
+
 const yearPlanner: BookTemplate = {
   id: 'year-planner',
   name: 'Year planner',
@@ -110,6 +124,7 @@ const fillWith = (page: Page | null): Block => ({ ...pageBlock(page), repeat: fi
 export const TEMPLATES: readonly BookTemplate[] = [
   yearPlanner,
   monthlyJournal,
+  monthlyLog,
   plain('blank-journal', 'Blank journal', 'Blank pages to the end of the book, with the purpose cover and the plain-book index.', [], () => [fillWith(null)]),
   plain('lined-journal', 'Lined journal', 'Lined pages to the end of the book, with the purpose cover and the plain-book index.', ['Lined page'], () => [fillWith(example('Lined page'))]),
   plain('dot-grid-journal', 'Dot grid journal', 'Dot grid pages to the end of the book, with the purpose cover and the plain-book index.', ['Dot grid page'], () => [fillWith(example('Dot grid page'))]),

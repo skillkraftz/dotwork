@@ -137,6 +137,7 @@ describe('the book templates', () => {
   const inputs: Record<string, Record<string, number>[]> = {
     'year-planner': [{ year: 2026, first: 43, last: 52 }, { year: 2027 }, { year: 2026, first: 1, last: 1 }, { year: 2028, first: 10, last: 40 }],
     'monthly-journal': Array.from({ length: 12 }, (_, m) => ({ year: 2027, month: m + 1 })),
+    'monthly-log': [{ year: 2026, month: 11 }, { year: 2027, month: 1 }, { year: 2027, month: 2 }, { year: 2027, month: 5 }],
     'blank-journal': [{}], 'lined-journal': [{}], 'dot-grid-journal': [{}], 'idea-book': [{}],
   };
   it('are all tested', () => expect(TEMPLATES.map((t) => t.id).sort()).toEqual(Object.keys(inputs).sort()));

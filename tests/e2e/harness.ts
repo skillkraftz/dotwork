@@ -326,3 +326,15 @@ export async function seedLibrary(app: App, items: { id: string; kind: string; n
     });
   }, items);
 }
+
+/** The entries of a zip whose files are stored without compression, as Dotwork writes them. */
+export function unzip(bytes: Buffer): Map<string, Buffer> {
+  const out = new Map<string, Buffer>();
+  for (let at = 0; bytes.readUInt32LE(at) === 0x04034b50;) {
+    const size = bytes.readUInt32LE(at + 18), name = bytes.readUInt16LE(at + 26), extra = bytes.readUInt16LE(at + 28);
+    const begin = at + 30 + name + extra;
+    out.set(bytes.subarray(at + 30, at + 30 + name).toString('utf8'), bytes.subarray(begin, begin + size));
+    at = begin + size;
+  }
+  return out;
+}

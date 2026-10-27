@@ -8,6 +8,7 @@ import {
 } from './pages';
 import { builtinWidgets } from './widgets';
 import { builtinArt } from './art';
+import { weekPlanner } from './week';
 import { pageFiles, skipped, spreadFiles } from './examples';
 import type { Section } from '../book/sections';
 import type { LibraryKind } from '../library/library';
@@ -40,6 +41,7 @@ export const BUILTIN_PAGES: readonly Page[] = [
   monthlyPageIndex(monthlyLayout(SAMPLE.year, SAMPLE.month).map((s) => s.note ?? null)),
   purposeCover(),
   plainIndex(),
+  ...weekPlanner(),
   ...filePages(),
 ];
 

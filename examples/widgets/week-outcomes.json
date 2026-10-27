@@ -1,0 +1,9 @@
+{
+  "name": "Week outcomes",
+  "elements": [
+    { "type": "pattern", "pattern": "lines", "x": 0, "y": 1, "w": 25, "h": 7 },
+    { "type": "rule", "x1": 0, "y1": 1, "x2": 27, "y2": 1, "weight": "thin" },
+    { "type": "rule", "x1": 25, "y1": 1, "x2": 25, "y2": 8, "weight": "thin" },
+    { "type": "text", "x": 26.5, "y": 4.5, "text": "OUTCOME", "rotate": 270, "align": "center" }
+  ]
+}
