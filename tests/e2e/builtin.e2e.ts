@@ -51,16 +51,16 @@ async function build(app: App, template: string, answers: Record<string, string>
   return app.page.locator('dialog.template');
 }
 
-for (const device of ['phone', 'tablet', 'desktop'] as Device[]) {
+for (const device of ['phone', 'desktop'] as Device[]) {
   describe(`the built-in library on a ${device}`, () => {
     it('fills every tab, marks the examples and never changes one', async () => {
       const app = await open(env, device);
       const { page } = app;
       await openLibrary(app);
-      const tabs: [string, string][] = [['pages', 'Weekly reflection'], ['spreads', 'Book notes spread'], ['books', 'Monthly journal'], ['widgets', 'Mood scale']];
-      for (const [tab, name] of tabs) {
+      const tabs: [string, string[]][] = [['pages', ['Weekly reflection', 'Daily Log', 'week tracker checklist']], ['spreads', ['Book notes', 'Daily Log Spread', 'Idea variations']], ['books', ['Monthly journal']], ['widgets', ['Mood scale', 'Engagement gauge', 'Energy gauge']]];
+      for (const [tab, names] of tabs) {
         await hit(app, `[data-tab="${tab}"]`);
-        await page.waitForSelector(`.lib-card[data-name="${name}"]`);
+        for (const name of names) await page.waitForSelector(`.lib-card[data-name="${name}"]`);
         await shot(app, `library-${device}-${tab}`);
       }
       expect(await missingHelp(app)).toEqual([]);
@@ -114,9 +114,6 @@ for (const device of ['phone', 'tablet', 'desktop'] as Device[]) {
 
     it.each([
       ['Monthly journal', { year: '2027', month: '2' }, 'FEBRUARY 2027 journal'],
-      ['Blank journal', {}, 'Blank journal'],
-      ['Lined journal', {}, 'Lined journal'],
-      ['Dot grid journal', {}, 'Dot grid journal'],
       ['Idea book', {}, 'Idea book'],
     ] as const)('builds the %s', async (template, answers, name) => {
       const app = await open(env, device);

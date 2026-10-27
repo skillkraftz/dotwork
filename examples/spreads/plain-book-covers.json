@@ -1,0 +1,50 @@
+{
+  "format": "dotwork-spread",
+  "version": 2,
+  "name": "Plain-book covers",
+  "left": {
+    "format": "dotwork-page",
+    "version": 2,
+    "name": "Plain-book purpose cover",
+    "identity": "",
+    "side": "left",
+    "page_number": false,
+    "grid": {"cols": 27, "rows": 44, "pitch_mm": 3},
+    "elements": [
+      {"type": "pattern", "pattern": "lines", "x": 0, "y": 0, "w": 27, "h": 3},
+      {"type": "text", "x": 0, "y": 0, "text": "for:"},
+      {"type": "shade", "tones": "L", "x": 11, "y": 4, "w": 5.5, "h": 2},
+      {"type": "pattern", "pattern": "lines", "x": 0, "y": 6, "w": 27, "h": 38},
+      {"type": "rule", "x1": 0, "y1": 4, "x2": 27, "y2": 4, "weight": "thick"},
+      {"type": "rule", "x1": 0, "y1": 6, "x2": 27, "y2": 6, "weight": "thick"},
+      {"type": "rule", "x1": 5.5, "y1": 4, "x2": 5.5, "y2": 6, "weight": "hair"},
+      {"type": "rule", "x1": 11, "y1": 4, "x2": 11, "y2": 6, "weight": "hair"},
+      {"type": "rule", "x1": 16.5, "y1": 4, "x2": 16.5, "y2": 6, "weight": "hair"},
+      {"type": "rule", "x1": 22, "y1": 4, "x2": 22, "y2": 6, "weight": "hair"},
+      {"type": "text", "x": 0, "y": 4, "text": "started"},
+      {"type": "text", "x": 5.5, "y": 4, "text": "p13"},
+      {"type": "text", "x": 11, "y": 4, "text": "p26"},
+      {"type": "text", "x": 16.5, "y": 4, "text": "p39"},
+      {"type": "text", "x": 22, "y": 4, "text": "done"}
+    ]
+  },
+  "right": {
+    "format": "dotwork-page",
+    "version": 2,
+    "name": "Plain-book index",
+    "identity": "",
+    "side": "right",
+    "page_number": false,
+    "grid": {"cols": 27, "rows": 44, "pitch_mm": 3},
+    "elements": [
+      {"type": "pattern", "pattern": "vlines", "x": 0.5, "y": 0, "w": 26, "h": 22},
+      {"type": "rule", "x1": 0.5, "y1": 21, "x2": 26.5, "y2": 21, "weight": "thin"},
+      {"type": "sequence", "x": 0.5, "y": 21, "count": 26, "direction": "across", "values": "numbers", "start": 27, "tone": "black", "rotate": 90},
+      {"type": "box", "x": 0.5, "y": 0, "w": 26, "h": 22, "weight": "thick"},
+      {"type": "pattern", "pattern": "vlines", "x": 0.5, "y": 22, "w": 26, "h": 22},
+      {"type": "rule", "x1": 0.5, "y1": 43, "x2": 26.5, "y2": 43, "weight": "thin"},
+      {"type": "sequence", "x": 0.5, "y": 43, "count": 26, "direction": "across", "values": "numbers", "start": 1, "tone": "black", "rotate": 90},
+      {"type": "box", "x": 0.5, "y": 22, "w": 26, "h": 22, "weight": "thick"}
+    ]
+  }
+}

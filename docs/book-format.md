@@ -105,6 +105,7 @@ Everything about how a particular printer and paper print lives in the printer p
 and used for every book; the Calibrate wizard finds it. It is not part of a book file, and a book is printed with whatever the
 profile is when the files are made (the zip's `summary.txt` and `calibration.txt` record the settings used). Numbers outside the
 limits below are brought back in by the fields and refused by the reader of a stored profile (which then falls back to the defaults, saying why).
+A layout, or a setting of one, that a stored profile does not have takes the default's value (never zero), and only the layouts that differ from the defaults are stored, so a layout you have not changed follows the defaults. **Reset this layout to defaults** (Export, PDF tab) shows the layout's values next to the defaults and, once confirmed, puts them back.
 
 | Field | Meaning |
 |-------|---------|

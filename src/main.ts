@@ -27,7 +27,6 @@ import { ExportDialog } from './exporter';
 import { SettingsDialog } from './settings';
 import { checkItem, setupMenus } from './menus';
 import { HelpMode } from './helpmode';
-import type { DraftStorage } from './drafts';
 import { errorProblem, issuesProblem, problemView, type Problem } from './problems';
 import { AdvancedPicker, type AdvancedChoice } from './advanced';
 import { NameDialog } from './namedialog';
@@ -47,13 +46,13 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 type View = 'page' | 'spread' | 'book';
 const stored = (key: string) => { try { return localStorage.getItem(key); } catch { return null; } };
 
-const draftStorage = (): DraftStorage | null => { try { return localStorage; } catch { return null; } };
+const browserStorage = (): Storage | null => { try { return localStorage; } catch { return null; } };
 /** Problems found at start-up (a printer profile that couldn't be read); shown once the screen exists. */
 const startupProblems: Problem[] = [];
 
 /** The printer profile (the Calibrate page and the PDF tab change it): what every book prints with. The defaults until there are saved settings. */
 let printerSettings: PrintSettings = (() => {
-  const loaded = loadPrinter(draftStorage());
+  const loaded = loadPrinter(browserStorage());
   if (loaded.status === 'bad') startupProblems.push(loaded.problem);
   return loaded.status === 'ok' ? loaded.value : clonePrint(DEFAULT_PRINT);
 })();
@@ -574,13 +573,11 @@ async function importFromFile(file: File): Promise<{ ok: true } | { ok: false; p
   const format = (parsed as { format?: unknown } | null)?.format;
   const refuse = (what: string, issues: ValidationIssue[]) => ({ ok: false as const, problem: issuesProblem(`Not imported: ${file.name} breaks the ${what} format.`, issues) });
   if (format === 'dotwork-library') return { ok: false, problem: { title: `${file.name} is a library backup.`, lines: ['Use Library, then Restore backup.'], details: `${file.name} is a library backup.` } };
-  const converted = `${file.name} contained version 1 pages and they have been converted to version 2.`;
   if (format === 'dotwork-book') {
     const r = readBook(parsed);
     if (!r.ok) return refuse('book', r.issues);
     if (!(await switchDocument(sessions.book, () => sessions.book.importAs(r.book)))) return { ok: false, problem: errorProblem('The book was not added.', sessions.book.autosave.error) };
     setView('book');
-    if (r.converted) notify(converted);
     return { ok: true };
   }
   if (format === 'dotwork-section') {
@@ -597,12 +594,10 @@ async function importFromFile(file: File): Promise<{ ok: true } | { ok: false; p
     if (!r.ok) return refuse('spread', r.issues);
     if (!(await switchDocument(sessions.spread, () => sessions.spread.importAs(r.spread)))) return { ok: false, problem: errorProblem('The spread was not added.', sessions.spread.autosave.error) };
     setView('spread');
-    if (r.converted) notify(converted);
     return { ok: true };
   }
   const result = readPage(parsed);
   if (!result.ok) return refuse('page', result.issues);
-  notify(result.converted ? `${file.name} was a version 1 file and has been converted to version 2.` : null);
   if (!(await switchDocument(sessions.page, () => sessions.page.importAs(result.page)))) return { ok: false, problem: errorProblem('The page was not added.', sessions.page.autosave.error) };
   setView('page');
   return { ok: true };
@@ -611,7 +606,7 @@ async function importFromFile(file: File): Promise<{ ok: true } | { ok: false; p
 /** Use these printer settings, and keep them. Returns what to tell the owner if the browser refuses. */
 function setPrinter(next: PrintSettings): Problem | null {
   printerSettings = clonePrint(next); // used for this visit even if the browser refuses to store it
-  return savePrinter(draftStorage(), printerSettings);
+  return savePrinter(browserStorage(), printerSettings);
 }
 
 const exportDialog = new ExportDialog({

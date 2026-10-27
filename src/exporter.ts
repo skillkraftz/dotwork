@@ -7,7 +7,7 @@ import type { ExportedFile, Include } from './print/export';
 import type { Page } from './format/types';
 import { readBook, type Book } from './book/book';
 import { svgToPng, pageToPng, spreadToPng, FONT_CSS, PNG_DPI, PNG_DPIS } from './png';
-import { layoutPicker, printFields } from './settings';
+import { layoutPicker, printFields, resetLayout } from './settings';
 import { slug } from './slug';
 import { loadFontBytes } from './print/fonts';
 import { CalibrateDialog, type CalibrateHost } from './calibrate';
@@ -210,6 +210,7 @@ export class ExportDialog {
           ? 'print-duplex.pdf (front, back, front, back… for a printer that duplexes by itself), and print-first.pdf and print-second.pdf for when it can’t: two sheets per letter sheet, with creep, cut marks and labels. Also a preview and a summary.'
           : 'print-first.pdf (side A) and print-second.pdf (side B): pages arranged on letter-cut-in-half sheets, with creep, for printing on both sides and binding. Also a preview and a summary.')),
       layoutPicker(() => this.host.printer.get(), (change) => this.host.printer.edit(change), redraw),
+      resetLayout(() => this.host.printer.get(), (change) => this.host.printer.edit(change), redraw),
       ...(twoUp ? [this.bottomBook()] : []),
       h('div', { class: 'export-actions' }, h('button', {
         type: 'button', 'data-key': 'calibrate-open', 'data-help': 'calibrate-open',

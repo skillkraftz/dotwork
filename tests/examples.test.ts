@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { importSvg } from '../src/art/import';
 import { artProblems } from '../src/format/art';
 import { readPage } from '../src/format/read';
+import { readSpread } from '../src/format/spread';
 import { formatIssue } from '../src/format/validate';
 import { builtinArt } from '../src/builtin/art';
 import { BUILTIN_ART, BUILTIN_PAGES, BUILTIN_SPREADS, BUILTIN_WIDGETS } from '../src/builtin/library';
@@ -17,17 +18,19 @@ const files = (dir: string, ext: string) => readdirSync(join(root, dir)).filter(
 const read = (dir: string, f: string) => readFileSync(join(root, dir, f), 'utf8');
 const quiet = () => vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-describe('examples/pages', () => {
-  it('has the recreated journal-system pages', () => {
-    for (const f of ['daily-good-time', 'idea-page', 'lined-page', 'dot-grid-page']) expect(files('pages', '.json')).toContain(`${f}.json`);
+describe('examples/pages and examples/spreads', () => {
+  it('has the recreated journal-system pages and the owner’s Daily Log and Book notes', () => {
+    for (const f of ['daily-log', 'idea-page', 'lined-page', 'dot-grid-page', 'book-notes', 'book-notes-setup']) expect(files('pages', '.json')).toContain(`${f}.json`);
   });
-  for (const f of files('pages', '.json')) {
-    it(`${f} is a valid page, and it is in the library`, () => {
-      const r = readPage(JSON.parse(read('pages', f)));
-      expect(r.ok ? [] : r.issues.map(formatIssue)).toEqual([]);
-      if (r.ok) expect(BUILTIN_PAGES.map((p) => p.name)).toContain(r.page.name);
-    });
-  }
+  it('holds only valid pages, and every one is in the library', () => {
+    const bad = files('pages', '.json').flatMap((f) => { const r = readPage(JSON.parse(read('pages', f))); return r.ok ? (BUILTIN_PAGES.some((p) => p.name === r.page.name) ? [] : [`${f}: not in the library`]) : r.issues.map((i) => `${f}: ${formatIssue(i)}`); });
+    expect(bad).toEqual([]);
+  });
+  it('holds only valid spreads, and every one is in the library', () => {
+    const bad = files('spreads', '.json').flatMap((f) => { const r = readSpread(JSON.parse(read('spreads', f))); return r.ok ? (BUILTIN_SPREADS.some((s) => s.name === r.spread.name) ? [] : [`${f}: not in the library`]) : r.issues.map((i) => `${f}: ${formatIssue(i)}`); });
+    expect(bad).toEqual([]);
+    expect(BUILTIN_SPREADS).toHaveLength(files('spreads', '.json').length);
+  });
 });
 
 describe('examples/widgets', () => {
@@ -88,8 +91,7 @@ describe('examples/art', () => {
 });
 
 describe('what depends on a page by name', () => {
-  it('has every page the spreads and books ask for', () => {
-    for (const name of ['Lined spread', 'Dot grid spread', 'Ideas spread']) expect(BUILTIN_SPREADS.map((s) => s.name)).toContain(name);
+  it('has every page the books ask for', () => {
     expect(TEMPLATES.length).toBeGreaterThanOrEqual(6);
   });
 });

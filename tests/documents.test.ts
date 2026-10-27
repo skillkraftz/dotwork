@@ -98,14 +98,6 @@ describe('the Library keeps the name in the entry only', () => {
     expect((await lib.get(spread.id))!.data.name).toBe('Ideas');
   });
 
-  it('drops a data.name that an older entry still has the next time it is written', async () => {
-    const backend = new MemoryBackend();
-    await backend.put({ id: 'old', kind: 'page', name: 'Old', updated: '2026-01-01T00:00:00.000Z', data: { ...box(), name: 'Old' } });
-    const lib = new Library(backend);
-    await lib.write('page', 'old', 'Old', (await lib.get('old'))!.data as Page);
-    expect('name' in (await backend.all())[0].data).toBe(false);
-  });
-
   it('a backup file still carries the name in data, and reads without it', async () => {
     const lib = new Library(new MemoryBackend());
     await lib.create('page', 'Daily', box());

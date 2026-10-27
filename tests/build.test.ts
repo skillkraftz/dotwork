@@ -276,7 +276,8 @@ describe('the book builder', () => {
     const plan = planSteps(recipeFor(structuredClone(steps), '2026-11'), 52);
     expect(plan.problem).toBeNull();
     const fixture = load();
-    expect(names(plan)).toEqual(fixture.pages.map((p) => p?.name ?? '-'));
+    // the fixture was made when the daily page was still called Daily Good Time Journal
+    expect(names(plan)).toEqual(fixture.pages.map((p) => (p?.name === 'Daily Good Time Journal' ? 'Daily Log' : p?.name ?? '-')));
     expect(plan.entries.map((e) => e.date)).toEqual(fixture.dates);
     const dec = planSteps(recipeFor(structuredClone(steps), '2026-12'), 52);
     expect(dec.problem).toBeNull();

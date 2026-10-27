@@ -300,8 +300,8 @@ describe('art in a page file', () => {
     expect(rules(base(art({ y: 0, x: 0, w: 2 }), { identity: '', side: 'left' }))).toEqual(['header-corner']);
     expect(rules(base(art({ y: 0, x: 24, w: 3 }), { identity: '', page_number: false }))).toEqual([]);
   });
-  it('accepts the Good Time example page, with its six gauges', () => {
-    const page = JSON.parse(readFileSync(join(__dirname, '..', 'examples', 'pages', 'daily-good-time.json'), 'utf8'));
+  it('accepts the Daily Log example page, with its six gauges', () => {
+    const page = JSON.parse(readFileSync(join(__dirname, '..', 'examples', 'pages', 'daily-log.json'), 'utf8'));
     const gauges = page.elements.filter((e: { type: string }) => e.type === 'art');
     expect(gauges).toHaveLength(6);
     // Engagement (left) and Energy (right) of each row

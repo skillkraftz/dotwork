@@ -1,0 +1,16 @@
+{
+  "format": "dotwork-page",
+  "version": 2,
+  "name": "Idea variation",
+  "identity": "Idea variations",
+  "side": "right",
+  "grid": {"cols": 27, "rows": 44, "pitch_mm": 3},
+  "elements": [
+    {"type": "pattern", "pattern": "lines", "x": 0, "y": 1, "w": 27, "h": 20},
+    {"type": "rule", "x1": 0, "y1": 1, "x2": 27, "y2": 1, "weight": "thin"},
+    {"type": "rule", "x1": 0, "y1": 22, "x2": 27, "y2": 22},
+    {"type": "pattern", "x": 0, "y": 22, "w": 27, "h": 22, "pattern": "lines"},
+    {"type": "text", "x": 0, "y": 22, "text": "Try a quicker version or one that is all about excellence:"},
+    {"type": "text", "x": 0, "y": 1, "text": "Think smaller, bigger, simplify, and change it around:"}
+  ]
+}

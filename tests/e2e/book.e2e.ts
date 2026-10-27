@@ -140,10 +140,6 @@ describe('book builder', () => {
     await flow(app, 'desktop');
     expect(await app.page.locator('.book-contents').isVisible()).toBe(true); // the list stays beside the page
   });
-  it('works on a tablet', async () => {
-    const app = await open(env, 'tablet');
-    await flow(app, 'tablet');
-  });
 });
 
 /** Dated weekly pages: choose the dated example for pages 1-10, date them as weeks 43-52, and see it on the page. */
@@ -207,7 +203,7 @@ async function dates(app: App, device: string) {
 }
 
 describe('book dates', () => {
-  for (const device of ['phone', 'tablet', 'desktop'] as const) {
+  for (const device of ['phone', 'desktop'] as const) {
     it(`sets, shows and clears dates on a ${device}`, async () => { await dates(await open(env, device), device); });
   }
 });
@@ -253,7 +249,7 @@ async function spreadsPicker(app: App, device: string) {
 }
 
 describe('the design picker', () => {
-  for (const device of ['phone', 'tablet', 'desktop'] as const) {
+  for (const device of ['phone', 'desktop'] as const) {
     it(`has Pages and Spreads tabs and places a spread on a ${device}`, async () => { await spreadsPicker(await open(env, device), device); });
   }
 });

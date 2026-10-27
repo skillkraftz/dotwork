@@ -275,13 +275,12 @@ describe('element rules', () => {
 
 describe('readPage', () => {
   it('passes version 2 through and rejects bad files with the rule', () => {
-    const ok = readPage(base());
-    expect(ok.ok && ok.converted).toBe(false);
+    expect(readPage(base()).ok).toBe(true);
     const bad = readPage({ ...base(), elements: [{ ...box, y: 0 }] });
     expect(!bad.ok && bad.issues[0].rule).toBe('header-row');
   });
 
-  it('rejects unknown versions without trying to convert', () => {
+  it('rejects every other version', () => {
     const r = readPage({ ...base(), version: 9 });
     expect(!r.ok && r.issues[0].rule).toBe('version');
     expect(readPage('nope').ok).toBe(false);

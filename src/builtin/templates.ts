@@ -25,7 +25,7 @@ const example = (name: string): Page => findBuiltinPage(name) ?? notesPage();
 /** The design for a slot of a layout. */
 function designFor(s: Slot, slotNumber: number): Page {
   switch (s.kind) {
-    case 'daily': return example('Daily Good Time Journal');
+    case 'daily': return example('Daily Log');
     case 'reflection': return weeklyReflection(s.identity);
     case 'patterns': return patternsPage(s.identity);
     case 'questions': return questionsPage(s.identity);
@@ -50,7 +50,7 @@ function assemble(name: string, layout: Slot[], front: Page, back: Page, page: (
 
 /** The pages from examples/pages that books are made with. */
 const IDEAS = ['Idea page', 'Dot grid page'] as const;
-const DAILY_BOOK = ['Daily Good Time Journal', ...IDEAS] as const;
+const DAILY_BOOK = ['Daily Log', ...IDEAS] as const;
 
 const YEAR: TemplateField = { key: 'year', label: 'Year', min: 2000, max: 2100, value: new Date().getFullYear() };
 

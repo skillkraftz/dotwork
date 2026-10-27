@@ -1,0 +1,10 @@
+{
+  "name": "Energy gauge",
+  "elements": [
+    {"type": "text", "x": 3, "y": 1, "text": "0", "align": "center"},
+    {"type": "art", "x": 0.5, "y": 2, "w": 5, "h": 2, "view_box": [0, 0, 30, 16], "paths": [{"id": "left-half", "d": "M15 14L3 14C3 7.373 8.373 2 15 2Z", "fill": "medium", "stroke": "none", "stroke_mm": 0}, {"id": "right-half", "d": "M15 14L15 2C21.627 2 27 7.373 27 14Z", "fill": "none", "stroke": "none", "stroke_mm": 0}, {"id": "centre-line", "d": "M15 2L15 14", "fill": "none", "stroke": "black", "stroke_mm": 0.25, "linecap": "round"}, {"id": "ticks", "d": "M6.515 5.515L7.575 6.575M23.485 5.515L22.425 6.575M15 2L15 3.6", "fill": "none", "stroke": "black", "stroke_mm": 0.25, "linecap": "round"}, {"d": "M1.5 14L28.5 14", "fill": "none", "stroke": "black", "stroke_mm": 0.35, "linecap": "round"}, {"d": "M3 14C3 7.373 8.373 2 15 2C21.627 2 27 7.373 27 14", "fill": "none", "stroke": "black", "stroke_mm": 0.35}, {"d": "M16.1 14C16.1 14.608 15.608 15.1 15 15.1C14.392 15.1 13.9 14.608 13.9 14C13.9 13.392 14.392 12.9 15 12.9C15.608 12.9 16.1 13.392 16.1 14Z", "fill": "white", "stroke": "black", "stroke_mm": 0.25}], "fills": {"left-half": "medium"}, "strokes": {"centre-line": "black"}},
+    {"type": "text", "x": 0, "y": 4, "text": "NEG"},
+    {"type": "text", "x": 6, "y": 4, "text": "POS", "align": "right"},
+    {"type": "text", "x": 3, "y": 5, "text": "Energy", "align": "center"}
+  ]
+}

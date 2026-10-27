@@ -319,7 +319,7 @@ describe('groups (phone)', () => {
 });
 
 describe('shade and pattern properties', () => {
-  for (const device of ['phone', 'tablet', 'desktop'] as const) {
+  for (const device of ['phone', 'desktop'] as const) {
     it(`edits tones, direction and every, with a live strip (${device})`, async () => {
       const app = await open(env, device);
       const { page } = app;

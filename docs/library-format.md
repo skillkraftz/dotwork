@@ -41,7 +41,7 @@ exactly one `art` element, and every element must fit the page format wherever t
 | `kind` | `"page"`, `"spread"`, `"section"`, `"book"`, `"widget"` or `"art"`. |
 | `name` | The name it is saved under. In a backup file the `name` inside `data` matches it (a reader also accepts any item with no `name` in `data` and uses this one). |
 | `updated` | ISO date and time of the last change. |
-| `data` | A complete page file, spread file, section or book file, or `{ name, elements }` for a widget or art (in the browser's store the `name` is not in `data`, see above). A version 1 page is converted when read, as everywhere the app reads a page. |
+| `data` | A complete page file, spread file, section or book file, or `{ name, elements }` for a widget or art (in the browser's store the `name` is not in `data`, see above). |
 | `favorites` | Optional. The ids starred in the Library (documents by id, built-ins by their prefixed name such as `example:Daily`). An array of strings. |
 | `printer` | Optional. The printer profile as `printer.ts` reads it: the shared settings (creep, fore-edge shifts, target margin, the four tones, `sheet_layout`) and `layouts` for both sheet layouts (offsets, scale, back rotation, line weights). Every number within its limits. |
 

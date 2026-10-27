@@ -2,7 +2,7 @@ import type { Page } from '../format/types';
 import { usesDates } from '../format/tokens';
 import type { Move, Section, Step } from '../book/sections';
 import { findBuiltinPage } from './library';
-import { bookNotesPage, notesPage, patternsPage, weeklyPage, weeklyReflection } from './pages';
+import { notesPage, patternsPage, weeklyPage, weeklyReflection } from './pages';
 
 // Sections that come with Dotwork, and the "Weekly journal" preset of book builder steps made from them.
 
@@ -15,14 +15,14 @@ const section = (name: string, pages: Page[], move: Move, left: boolean, days?: 
   days: days ?? pages.map((p) => (usesDates(p) ? 0 : null)),
 });
 
-const daily = () => example('Daily Good Time Journal');
+const daily = () => example('Daily Log');
 
 /** A week of the Good Time journal: the weekly page, a daily page for each day Sunday to Saturday, a reflection, notes. Ten pages from a right-hand page. */
 const WEEK = section('Journal week', [weeklyPage('right', true), ...Array.from({ length: 7 }, daily), weeklyReflection(), notesPage()], 'week', false,
   [0, 0, 1, 2, 3, 4, 5, 6, 0, null]);
 const MONTH_END = section('Month-end review', [weeklyReflection(), patternsPage()], 'none', true);
 const IDEAS = section('Idea spread', [example('Idea page'), example('Dot grid page')], 'none', true);
-const BOOK_NOTES = section('Book notes', [bookNotesPage()], 'none', true);
+const BOOK_NOTES = section('Book notes', [example('Book notes')], 'none', true);
 
 export const BUILTIN_SECTIONS: readonly Section[] = [WEEK, MONTH_END, IDEAS, BOOK_NOTES];
 

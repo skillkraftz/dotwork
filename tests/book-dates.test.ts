@@ -27,7 +27,7 @@ describe('today is the local date', () => {
 describe('where the Dates window starts', () => {
   const book = () => {
     const b = emptyBook(8);
-    for (let n = 1; n <= 8; n++) setSlot(b, n, findBuiltinPage('Daily Good Time Journal')!);
+    for (let n = 1; n <= 8; n++) setSlot(b, n, findBuiltinPage('Daily Log')!);
     return b;
   };
 
@@ -69,7 +69,7 @@ describe('where the Dates window starts', () => {
 describe('dates travel with their page', () => {
   const dated = () => {
     const b = emptyBook(8);
-    const daily = findBuiltinPage('Daily Good Time Journal')!;
+    const daily = findBuiltinPage('Daily Log')!;
     [1, 2, 3, 4].forEach((n) => setSlot(b, n, { ...daily, name: `Day ${n}` }));
     setDates(b, 1, ['2026-11-01', '2026-11-02', '2026-11-03', '2026-11-04']);
     return b;
@@ -126,7 +126,7 @@ describe('dates travel with their page', () => {
 
 describe('what a page stands for', () => {
   it('tells day pages from week pages', () => {
-    expect(pageSpan(findBuiltinPage('Daily Good Time Journal')!)).toBe('day');
+    expect(pageSpan(findBuiltinPage('Daily Log')!)).toBe('day');
     expect(pageSpan(findBuiltinPage('Weekly reflection')!)).toBe('week');
     expect(pageSpan(findBuiltinPage('Year journal weekly page (dated)')!)).toBe('week');
     expect(pageSpan(notesPage())).toBeNull();

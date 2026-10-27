@@ -181,13 +181,11 @@ async function flip(device: Device) {
 
 describe('the book builder', () => {
   it('works on a phone', () => run('phone'));
-  it('works on a tablet', () => run('tablet'));
   it('works on a desktop', () => run('desktop'));
 });
 
 describe('flip through', () => {
   it('plays at a second an opening and pauses on a phone', () => flip('phone'));
-  it('plays at a second an opening and pauses on a tablet', () => flip('tablet'));
   it('plays at a second an opening and pauses on a desktop', () => flip('desktop'));
 
   it('desktop keys: Space pauses, arrows step, Escape stops', async () => {

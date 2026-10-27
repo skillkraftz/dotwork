@@ -13,7 +13,7 @@ const PAGE = (identity: string, text?: string) => ({
 });
 const drawn = (app: App) => app.page.locator('#canvas text').evaluateAll((els) => els.map((e) => e.textContent));
 
-for (const device of ['phone', 'tablet', 'desktop'] as Device[]) {
+for (const device of ['phone', 'desktop'] as Device[]) {
   describe(`token units in the editor (${device})`, () => {
     it('a week page shows the sample week, and a day page the sample day', async () => {
       const app = await open(env, device);

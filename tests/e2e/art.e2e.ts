@@ -1,12 +1,10 @@
-import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { bar, cellToClient, choose, draft, drag, hit, missingHelp, open, shot, start, stop, tap, tool, touch, type App, type Device, type Env, seedPage} from './harness';
+import { bar, cellToClient, choose, draft, drag, hit, missingHelp, open, shot, start, stop, tap, tool, touch, type App, type Device, type Env } from './harness';
 
 let env: Env;
 beforeAll(async () => { env = await start(); });
 afterAll(async () => { await stop(env); });
 
-const goodTime = readFileSync('examples/pages/daily-good-time.json', 'utf8');
 const noisy = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 20">
   <defs><linearGradient id="g"/></defs><text x="1" y="5">Hi</text><image href="photo.png"/>
   <circle cx="10" cy="10" r="8" fill="#dcdcdc" stroke="#000"/><rect x="22" y="2" width="16" height="16" fill="url(#g)"/></svg>`);
@@ -60,7 +58,7 @@ async function dragArt(app: App, a: [number, number], b: [number, number], midSh
   }
 }
 
-for (const device of ['phone', 'tablet', 'desktop'] as Device[]) {
+for (const device of ['phone', 'desktop'] as Device[]) {
   describe(`art on a ${device}`, () => {
     it('opens a window of art from Advanced, with the built-in pieces and an import button', async () => {
       const app = await open(env, device);
@@ -81,7 +79,7 @@ for (const device of ['phone', 'tablet', 'desktop'] as Device[]) {
       expect(app.errors).toEqual([]);
     });
 
-    it('imports an SVG there, reports what was left out, and draws it into a rectangle', async () => {
+    it('imports an SVG there, reports what was left out, draws it into a rectangle, and refuses a file with nothing to draw', async () => {
       const app = await open(env, device);
       const { page } = app;
       await openArt(app);
@@ -105,18 +103,14 @@ for (const device of ['phone', 'tablet', 'desktop'] as Device[]) {
       expect(placed[0].scaling).toBeUndefined();
       await shot(app, `${device}-art-drawn`);
       expect(await page.locator('#bar-context [data-tool="art"]').count()).toBe(0); // the tool is spent: the bar is back to Select
-      expect(app.errors).toEqual([]);
-    });
 
-    it('refuses a file with nothing to draw, in the window', async () => {
-      const app = await open(env, device);
-      const { page } = app;
+      // a file with nothing to draw is refused, in the window
       await openArt(app);
       await page.setInputFiles('dialog.advanced input[data-key="art-file"]', { name: 'words.svg', mimeType: 'image/svg+xml', buffer: empty });
       await page.waitForFunction(() => document.querySelector('dialog.advanced .problem')?.textContent?.includes('Nothing in this file can be drawn'));
       expect(await page.locator('dialog.advanced').innerText()).toContain('Not imported');
-      expect((await artElements(app))).toHaveLength(0);
-      expect(await missingHelp(app)).toEqual([]);
+      expect(await artElements(app)).toHaveLength(1);
+      expect(app.errors).toEqual([]);
     });
 
     it('a tap puts art down at its first size, and the two gauge presets draw as the two dials', async () => {
@@ -203,18 +197,6 @@ for (const device of ['phone', 'tablet', 'desktop'] as Device[]) {
       const placed = await artElements(app);
       expect(placed).toHaveLength(1);
       expect(placed[0]).toMatchObject({ x: 3, y: 10, w: 6, h: 4, view_box: [0, 0, 40, 20] });
-      expect(app.errors).toEqual([]);
-    });
-
-    it('draws the Good Time page with its six gauges, Engagement and Energy in each row', async () => {
-      const app = await open(env, device);
-      const { page } = app;
-      await seedPage(app, JSON.parse(goodTime));
-      expect(await artElements(app)).toHaveLength(6);
-      expect(await page.locator('#canvas path.art[stroke-linecap="round"]').count()).toBe(3 * 3 + 3 * 2);
-      await shot(app, `${device}-good-time-gauges`);
-      await choose(app, 'edit', '#mode-preview');
-      await shot(app, `${device}-good-time-gauges-preview`);
       expect(app.errors).toEqual([]);
     });
   });

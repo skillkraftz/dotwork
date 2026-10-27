@@ -3,7 +3,7 @@ import { TOKEN_LIST, tokenProblem } from './format/tokens';
 import { PAGE_SIDES, type Page } from './format/types';
 import { validatePage } from './format/validate';
 import { LAYOUT_LIMITS, MAX_PAGES, MIN_PAGES, PRINT_LIMITS, pagesLostByResize, resizeBook, roundPageCount, type Book } from './book/book';
-import { EDGE_NAMES, LAYOUT_NAMES, SHEET_LAYOUTS, profileOf, type LayoutProfile, type PrintSettings, type SheetLayout } from './book/impose';
+import { DEFAULT_PRINT, EDGE_NAMES, LAYOUT_NAMES, SHEET_LAYOUTS, profileOf, type LayoutProfile, type PrintSettings, type SheetLayout } from './book/impose';
 import type { Store } from './store';
 import type { SpreadSide } from './format/spread';
 
@@ -259,6 +259,32 @@ export function layoutPicker(printer: () => PrintSettings, edit: EditPrinter, re
   select.onchange = () => { edit((p) => { p.sheet_layout = select.value as SheetLayout; }); redraw(); };
   return h('div', {}, h('label', { class: 'compact wide' }, 'Sheet layout', select),
     h('p', { class: 'hint' }, 'Half letter prints on the paper cut in half (as Statement, borderless). Letter, two-up puts two half-letter sheets on one letter sheet, a top book and a bottom book, with normal margins, so the printer can duplex by itself. The offsets, rotation and scale belong to the layout chosen here; everything else is shared.'));
+}
+
+/**
+ * "Reset this layout to defaults": a button that first shows what each setting of the selected layout is now and what the default is, and
+ * changes nothing until it is confirmed. `redraw` runs after a reset, to show the new values.
+ */
+export function resetLayout(printer: () => PrintSettings, edit: EditPrinter, redraw: () => void): HTMLElement {
+  const layout = printer().sheet_layout, name = LAYOUT_NAMES[layout], box = h('div', { class: 'reset-layout' });
+  const ask = () => {
+    const now = printer().layouts[layout], defaults = DEFAULT_PRINT.layouts[layout];
+    const keys = Object.keys(LAYOUT_LIMITS) as (keyof LayoutProfile)[];
+    const reset = h('button', { type: 'button', class: 'primary', 'data-key': 'reset-layout-yes', 'data-help': 'reset-layout-yes' }, 'Yes, reset');
+    reset.onclick = () => { edit((p) => { p.layouts[layout] = { ...DEFAULT_PRINT.layouts[layout] }; }); redraw(); };
+    const cancel = h('button', { type: 'button', 'data-key': 'reset-layout-cancel', 'data-help': 'reset-layout-cancel' }, 'Cancel');
+    cancel.onclick = () => box.replaceChildren(button);
+    box.replaceChildren(h('div', { class: 'restore-printer', role: 'group', 'aria-label': `Reset ${name} to defaults`, 'data-key': 'reset-layout-question' },
+      h('p', { class: 'problem-title' }, `Reset the ${name.toLowerCase()} settings to the defaults?`),
+      h('div', { class: 'restore-rows' }, h('table', {},
+        h('thead', {}, h('tr', {}, h('th', {}, 'Setting'), h('th', {}, 'Now'), h('th', {}, 'Default'))),
+        h('tbody', {}, ...keys.map((k) => h('tr', { class: now[k] === defaults[k] ? '' : 'differs' }, h('td', {}, PRINT_FIELDS[k].label), h('td', {}, String(now[k])), h('td', {}, String(defaults[k]))))))),
+      h('div', { class: 'problem-actions' }, cancel, reset)));
+  };
+  const button = h('button', { type: 'button', 'data-key': 'reset-layout', 'data-help': 'reset-layout' }, 'Reset this layout to defaults');
+  button.onclick = ask;
+  box.append(button);
+  return box;
 }
 
 /**

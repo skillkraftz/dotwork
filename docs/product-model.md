@@ -1,6 +1,6 @@
 # Dotwork product model: how the app should work
 
-This is the target. [product-map.md](product-map.md) says how the app works now; this says how it should. Phases 1 to 4 (section 10) are built:
+This is the target. [product-map.md](product-map.md) says how the app works now; this says how it should. The cleanup and phases 1 to 4 (section 10) are built:
 pages, spreads and books are documents that save themselves (D3–D7 for them; sections are documents without an editor). Everything else here is not built yet. The printer, calibration and the page and spread drawing tools stay as they are (the editor, Advanced, layers,
 properties, the print pipeline, creep, imposition and the PDFs): this model changes where things are kept, how they are saved,
 how a book is put together and dated, and how pages are linked to their designs.
@@ -83,9 +83,10 @@ memory with Export prominent. It never looks like it saved when it did not.
   `dotwork.spread.*`, `dotwork.book`) are then not read any more; the app starts on an empty document.
 - **The existing Library entries stay.** They are already `{ id, kind, name, updated, data }` in the one IndexedDB store, and pages and
   spreads do not change format, so they simply keep working. `data.name` is dropped the next time an entry is written.
-- **Sections and books** keep their stored shape until phase 5 changes the book format. After it, an old-format section or book is listed in
-  the Library as "Old format" with Export and Delete, and cannot be opened. The owner's page designs are the work that matters and they
-  survive; the books are built again from the outline (a few minutes each, which phases 6 and 7 make quick).
+- **Sections and books** keep their stored shape until phase 5a changes the book format. After it, an old-format section or book is listed in
+  the Library as "Old format" with Export and Delete, and cannot be opened: no conversion and no "Extract pages". The owner's page and spread
+  designs are the work that matters and they survive (the cleanup made them built-ins); the books are built again from the outline (a few
+  minutes each, which phases 6 and 7 make quick). The same holds for every later format change until the database: old files are not read.
 - **Widgets and art** are Library items, not drafts. In phase 3, on first start, the contents of `dotwork.widgets` (`localStorage`) are
   copied once into the Library store as documents of kind `widget` and `art` (same id and name; ` 2` if the name is taken), and a flag
   (`dotwork.widgets.moved`) marks the move done. The old key is left untouched (it is the safety net). If the move fails, what was copied is
@@ -155,7 +156,7 @@ understand from the layers panel. Fill what's left is what lets the same outline
 Dates window, "Apply to more pages…" as the way to repeat a design (it becomes ×N and Duplicate), `swapPages` / `movePage` with no UI
 (map §7), the Contents list (the outline is the contents), and a book file that stored every page and every date (map §2, §4).
 
-**The book file** (the shape, to be written into `docs/book-format.md` in phase 5): the book keeps `name`, `page_count`, `page_numbers`,
+**The book file** (the shape, to be written into `docs/book-format.md` in phase 5a): the book keeps `name`, `page_count`, `page_numbers`,
 `print.signatures`, the four `cover` pages and an `outline`; it no longer stores `pages`, `dates` or `recipe`. The printed pages and their
 dates are worked out from the outline by one function, so the file is the design, as the working rules say.
 
@@ -401,9 +402,9 @@ edited by hand in the book?* (the copy's fingerprint is not the one in the link)
 **D19. Opening a book checks the links** and, if any need attention, shows one line at the top: "4 pages use designs that changed". **Check
 for updates** in Plan does the same. Tapping it opens a list (thumbnail, where it is in the outline, design name, a mark if the copy was edited
 by hand, a mark if the design was deleted) with:
-- **Update this book**: replaces each listed block's page with the design as it is now, turned to its slot, after taking a **snapshot** (D22).
+- **Update this book**: replaces each listed block's page with the design as it is now, turned to its slot.
   Blocks edited by hand are not included unless ticked; the list says "edited here" next to them first.
-- **Choose**: a tick per row, then **Update ticked** (also after a snapshot).
+- **Choose**: a tick per row, then **Update ticked**.
 - **Make an updated copy**: a new book `<name> updated` with the updates applied, the original untouched.
 - **Keep**: leaves the blocks and stores the design's current fingerprint in their links, so the line goes away until the design changes
   again. A deleted design is cleared this way too (the page stays as a plain copy).
@@ -423,6 +424,9 @@ chain of updates.
 `Choose design…` and `Apply to more pages…` stop being the way to repeat (map §3).
 
 ## 8. Book versions
+
+**Later, maybe.** Book versions are not in the plan (section 10). The owner exports a book to keep a copy, and the outline's Undo covers a
+session. This section is what they would be if they come back after November.
 
 **D21. A book keeps snapshots.** A snapshot is a full copy of the book with a time and a reason. They are taken **automatically** before design
 updates are applied, before the calendar or the page count is changed, before a template or section replaces a non-empty outline, and before a
@@ -451,25 +455,33 @@ monthly log book (section 6) is one of them: **Monthly log**, which asks for the
 ## 10. Phases
 
 Each phase leaves the app working and deployable, passes the unit and e2e suites, and updates the docs it touches in place (the working rule:
-no migrations, old files break). **★** marks a change to a page, book or library **file**. There are four file changes (phases 5, 6, 7 and 11: the book outline; the calendar; the first `generated` element, the week block; the other
-generated elements) and one change of meaning (phase 4); the library backup gains two kinds, the favorites and the printer profile in phase 3 (done).
+no back compatibility, old files are listed as "Old format"). **★** marks a change to a page, book or library **file**. The goal of the plan is one
+thing: **build November 2026 and print it.** There are three file changes on the way (phases 5a, 6 and 7: the book outline; the calendar; the first
+`generated` element, the week block) and one change of meaning (phase 4, done); the library backup gained two kinds, the favorites and the printer profile in phase 3 (done).
 
 | # | Phase | What it does | What the owner can try after it |
 |---|---|---|---|
 | 1 | **Documents: pages and spreads** (done) | One Library store; the open page or spread autosaves; "Saved" mark; New starts Untitled with the name-it chip and asks before export, placing and saving as a section; built-ins read-only with Edit a copy; the open document is remembered; Open and Import add documents. The old drafts are no longer read (the owner exported first). | Draw a page, close the tab, come back: it is there. Open a built-in and tap Edit a copy. |
 | 2 | **Documents: books and sections** (done) | Books and sections open and autosave the same way; Open and Import of a book make documents; Export exports the open document; the "can't keep documents" notice. The book view is otherwise unchanged. | Open two books and switch between them without losing either. Import a book twice and get two. |
 | 3 | **Full backup** (done) ★ library file | Widgets and art become documents in the store (moved once from `localStorage`, D8, so nothing saved is lost); a book built from a template with options is a document at once; Back up and Restore carry every document, the favorites and the printer profile (offered, default No), and never replace or delete. Favorites stay in `localStorage` (they are a tap each). | Back up, clear the browser, restore: pages, spreads, books, widgets and art are all back. |
-| 4 | **Token units and `@end`** (meaning change) (done) | `{month+1}`, `{year+1}`, `{week+1}` count in their own unit; week pages read their week; `@end`; the built-in Weekly reflection and the examples are rewritten; the editor shows the new samples. The one-time widget and art move from phase 3 is removed. Books still store dates, so they print as before. Until the calendar (phase 6) a page is a week page if it has `{week}`, any `@end`, or a day offset of 6 or more, and reads the week holding its stored date. At each start a notice lists the documents that use `{month±N}`, `{year±N}` or `{week±N}`, whose meaning changed (removed in phase 5). | See `{month+1}` and `NOV 29 – DEC 5` on a week page in the editor. |
-| 5 | **★ The outline (undated)** | The book becomes an outline: pages, spreads, groups and free pages; ×N and fill; pin to page; drag, Up/Down, Duplicate, Group/Ungroup, Collapse, Delete; save a group as a section; thumbnails, repeat, pages and the live "N of 52 pages"; gap pages for spreads; Make the book N pages; Edit here / Split out; moving blocks. Links (`from`) are recorded but not used yet. Removes `pages`, `dates`, `recipe`, the Build, Dates and Apply windows. Old books and sections become "Old format". | Build a 52-page undated book as an outline on a phone: blank ×10, an idea spread ×6, free pages for the rest, a closing page pinned to the last page. Drag a group around. |
-| 6 | **★ The calendar and derived dates** | `calendar`, the "each day / week / month" repeats, "of the span", week start, week numbers by the book's year, the repeat suggested from a page's tokens and the "reads:" line on every row, spread coverage, short-repeat leave-out, dates on every page, the Page map. The book's dates reach the PDFs, previews and Flip through. Free pages that do not fit after a re-date are kept and marked. | Make a November 2026 book from ordinary pages (a week group: a tracker page, a daily log for each day, a review page), change the calendar to January 2027 and watch every date move. Drag a row and see no date move. |
+| 4 | **Token units and `@end`** (meaning change) (done) | `{month+1}`, `{year+1}`, `{week+1}` count in their own unit; week pages read their week; `@end`; the built-in Weekly reflection and the examples are rewritten; the editor shows the new samples. The one-time widget and art move from phase 3 is removed. Books still store dates, so they print as before. Until the calendar (phase 6) a page is a week page if it has `{week}`, any `@end`, or a day offset of 6 or more, and reads the week holding its stored date. At each start a notice lists the documents that use `{month±N}`, `{year±N}` or `{week±N}`, whose meaning changed (removed in phase 5a). | See `{month+1}` and `NOV 29 – DEC 5` on a week page in the editor. |
+| C | **Cleanup** (done, this PR) | No back compatibility (the page v1 reader and converter, old-shape tests and the monthly-log book test are gone; the rule is in CLAUDE.md); the unit and e2e suites trimmed to rules and math plus one main path per feature; the owner's pages and spreads are built-ins; the gauge widgets; a printer-profile layout missing from a saved profile takes the defaults, and Reset this layout to defaults on the PDF tab. | Open the Library: Daily Log, Daily Log Spread, Book notes, Idea variations and the rest are there. |
+| 5a | **★ The outline (undated)** | The book becomes an outline: pages, spreads, simple groups with a repeat, and free pages; ×N and fill; pin to page; gap pages for spreads; Up / Down to move a block; the live "N of 52 pages". Links (`from`) are recorded but not used yet. Removes `pages`, `dates`, `recipe`, the Build, Dates and Apply windows. Old books and sections become "Old format" (Export and Delete). | Build a 52-page undated book as an outline on a phone: blank ×10, an idea spread ×6, free pages for the rest, a closing page pinned to the last page. |
+| 6 | **★ The calendar and derived dates** | `calendar`, the "each day / week / month" repeats, "of the span", week start, week numbers by the book's year, the repeat suggested from a page's tokens and the "reads:" line on every row, spread coverage, short-repeat leave-out, dates on every page, the Page map. The book's dates reach the PDFs, previews and Flip through. Free pages that do not fit after a re-date are kept and marked. | Make a November 2026 book from ordinary pages (a week group: a tracker page, a daily log for each day, a review page), change the calendar to January 2027 and watch every date move. |
 | 7 | **★ The week block and the monthly log book** | The first `generated` element in the page format, the **Week block** (placed from the widget picker, resizes to its box, sample data and a full / first / last preview in the editor; every weekday at the same row on every page). The built-in **Monthly log** template. Rebuilds the November book fixture as the Monthly log for November 2026 and its test. | Make the Monthly log for November 2026 (40 pages used, 11 free), then January 2027 (six weeks, partial first and last week pages), fill some free pages and re-date: your free pages stay, and the month review stays on page 52. |
-| 8 | **Links and the updates list** | `from` is used: the update line, the list (Update this book, Choose, Make an updated copy, Keep, edited-here marks), Edit here / Edit the design, sections' own update line. No file change. | Change a page design, open the book, update only the pages you pick. |
-| 9 | **Book versions** | Snapshots (automatic and Save version), the timeline, view, print, copy as new book, restore. They are Library records, not part of the book file. | Update a book, then restore the version from before it. |
-| 10 | **The three areas** | The Design / Plan / Print switcher, Library tabs per area, the Print screen (the PDF tab, Calibrate and Printer), settings per area, help entries. | On a phone, go draw → arrange → print without opening a menu to change views. |
-| 11 | **★ Covers from the book** | The other `generated` kinds (Page index, Month tracker); cover tokens read the calendar; the templates' covers use them. | The cover and the page index follow the calendar; twelve monthly books show their page maps side by side in the Library. |
+| 8 | **Build November 2026 and print it** | No new code: the owner builds the book from the outline and the Monthly log, calibrates, prints and binds it. What goes wrong or is slow in that hour is what comes next. | A printed, bound November 2026 journal. |
 
-The old code that goes away with the formats is removed in the phase that makes it unreachable: version-1 page support and its converters, the
-old-book tolerance in `readBook` / `readPrinter`, `dates`, the recipe, `findBuiltinSection`, `monthSpan` and the dead helpers listed in map §7.
+### After November, decided from use
+
+Not scheduled. Each is kept here so it is not forgotten, and none starts before the November book is printed and the owner says which one hurts most.
+
+- **Outline extras:** drag to reorder, Duplicate, Group / Ungroup as separate actions, Collapse, save a group as a section, thumbnails on rows, Make the book N pages, Edit here / Split out.
+- **Links and the updates list:** `from` is used: the update line, the list (Update this book, Choose, Make an updated copy, Keep, edited-here marks), Edit here / Edit the design, sections' own update line. No file change.
+- **The three areas:** the Design / Plan / Print switcher, Library tabs per area, the Print screen (the PDF tab, Calibrate and Printer), settings per area.
+- **Covers from the book:** the other `generated` kinds (Page index, Month tracker); cover tokens read the calendar; the templates' covers use them. ★ file change.
+- **Book versions** (section 8): later, maybe.
+
+The old code that goes away with the formats is removed in the phase that makes it unreachable: `dates`, the recipe, `findBuiltinSection`, `monthSpan` and the dead helpers listed in map §7. The version-1 page reader and its converter went in the cleanup.
 
 ## 11. The database later
 
@@ -497,7 +509,7 @@ week week pages; a plain ×N inside a week group reads the week.
 `preview.png` and Flip through show the book's real dates and numbers.
 
 **Q5. Library backup contents.** Every document (pages, spreads, sections, books, widgets, art), the favorites, and the printer profile with both
-layouts' calibration. Not the built-ins, not the snapshots (D22). The profile belongs to a printer, so Restore never replaces it silently: it
+layouts' calibration. Not the built-ins. The profile belongs to a printer, so Restore never replaces it silently: it
 is offered separately ("Replace your printer settings with the backup's?", both sets of values shown, default No) and only when it differs.
 
 **Q6. Moving and swapping pages.** Both are the outline (and pin to page for a block that must stay put): drag a row or use Up / Down, and Duplicate. Dates follow the block's repeat, so moving
