@@ -69,4 +69,7 @@ export function spansOf(cal: Calendar, kind: Unit, within?: { first: string; las
 }
 
 /** What a page placed for this span reads. */
-export const readingOf = (cal: Calendar, span: Span): Reading => ({ ...span, weekStarts: cal.week_starts, year: calendarYear(cal) });
+export const readingOf = (cal: Calendar, span: Span): Reading => ({
+  ...span, cal: { start: cal.start, end: cal.end }, weekStarts: cal.week_starts, year: calendarYear(cal),
+  ...(span.kind === 'week' ? { from: weekStartOn(span.first, cal.week_starts) } : {}),
+});

@@ -7,11 +7,11 @@ export type Token = (typeof TOKENS)[number];
 /** The date the editor shows tokens for: a Monday in week 44 of 2026. */
 export const SAMPLE_DATE = '2026-10-26';
 
-// {name}, {name+3} / {name-1} (moved by whole units of the token's own kind) or {name@end} (the last day of what the page covers).
+// {name}, {name+3} / {name-1} (moved by whole units of the token's own kind) {name@start} (the first day of what the page covers inside the calendar) or {name@end} (the last day).
 const TOKEN_RE = /\{([^{}]*)\}/g;
-const NAMED_RE = /^([a-z]+)([+-]\d{1,4})?(@end)?([+-]\d{1,4})?$/;
+const NAMED_RE = /^([a-z]+)([+-]\d{1,4})?(@start|@end)?([+-]\d{1,4})?$/;
 
-export type TokenRef = { token: Token; offset: number; end: boolean };
+export type TokenRef = { token: Token; offset: number; /** Reads the last day of what the page covers inside the calendar. */ end: boolean; /** Reads the first day inside the calendar. */ start: boolean };
 
 /** What a page covers: one 'day', or the 'week' holding its date (week start Sunday). This is the editor's guess from the tokens; in a book the block's repeat decides (`Reading`). */
 export type PageKind = 'day' | 'week';
@@ -21,10 +21,12 @@ export type Unit = 'day' | 'week' | 'month';
 
 /**
  * What a page in a book reads (docs/book-format.md, Tokens): a day, a week or a month, as the days of it inside the calendar
- * (`first` to `last`, so a partial week or month is shorter). `{day}` is `first`, `@end` is `last`. `year` is the book's year, which
+ * (`first` to `last`, so a partial week or month is shorter): `@start` reads `first` and `@end` reads `last`. A week page's plain tokens
+ * count from the whole week's start (`from`, which may be before the calendar), so `{day+N}` is always the week's Nth day; a day that is
+ * outside the calendar (`cal`) prints blank for the date tokens (not for `{weekday}` names, which label columns). `year` is the book's year, which
  * numbers the weeks; null (the editor's sample) numbers them by the week's Saturday.
  */
-export interface Reading { kind: Unit; first: string; last: string; weekStarts: number; year: number | null }
+export interface Reading { kind: Unit; first: string; last: string; /** A week page's first day, even outside the calendar. */ from?: string; /** The calendar's first and last day; null for the editor's sample, where every day counts. */ cal?: { start: string; end: string } | null; weekStarts: number; year: number | null }
 
 export function isToken(name: string): name is Token {
   return (TOKENS as readonly string[]).includes(name);
@@ -35,8 +37,8 @@ export function parseToken(inner: string): TokenRef | null {
   const m = NAMED_RE.exec(inner);
   if (!m || !isToken(m[1])) return null;
   const offset = m[2] ?? m[4];
-  if (m[3] && offset) return null; // @end takes no offset
-  return { token: m[1], offset: offset ? Number(offset) : 0, end: !!m[3] };
+  if (m[3] && offset) return null; // @start and @end take no offset
+  return { token: m[1], offset: offset ? Number(offset) : 0, end: m[3] === '@end', start: m[3] === '@start' };
 }
 
 /** True for `{day+1@end}` and the like: a known token, @end and an offset together. */
@@ -59,7 +61,7 @@ export const findEndOffsets = (text: string): string[] => [...text.matchAll(TOKE
 export function tokenProblem(text: string): string | null {
   const reasons = [
     ...findUnknownTokens(text).map((b) => `Unknown token {${b}}`),
-    ...findEndOffsets(text).map((b) => `{${b}}: @end takes no offset (it reads the last day of what the page covers); write {${b.replace(/[+-]\d+/, '')}} or an offset without @end`),
+    ...findEndOffsets(text).map((b) => `{${b}}: @start and @end take no offset (they read the first or last day of what the page covers inside the calendar); write {${b.replace(/[+-]\d+/, '')}} or an offset without @start / @end`),
   ];
   return reasons.length ? reasons.join('; ') : null;
 }
@@ -80,11 +82,13 @@ export function sampleReading(kind: Unit, date: string = SAMPLE_DATE): Reading {
  */
 function readDay(ref: TokenRef, r: Reading): string {
   if (ref.end) return r.last;
+  if (ref.start) return r.first;
+  const base = r.from ?? r.first;
   switch (ref.token) {
-    case 'month': case 'monthname': return addMonths(r.first, ref.offset);
-    case 'year': return addMonths(r.first, ref.offset * 12);
-    case 'week': return addDays(r.first, ref.offset * 7);
-    default: return addDays(r.first, ref.offset);
+    case 'month': case 'monthname': return addMonths(base, ref.offset);
+    case 'year': return addMonths(base, ref.offset * 12);
+    case 'week': return addDays(base, ref.offset * 7);
+    default: return addDays(base, ref.offset);
   }
 }
 
@@ -92,11 +96,14 @@ function readDay(ref: TokenRef, r: Reading): string {
 export function tokenValue(ref: TokenRef, from: Reading | string, kind: PageKind = 'day'): string {
   const r = typeof from === 'string' ? sampleReading(kind, from) : from;
   const day = readDay(ref, r), v = dateValues(day);
+  // A date that falls outside the calendar prints blank (a week page's days before or after it); names and numbers of weeks always print.
+  const dated = ref.token === 'day' || (!ref.start && !ref.end && ref.offset === 0 && (ref.token === 'month' || ref.token === 'monthname' || ref.token === 'year'));
+  if (dated && r.cal && (day < r.cal.start || day > r.cal.end)) return '';
   if (ref.token === 'week' && r.year !== null) return String(weekNumberIn(day, r.weekStarts, r.year));
   // A week or month that spans two months says both ("DEC / JAN"), the way a seven-day look ahead does.
-  if (ref.token === 'months' && !ref.end && ref.offset === 0 && r.first !== r.last) {
+  if (ref.token === 'months' && !ref.start && !ref.end && ref.offset === 0 && r.kind !== 'day') {
     const [a, b] = [parts(r.first).month, parts(r.last).month];
-    return a === b ? v.month : `${dateValues(r.first).month} / ${dateValues(r.last).month}`;
+    return a === b ? dateValues(r.first).month : `${dateValues(r.first).month} / ${dateValues(r.last).month}`;
   }
   return v[ref.token];
 }
@@ -143,7 +150,7 @@ const DAY_UNITS: readonly Token[] = ['day', 'weekday', 'months'];
  * any @end, or a day offset of 6 or more; otherwise a day page.
  */
 export const pageKind = (page: Page): PageKind =>
-  pageTokens(page).some((t) => t.token === 'week' || t.end || (DAY_UNITS.includes(t.token) && Math.abs(t.offset) >= 6)) ? 'week' : 'day';
+  pageTokens(page).some((t) => t.token === 'week' || t.end || t.start || (DAY_UNITS.includes(t.token) && Math.abs(t.offset) >= 6)) ? 'week' : 'day';
 
 /** The kind of a dated page, or null for one that prints no dates. */
 export const pageSpan = (page: Page): PageKind | null => (usesDates(page) ? pageKind(page) : null);
@@ -152,14 +159,14 @@ export const pageSpan = (page: Page): PageKind | null => (usesDates(page) ? page
 export const hasTokens = (text: string): boolean => tokensIn(text).length > 0;
 
 /**
- * The repeat a page (or both pages of a spread) suggests, from its tokens (docs/product-model.md, D13): `@end` or a day offset of 6
+ * The repeat a page (or both pages of a spread) suggests, from its tokens (docs/product-model.md, D13): `@start`, `@end` or a day offset of 6
  * or more is a week; `{weekday}` or `{day}` is a day (a `{week}` beside them is only extra); `{week}` alone is a week; any other
  * date token is a month. Null for a page that prints no dates.
  */
 export function suggestUnit(...pages: (Page | null)[]): Unit | null {
   const t = pages.flatMap((p) => (p ? pageTokens(p) : []));
   if (!t.length) return null;
-  if (t.some((x) => x.end || (DAY_UNITS.includes(x.token) && Math.abs(x.offset) >= 6))) return 'week';
+  if (t.some((x) => x.end || x.start || (DAY_UNITS.includes(x.token) && Math.abs(x.offset) >= 6))) return 'week';
   if (t.some((x) => x.token === 'day' || x.token === 'weekday')) return 'day';
   if (t.some((x) => x.token === 'week')) return 'week';
   return 'month';
@@ -178,8 +185,8 @@ export function readingLabel(r: Reading): string {
  * What a page's first repeat prints, for the outline's "reads:" line: the header it prints when that has date tokens
  * ("SUN NOV 1"), otherwise the days it reads. Null for a page that prints no dates; words when there is nothing to read.
  */
-export function readsText(page: Page | null, read: Reading | null, calendar: boolean): string | null {
+export function readsText(page: Page | null, read: Reading | null, calendar: boolean | 'unplaced'): string | null {
   if (!page || !usesDates(page)) return null;
-  if (!read) return calendar ? 'outside the calendar' : 'blank, no calendar';
+  if (!read) return calendar === 'unplaced' ? 'blank: not repeated by the calendar' : calendar ? 'outside the calendar' : 'blank, no calendar';
   return page.identity && hasTokens(page.identity) ? expandTokens(page.identity, read) : readingLabel(read);
 }

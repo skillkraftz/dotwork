@@ -33,7 +33,7 @@ for (const device of ['phone', 'desktop'] as Device[]) {
       await choose(app, 'page', '#settings');
       await page.waitForSelector('dialog.settings[open]');
       await page.locator('[data-key="settings-identity-page"]').fill('{day+1@end}');
-      expect(await page.locator('dialog.settings .warn').innerText()).toMatch(/@end takes no offset/);
+      expect(await page.locator('dialog.settings .warn').innerText()).toMatch(/@start and @end take no offset/);
       noErrors(app);
     });
   });

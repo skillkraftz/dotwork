@@ -120,6 +120,10 @@ async function build(app: App, device: Device) {
   expect(book.outline[0]).toMatchObject({ repeat: { each: 'week' } });
   expect(book.outline[0].children.map((c: { repeat: unknown }) => c.repeat)).toEqual([{ times: 1 }, { each: 'day', of: 'span' }, { times: 1 }]);
   await shot(app, `${device}-calendar-free-design`);
+  // the last week's tracker (page 37): SUN 29 and MON 30, the other days blank
+  for (let n = 41; n > 37; n--) { await page.focus('.stage-page'); await page.keyboard.press('ArrowLeft'); } // the stage is redrawn on every step
+  await page.waitForFunction(() => document.querySelector('.where strong')?.textContent === 'Page 37');
+  await shot(app, `${device}-november-last-week-tracker`);
   await showOutline(app);
   expect(await missingHelp(app)).toEqual([]);
   expect(await noOverflow(app)).toBe(true);
@@ -139,8 +143,10 @@ async function build(app: App, device: Device) {
   expect(text(pages[38].strings)).toContain('MON NOV 30');
   expect(text(pages[39].strings)).toContain('WEEK 49'); // and its reflection
   expect(text(pages[39].strings)).toContain('NOV 29-NOV 30');
-  const tracker = pages[36].strings; // the last week's tracker: its seven days run on past the month
-  expect(tracker).toEqual(expect.arrayContaining(['SUN', 'MON', 'TUE', '29', '30', '1', '2', '3', '4', '5']));
+  const tracker = pages[36].strings; // the last week's tracker: SUN 29, MON 30, and the days after the month blank
+  expect(tracker).toEqual(expect.arrayContaining(['SUN', 'MON', 'TUE', 'SAT', '29', '30']));
+  expect(tracker).not.toEqual(expect.arrayContaining(['5']));
+  expect(tracker).not.toEqual(expect.arrayContaining(['2']));
   expect(pages[0].strings).toEqual(expect.arrayContaining(['SUN', '1', '2', '7'])); // the first week's
   expect(text(pages[51].strings)).toContain('NOVEMBER REVIEW'); // pinned to page 52
   expect(text(pages[40].strings)).toContain('BOOK NOTES'); // the design on the first free page

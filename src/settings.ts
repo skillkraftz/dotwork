@@ -141,7 +141,7 @@ export class SettingsDialog {
       h('label', { class: 'inline' }, numberOn, 'Print the page number'),
       numberMsg,
       labelled('Identity', identity, identityMsg, tokens),
-      h('p', { class: 'hint' }, `Optional text by the spine. Tokens: ${TOKEN_LIST}; add +1 or -1 to move by the token’s own unit (days, weeks, months or years), as in {month+1}, or @end for the last day the page covers, as in {day@end}. With no identity, row 0 (the header row) is free to draw on, except the page number’s corner.`),
+      h('p', { class: 'hint' }, `Optional text by the spine. Tokens: ${TOKEN_LIST}; add +1 or -1 to move by the token’s own unit (days, weeks, months or years), as in {month+1}, or @start / @end for the first or last day the page covers, as in {day@end}. With no identity, row 0 (the header row) is free to draw on, except the page number’s corner.`),
       sideField,
     ].filter(Boolean) as HTMLElement[];
   }

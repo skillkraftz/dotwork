@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { calendarFor, calendarProblem, spansOf } from '../src/format/calendar';
+import { calendarFor, calendarProblem, readingOf, spansOf } from '../src/format/calendar';
 import { expandTokens, readsText, suggestUnit, type Reading } from '../src/format/tokens';
 import { emptyPage, type Page } from '../src/format/types';
+import { BUILTIN_PAGES } from '../src/builtin/library';
+import { weeklyReflection } from '../src/builtin/pages';
 import { bookExpand, bookLayout, emptyBook, readBook, type Book } from '../src/book/book';
 import { freeBlock, groupBlock, layoutOutline, moveBlock, pageBlock, setFreePage, setRepeat, setShared, spreadBlock, type Block, type Cell, type Child } from '../src/book/outline';
 
@@ -10,7 +12,7 @@ const text = (name: string, identity: string, ...texts: string[]): Page => ({
 });
 const daily = text('Daily', '{weekday} {month} {day}');
 const tracker = text('Tracker', '', '{day}', '{day+6}');
-const reflection = text('Reflection', 'WEEK {week}  {month} {day}-{month@end} {day@end}');
+const reflection = text('Reflection', 'WEEK {week}  {month@start} {day@start}-{month@end} {day@end}');
 const review = text('Month review', '{monthname} REVIEW');
 
 const NOV = calendarFor(2026, 11), JAN = calendarFor(2027, 1), FEB = calendarFor(2027, 2);
@@ -58,7 +60,7 @@ describe('the calendar', () => {
 });
 
 describe('what a page reads', () => {
-  const week = (cal: ReturnType<typeof calendarFor>, i: number): Reading => ({ ...spansOf(cal, 'week')[i], weekStarts: cal.week_starts, year: +cal.start.slice(0, 4) });
+  const week = (cal: ReturnType<typeof calendarFor>, i: number): Reading => readingOf(cal, spansOf(cal, 'week')[i]);
   const read = (r: Reading, t: string) => expandTokens(t, r);
 
   it('numbers weeks by the book’s year: Dec 27 to Jan 2 is week 53 in a December 2026 book and week 1 in a January 2027 book', () => {
@@ -70,14 +72,33 @@ describe('what a page reads', () => {
     expect(read(week(JAN, 5), '{week}')).toBe('6');
   });
 
-  it('reads a week page from its first day inside the calendar to its last', () => {
-    expect(read(week(NOV, 4), '{month} {day} – {month@end} {day@end}')).toBe('NOV 29 – NOV 30');
-    expect(read(week(NOV, 1), '{month} {day} – {month@end} {day@end}')).toBe('NOV 8 – NOV 14');
-    expect(read(week(JAN, 0), '{weekday} {day}…{weekday@end} {day@end}')).toBe('FRI 1…SAT 2');
-    expect(read(week(NOV, 0), '{day} {day+1} {day+6}')).toBe('1 2 7');
+  it('reads a week page from the week’s start, so day columns never shift, and @start and @end from the days inside the calendar', () => {
+    expect(read(week(NOV, 4), '{month@start} {day@start} – {month@end} {day@end}')).toBe('NOV 29 – NOV 30');
+    expect(read(week(NOV, 1), '{month@start} {day@start} – {month@end} {day@end}')).toBe('NOV 8 – NOV 14');
+    expect(read(week(JAN, 0), '{weekday@start} {day@start}…{weekday@end} {day@end}')).toBe('FRI 1…SAT 2');
+    expect(read(week(NOV, 0), '{weekday} {day} {weekday+1} {day+1} {day+6}')).toBe('SUN 1 MON 2 7');
+    expect(read(week(JAN, 0), '{weekday}{day} {weekday+4}{day+4} {weekday+5}{day+5}')).toBe('SUN THU FRI1'); // Dec 27 to Jan 2: the days before the 1st are blank
+    expect(read(week(JAN, 0), '{month} {year}')).toBe(' '); // the week's Sunday is in December, outside the calendar
     expect(read(week(NOV, 4), '{week+1}')).toBe('50');
     expect(read(week(calendarFor(2026, 12), 0), '{months}')).toBe('DEC');
     expect(read(week(calendarFor(2026, 12), 4), '{months}')).toBe('DEC');
+    expect(read(week(JAN, 0), '{months}')).toBe('JAN');
+  });
+
+  it('prints the week tracker with fixed weekday columns and blank days outside the calendar', () => {
+    const tracker = BUILTIN_PAGES.find((p) => p.name === 'week tracker checklist')!;
+    const column = (r: Reading) => tracker.elements.flatMap((e) => (e.type === 'text' && /\{(weekday|day)/.test(e.text) ? [expandTokens(e.text, r)] : [])).join('|');
+    expect(column(week(NOV, 0))).toBe('SUN|1|MON|2|TUE|3|WED|4|THU|5|FRI|6|SAT|7');
+    expect(column(week(NOV, 4))).toBe('SUN|29|MON|30|TUE||WED||THU||FRI||SAT|'); // the last week of November 2026
+    expect(column(week(JAN, 0))).toBe('SUN||MON||TUE||WED||THU||FRI|1|SAT|2'); // the first week of January 2027
+    expect(column(week(JAN, 5))).toBe('SUN|31|MON||TUE||WED||THU||FRI||SAT|');
+  });
+
+  it('prints the Weekly reflection’s range from @start to @end', () => {
+    const identity = weeklyReflection().identity!;
+    expect(read(week(NOV, 4), identity)).toBe('WEEK 49  NOV 29-NOV 30');
+    expect(read(week(JAN, 0), identity)).toBe('WEEK 1  JAN 1-JAN 2');
+    expect(read(week(calendarFor(2026, 12), 4), identity)).toBe('WEEK 53  DEC 27-DEC 31');
   });
 
   it('reads a day page its day and a month page its month', () => {
@@ -102,6 +123,7 @@ describe('what a page reads', () => {
     expect(readsText(daily, r('day'), true)).toBe('SUN NOV 1');
     expect(readsText(tracker, r('week'), true)).toBe('NOV 1 – NOV 7');
     expect(readsText(reflection, r('week'), true)).toBe('WEEK 45  NOV 1-NOV 7');
+    expect(readsText(reflection, week(NOV, 4), true)).toBe('WEEK 49  NOV 29-NOV 30'); // the partial last week, from @start to @end
     expect(readsText(text('Notes', 'NOTES'), r('day'), true)).toBeNull();
     expect(readsText(daily, null, false)).toBe('blank, no calendar');
     expect(readsText(daily, null, true)).toBe('outside the calendar');
@@ -166,7 +188,7 @@ describe('dates come from each block’s own repeat', () => {
     expect(layoutOutline([each(pageBlock(review), 'month')], 52, calendarFor(2026, 11, 2)).used).toBe(2);
   });
 
-  it('gives a spread that repeats each day two days a repeat, or one day for both pages', () => {
+  it('gives a spread that repeats each day or week two a repeat, or one for both pages', () => {
     const left = { ...daily, side: 'left' as const }, right = { ...daily, side: 'right' as const };
     const s = each(spreadBlock('Daily spread', left, right), 'day');
     const lead = pageBlock(null); // page 1 is a right page, so the spreads start on page 2
@@ -182,11 +204,16 @@ describe('dates come from each block’s own repeat', () => {
     const odd = layoutOutline([lead, each(spreadBlock('S', left, right), 'day')], 52, calendarFor(2026, 12)); // 31 days
     expect(odd.used).toBe(33);
     expect(odd.cells[32]!.read).toBeNull(); // the last right page has no day left
-    // each week: both pages share the week
-    const wk = layoutOutline([each(spreadBlock('W', left, right), 'week')], 52, NOV);
-    expect(wk.used).toBe(11); // a gap page, then 5 spreads
-    expect(wk.cells[1]!.read).toEqual(wk.cells[2]!.read);
-    expect(wk.cells[1]!.read!.first).toBe('2026-11-01');
+    // each week: each page its own week, the left page week k and the right page week k+1; the switch makes them share
+    const wk = layoutOutline([lead, each(spreadBlock('W', left, right), 'week')], 52, NOV);
+    expect(wk.used).toBe(7); // a gap page, then 3 spreads of two weeks (the last right page has no week left)
+    expect([1, 2, 3, 4, 5, 6].map((i) => wk.cells[i]!.read?.first)).toEqual(['2026-11-01', '2026-11-08', '2026-11-15', '2026-11-22', '2026-11-29', undefined]);
+    const wkShared = layoutOutline([lead, setShared([each(spreadBlock('W', left, right), 'week')], [0], true)[0]], 52, NOV);
+    expect(wkShared.used).toBe(11);
+    expect(wkShared.cells[1]!.read).toEqual(wkShared.cells[2]!.read);
+    // each month: both pages share the month
+    const mo = layoutOutline([lead, each(spreadBlock('M', left, right), 'month')], 52, NOV);
+    expect(mo.cells[1]!.read).toEqual(mo.cells[2]!.read);
   });
 
   it('prints the dates in the book’s pages, and nothing on its covers or without a calendar', () => {

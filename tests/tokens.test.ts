@@ -103,7 +103,7 @@ describe('@end', () => {
     expect(findEndOffsets('{day+1@end} {day@end+1} {day@end} {month-2@end}')).toEqual(['day+1@end', 'day@end+1', 'month-2@end']);
     expect(findUnknownTokens('{day+1@end} {day@end}')).toEqual([]);
     expect(expandTokens('{day+1@end}', '2026-10-28', 'week')).toBe('{day+1@end}');
-    expect(tokenProblem('{day+1@end}')).toMatch(/@end takes no offset/);
+    expect(tokenProblem('{day+1@end}')).toMatch(/@start and @end take no offset/);
     expect(tokenProblem('{day@end} {nope@end}')).toBe('Unknown token {nope@end}');
     for (const bad of ['{day+1@end}', '{day@end-1}']) {
       const r = readPage({ ...page(bad), identity: bad });
@@ -111,7 +111,7 @@ describe('@end', () => {
       if (!r.ok) {
         expect(r.issues).toHaveLength(1);
         expect(r.issues[0]).toMatchObject({ rule: 'token', path: 'identity' });
-        expect(r.issues[0].message).toMatch(/@end takes no offset/);
+        expect(r.issues[0].message).toMatch(/@start and @end take no offset/);
       }
     }
     const inText = readPage(page('', '{month+1@end}'));
@@ -123,7 +123,7 @@ describe('@end', () => {
 describe('the built-in Weekly reflection', () => {
   it('reads the week it is in, ending with @end', () => {
     const p = weeklyReflection();
-    expect(p.identity).toBe('WEEK {week}  {month} {day}-{month@end} {day@end}');
+    expect(p.identity).toBe('WEEK {week}  {month@start} {day@start}-{month@end} {day@end}');
     expect(pageSpan(p)).toBe('week');
     expect(sampleFor(p)(p.identity!)).toBe('WEEK 44  OCT 25-OCT 31');
     expect(expandFor('2026-12-01', p)(p.identity!)).toBe('WEEK 49  NOV 29-DEC 5');

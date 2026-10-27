@@ -432,7 +432,11 @@ export class Arranger {
   /** What the block's first repeat prints ("SUN NOV 1"), or null for a group, free pages, or pages that print no dates. */
   private readsLine(block: Block, path: Path): string | null {
     if (block.type === 'group' || block.type === 'free') return null;
-    const lay = bookLayout(this.book), cal = !!this.book.calendar;
+    const lay = bookLayout(this.book);
+    // With a calendar, a block that doesn't follow it (a plain ×N, a fill) reads nothing; say so rather than "outside the calendar".
+    const parent = path.length === 2 ? this.book.outline[path[0]] : null;
+    const follows = isEach(block.repeat) || (parent !== null && parent.type === 'group' && isEach(parent.repeat));
+    const cal: boolean | 'unplaced' = this.book.calendar ? (follows ? true : 'unplaced') : false;
     const first = firstCell(lay, path[0], path.length === 2 ? path[1] : undefined);
     const pages = block.type === 'spread' ? [block.left, block.right] : [block.page];
     const reads = pages.map((p, i) => readsText(p, first ? (lay.cells[first.slot - 1 + i]?.read ?? null) : null, cal));
@@ -494,7 +498,7 @@ export class Arranger {
         controls.push(this.repeatSelect(path, block));
         if (!isEach(block.repeat)) controls.push(this.stepper('Repeat', 'outline-repeat', timesOf(block.repeat), 1, MAX_REPEAT, (n) => this.editOutline((x) => setRepeat(x, path, { times: n }))));
         else if (block.type === 'spread') {
-          const unit = block.repeat.each, shared = block.shared ?? unit !== 'day';
+          const unit = block.repeat.each, shared = block.shared ?? unit === 'month';
           controls.push(h('div', { class: 'field' }, h('span', { class: 'field-label' }, 'Pages'),
             button('outline-shared', shared ? `Both pages the same ${unit}` : `One ${unit} for each page`, () => this.editOutline((x) => setShared(x, path, !shared)), { 'aria-pressed': String(shared) })));
         }

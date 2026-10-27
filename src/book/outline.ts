@@ -20,8 +20,8 @@ export type Pin = number | 'last';
 
 export interface PageBlock { type: 'page'; /** null is a blank page. */ page: Page | null; repeat: Repeat; pin?: Pin; from?: Link }
 /**
- * `shared` sets whether both pages read the same day, week or month. Left out, a spread that repeats each day gives each page its
- * own day (two days a repeat) and one that repeats each week or month gives both pages the one week or month.
+ * `shared` sets whether both pages read the same day, week or month. Left out, a spread that repeats each day or week gives each page
+ * its own (two a repeat: the left page k, the right page k+1) and one that repeats each month gives both pages the one month.
  */
 export interface SpreadBlock { type: 'spread'; name: string; left: Page; right: Page; repeat: Repeat; shared?: boolean; pin?: Pin; from?: Link }
 /**
@@ -113,7 +113,7 @@ const repeatReads = (r: Repeat, times: number, cal: Calendar | undefined, span: 
 function pageAtoms(c: PageBlock | SpreadBlock, child: number | undefined, times: number, cal: Calendar | undefined, span: Reading | null): Atom[] {
   const { reads, unit } = repeatReads(c.repeat, times, cal, span);
   if (c.type === 'page') return reads.map((r) => ({ pages: [c.page], reads: [r], child }));
-  if (c.shared ?? unit !== 'day') return reads.map((r) => ({ pages: [c.left, c.right], reads: [r, r], child }));
+  if (c.shared ?? (unit === null || unit === 'month')) return reads.map((r) => ({ pages: [c.left, c.right], reads: [r, r], child }));
   const out: Atom[] = [];
   for (let i = 0; i < reads.length; i += 2) out.push({ pages: [c.left, c.right], reads: [reads[i], reads[i + 1] ?? null], child });
   return out;

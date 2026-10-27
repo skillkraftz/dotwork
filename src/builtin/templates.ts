@@ -1,4 +1,4 @@
-import { emptyBook, setCover, type Book } from '../book/book';
+import { emptyBook, resizeBook, setCover, type Book } from '../book/book';
 import { fillRepeat, groupBlock, pageBlock, spreadBlock, type Block, type Child } from '../book/outline';
 import { calendarFor, type Calendar } from '../format/calendar';
 import { addDays, weekStart } from '../format/dates';
@@ -76,7 +76,7 @@ const monthlyJournal: BookTemplate = {
 const yearPlanner: BookTemplate = {
   id: 'year-planner',
   name: 'Year planner',
-  description: 'A weekly page for each week you choose, then idea spreads to fill the book. The year goals cover and the year index are made for that year. The book has a calendar from the first to the last week, and each weekly page prints its week.',
+  description: 'The Weekly spread for each week you choose (a week on each page, the day strip on the outer edge of both), then idea spreads to fill the book. The year goals cover and the year index are made for that year. The book has a calendar from the first to the last week, and each weekly page prints its week. A whole year takes 56 pages: page 1 is a gap page, because the spreads start on a left page.',
   uses: IDEAS,
   fields: [
     YEAR,
@@ -87,10 +87,16 @@ const yearPlanner: BookTemplate = {
     const year = a.year ?? YEAR.value, first = a.first ?? 1, last = Math.max(first, a.last ?? 52);
     // The weeks you chose, kept inside the year so the calendar (and so the week numbers) are the year's.
     const jan1 = `${String(year).padStart(4, '0')}-01-01`, dec31 = `${String(year).padStart(4, '0')}-12-31`;
+    const weeks = last - first + 1;
     const open = weekStart(year, first), close = addDays(weekStart(year, last), 6);
     const calendar: Calendar = { start: open > jan1 ? open : jan1, end: close < dec31 ? close : dec31, week_starts: 0 };
-    const outline: Block[] = [each(weeklyPage('right', true), 'week'), ideaSpreads()];
-    return assemble(`${year} year planner`, outline, yearGoals(year), yearIndex(year), calendar);
+    // The Weekly spread (the day strip on the outer edge of both pages) repeats each week, a week on each page: the left page week k, the right page k+1.
+    const weekly = buildSpread('Weekly spread', weeklyPage('left', true), weeklyPage('right', true));
+    const outline: Block[] = [{ ...spreadBlock(weekly.name, weekly.left, weekly.right), repeat: { each: 'week' } }, ideaSpreads()];
+    const book = assemble(`${year} year planner`, outline, yearGoals(year), yearIndex(year), calendar);
+    // Page 1 is a right page, so the spreads start on page 2 (page 1 is a gap page): a whole year of weeks needs more than 52 pages.
+    resizeBook(book, Math.max(BOOK_PAGES, 1 + 2 * Math.ceil(weeks / 2)));
+    return book;
   },
 };
 

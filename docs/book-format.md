@@ -111,14 +111,17 @@ each week (or month, or day) gives its children that repeat's **span**. Inside s
 pages in a partial week; a plain `{"times": n}` child reads the span (a tracker and a reflection in a week group read the week). A
 block that reads a span in a group that does not repeat by the calendar, and any `each` repeat in a book with no calendar, is placed
 once and undated. A spread has an optional `"shared"`: true makes both pages read the same day, week or month; left out, a spread
-that repeats each day gives each page its own day (two days a repeat, the left page then the right; an odd last day leaves the right
-page undated) and one that repeats each week or month gives both pages the one week or month; false makes a week or month spread read
-two consecutive ones.
+that repeats each day or each week gives each page its own (two a repeat, the left page then the right: left page week *k*, right page
+week *k*+1; an odd last one leaves the right page undated) and one that repeats each month gives both pages the one month; false makes
+a month spread read two consecutive months.
 
 **Tokens.** Each page placed by the outline reads one day, week or month, as the days of it inside the calendar. A day page reads its
-day. A week page: `{day}`, `{weekday}`, `{month}`, `{year}` are its first day inside the calendar, offsets count from that day,
-`{day@end}` and the other `@end` tokens are its last day inside the calendar (so the last week of November 2026 reads `NOV 29 – NOV 30`).
-A month page reads its first day inside the calendar, with `@end` its last. `{week}` is the week's number **by the book's year**
+day. A week page: `{day}`, `{weekday}`, `{month}`, `{year}` are the **week's** first day (a Sunday with the default week start) and
+`{day+N}` / `{weekday+N}` its Nth day, so day columns never shift; a date token whose day is outside the calendar prints blank
+(`{day}`, `{day+N}`, and `{month}`, `{monthname}`, `{year}` without an offset), while `{weekday}` names always print because they label
+columns. `{x@start}` reads the first day of what the page covers *inside the calendar* and `{x@end}` the last day inside it (neither
+takes an offset), so the last week of November 2026 reads `NOV 29 – NOV 30` and the first week of January 2027 `JAN 1 – JAN 2` with
+`{month@start} {day@start} – {month@end} {day@end}`. A month page reads its first day inside the calendar. `{week}` is the week's number **by the book's year**
 (the year `start` is in): the week holding 1 January of that year, counted from the week start, is week 1, so Dec 27 to Jan 2 is week
 53 in a book that starts in December 2026 and week 1 in one that starts in January 2027; `{week+1}` is the next week's number.
 `{months}` of a week or month that spans two months reads `DEC / JAN`. Pages that read nothing (no calendar, a gap page, a block
