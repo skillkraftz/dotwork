@@ -14,14 +14,16 @@ previews of them). It runs entirely in the browser: no backend, nothing leaves t
 - **Design pages and spreads.** A page is a stack of layered elements on whole or half cells: pattern (lines, grid, dots), shade
   (three tones), box, rule, checkboxes, text, sequence (numbers, letters, lists, icons) and imported SVG art. Row 0 is the header the
   software draws (page number at the outer corner, the page's identity by the spine; leave the identity empty to draw there). Date tokens
-  such as `{weekday}` and `{day+1}` print real dates in a dated book. Tools are in a three-mode bottom bar (Select, Draw, Advanced); selection is by
+  such as `{weekday}` and `{day+1}` are ready for dated books (a book has no dates yet, so they print blank). Tools are in a three-mode bottom bar (Select, Draw, Advanced); selection is by
   tap or drag-box, with groups, layers, a properties drawer, widgets (saved selections) and a help mode that explains any control.
-- **Keep them in a Library.** Pages, spreads, sections (runs of book pages), books, widgets and art, with search, tabs, favorites and a
+- **Keep them in a Library.** Pages, spreads, sections (groups of blocks), books, widgets and art, with search, tabs, favorites and a
   backup file. It comes filled with every reference page, paired spreads, starter widgets, sections and book templates; built-ins can't be
   changed, only copied.
-- **Arrange a book.** The Book view shows one page at a time (or an opening), covers included. Choose a design per page, apply it to a range,
-  give pages dates (**Dates…**), build a whole book from repeated sections (**Build book…**, with a "Weekly journal" preset), save a run of pages as a
-  section, and flip through the result.
+- **Arrange a book.** A book is an **outline**: a list of blocks (a page, a spread, free pages, or a group that repeats its contents), each
+  repeated a number of times or filling what is left, and optionally pinned to a page such as the last. The Book view shows the outline as rows
+  with the live total ("48 of 52 pages", red when it is over, with **Make the book N pages**), Up / Down, Duplicate, Delete and moving a block
+  into or out of a group; spreads always start on a left page, with a gap page where needed. It shows the pages it makes one at a time (or an
+  opening), covers included, and flips through the result. A book from before the outline is listed in the Library as Old format.
 - **Print.** One zip with `pages.pdf`, the covers (`cover-outside.pdf`, `cover-inside.pdf`), and print-ready files for manual duplex
   (`print-first.pdf` reversed, then `print-second.pdf`; `print-duplex.pdf` for a printer that duplexes itself), on half letter or two books
   per letter sheet, with creep, fore-edge shifts, `preview.png` and a `summary.txt`. A **Calibrate** wizard makes a calibration sheet and a creep
@@ -67,8 +69,8 @@ Settings > Pages > Source: GitHub Actions). The build uses relative paths, so it
 | | |
 |---|---|
 | [docs/page-format.md](docs/page-format.md) | The page file (version 2) and tokens. Shared with journal-system, the sister Python project that generates dated books in bulk |
-| [docs/book-format.md](docs/book-format.md) | The book file, dates and the section recipe, the printer profile, the print files, sheet layouts and the calibration files |
-| [docs/library-format.md](docs/library-format.md) | The library backup file and the section file |
+| [docs/book-format.md](docs/book-format.md) | The book file and its outline, the printer profile, the print files, sheet layouts and the calibration files |
+| [docs/library-format.md](docs/library-format.md) | The library backup file, the section file and Old format |
 | [docs/print-pipeline.md](docs/print-pipeline.md) | How the print files are made: layout, then the printer's positions-only correction, then the PDF |
 | [docs/product-map.md](docs/product-map.md) | How the app works today, from the code |
 | [docs/product-model.md](docs/product-model.md) | How it should work next |
@@ -76,9 +78,9 @@ Settings > Pages > Source: GitHub Actions). The build uses relative paths, so it
 
 ## Where it's going
 
-The next step is not more features but a simpler shape. [docs/product-model.md](docs/product-model.md) describes it: every page, spread, section
-and book is a document that saves itself; a book is an outline of blocks (pages, spreads, groups) each with a repeat ("each week of the
-calendar", "fill what's left"), so undated books and dated books are built the same way and dates are worked out, never typed; pages stay linked
+The next step is not more features but a simpler shape. [docs/product-model.md](docs/product-model.md) describes it. Done so far: every page, spread, section
+and book is a document that saves itself, and a book is an outline of blocks (pages, spreads, groups) each with a repeat (×N, "fill what's left") and
+an optional pin. Next: repeats like "each week of the calendar", so undated books and dated books are built the same way and dates are worked out, never typed; pages stay linked
 to their designs so a change can be brought into a book, with snapshots to go back; and the app is organised as Design, Plan and Print, sharing one
 Library. A database comes after that.
 

@@ -1,12 +1,12 @@
 # Dotwork book file, version 1
 
-A book is the 52 (or more) interior pages of a pocket notebook plus its four
-cover pages (inside and outside). It embeds every page it
-uses, so one file is the whole book. **The book file holds the design only**: how the pages are printed (creep, shifts,
-offsets, rotation, scale, tones, the sheet layout) is the printer's, kept in the browser as the printer profile (see below),
-so changing those settings never changes the book format or stops a book from opening. Each page inside is a complete page file
-exactly as `page-format.md` defines it (version 2); this document adds nothing
-to the page format.
+A book is the 52 (or more) interior pages of a pocket notebook plus its four cover pages (inside and outside). It is an
+**outline**: an ordered list of blocks (a page, a spread, free pages or a group), each with how often it repeats. The pages the
+book prints are worked out from the outline by one function (`layoutOutline` in `src/book/outline.ts`); the file stores the
+design, not a page list. It embeds every page it uses, so one file is the whole book. **The book file holds the design only**: how
+the pages are printed (creep, shifts, offsets, rotation, scale, tones, the sheet layout) is the printer's, kept in the browser as
+the printer profile (see below), so changing those settings never changes the book format or stops a book from opening. Each page
+inside is a complete page file exactly as `page-format.md` defines it (version 2); this document adds nothing to the page format.
 
 ```json
 {
@@ -16,10 +16,17 @@ to the page format.
   "page_count": 52,
   "page_numbers": true,
   "print": { "signatures": 1 },
-  "pages": [ { "...": "a dotwork-page with side \"right\"" }, null, { "...": "..." } ],
-  "dates": [ "2026-10-18", "2026-10-25", null ],
-  "cover": { "front": { "...": "a dotwork-page with side \"left\"" }, "back": null, "outside_front": null, "outside_back": null },
-  "recipe": { "month": "2026-11", "steps": [ { "section": { "...": "a dotwork-section" }, "repeat": { "kind": "fill" } } ] }
+  "outline": [
+    { "type": "page", "page": null, "repeat": { "times": 10 } },
+    { "type": "group", "name": "Ideas", "repeat": { "times": 6 }, "children": [
+      { "type": "spread", "name": "Ideas spread", "left": { "...": "a dotwork-page, side left" }, "right": { "...": "a dotwork-page, side right" },
+        "repeat": { "times": 1 }, "from": { "id": "example:spread:Ideas spread", "fingerprint": "1kb7x2vq4m" } },
+      { "type": "page", "page": { "...": "a dotwork-page" }, "repeat": { "times": 1 } }
+    ] },
+    { "type": "free", "pages": [] },
+    { "type": "page", "page": { "...": "a dotwork-page" }, "repeat": { "times": 1 }, "pin": "last" }
+  ],
+  "cover": { "front": { "...": "a dotwork-page with side \"left\"" }, "back": null, "outside_front": null, "outside_back": null }
 }
 ```
 
@@ -29,75 +36,75 @@ to the page format.
 | `page_count` | Interior pages: a multiple of 4, from 4 to 400. Usually 52 (13 sheets). |
 | `page_numbers` | Print the page number in each page's outer top corner. On by default. The covers never carry one. |
 | `print` | Optional. An object whose only meaning is `signatures`: how many signatures to split the book into, a whole number from 1 to 20, default 1 (a missing or unusable number is 1). Pages are split evenly and each signature rounds up to a multiple of 4, so a short last signature is padded with blank filler pages. Everything else in `print`, whatever its shape, is ignored: books saved by earlier versions kept the printer's settings here (and so may carry `creep_per_sheet_mm`, `layouts`, tones…), and they all still open. |
-| `pages` | Exactly `page_count` entries; entry *i* is page *i* + 1. A page, or `null` for a blank page. |
-| `dates` | Optional. Exactly `page_count` entries; entry *i* is the date of page *i* + 1, as `"YYYY-MM-DD"` (a real calendar day), or `null` for an undated page. A book without `dates` has none. The covers have no date. |
-| `recipe` | Optional. The steps **Build book** made the pages from, so it can be run again for another month. See **Recipe** below. |
+| `outline` | Required (it may be empty: every page is then blank). At most 200 blocks, laid out in order. See **The outline** below. |
 | `cover.front` | The inside front cover, a left page facing page 1 when the book is open. A page or `null`. |
 | `cover.back` | The inside back cover, a right page facing the last page. A page or `null`. |
 | `cover.outside_front` | Optional (missing means blank). The outside front cover, a right page. A page or `null`. |
 | `cover.outside_back` | Optional (missing means blank). The outside back cover, a left page. A page or `null`. |
 
-**Sides.** Page 1 is a right-hand page, so odd pages are right-hand and even
-pages left-hand. Each page's `side` must match its slot (`cover.front` is
-left, `cover.back` is right, `cover.outside_front` is right, `cover.outside_back` is left). Dotwork sets this when it places a design in a
-slot, so the same saved page can go anywhere. If turning it would put an element
-over the page number's corner (see `page-format.md`), the placed copy gets
-`"page_number": false`.
+**Old books.** A book from before the outline stored every page in a `pages` list (with `dates` and a `recipe`). It has no
+`outline`, so it is not read and not converted: the Library lists it as **Old format** with Export and Delete.
 
-**Covers.** The four cover pages never print a page number, so the page-number
-corner is not reserved on them: an element at row 0, x 0 to 2 of `cover.front`
-is valid whatever its `page_number` says. Seen from outside, the sheet that prints
-the outsides reads *outside back* (left) | *outside front* (right), and the sheet that
-prints the insides reads *inside front* (left) | *inside back* (right). The inside
-front cover is the back of the outside front cover, and so on. In Book view the four
-cover pages are the slots around the pages: outside front, inside front, pages 1 to
-N, inside back, outside back.
+## The outline
 
-**Tokens.** A page with a date in `dates` prints its tokens (`{weekday}`,
-`{day+1}`, `{months}` and the rest, see `page-format.md`) filled in from that
-date, in `pages.pdf`, the print files and the previews. A page with no date, and
-the covers, print them blank, so the date can be written in by hand. In
-Dotwork's Book view, **Dates…** (More menu) dates a range of pages: *each page is one week* (a year and a week number; every page gets
-a Sunday, seven days apart) or *each page is one day* (a start date; consecutive days). It opens on the current page up to the end of
-the run of pages that share its design, in *one week* mode, and starts from today (the local date, never UTC) only when the book has no dates.
-Choosing a design for a page keeps the page's date unless the new design uses no date tokens, in which case the date is cleared. Dates
-survive resizing the book (new pages start undated). The file format says that a date travels with its page, and the book code can move and swap
-pages (`movePage`, `swapPages`), but the Book view has no control that does either yet.
+A **block** is one of:
 
-**Recipe.** **Build book…** builds every interior page from a list of *steps*, each repeating a *section* (a run
-of pages kept in the Library, see `library-format.md`). It replaces every interior page and its date, as one Undo step,
-and keeps the steps in `recipe`, so the book can be built again for another month by changing a step's month or start date:
+| `type` | Fields | Meaning |
+|--------|--------|---------|
+| `page` | `page`, `repeat` | A page design, or `null` for a blank page, placed `repeat` times. The design is stored as designed; it is turned to face the side of each page it lands on. |
+| `spread` | `name`, `left`, `right`, `repeat` | A left and a right page that stay together, placed `repeat` times. A spread always starts on a left page (see **Gap pages**). `left` must have `"side": "left"` and `right` `"side": "right"`. |
+| `free` | `pages` | Pages the owner fills by hand. At the top level the block takes every page the other blocks leave; each entry of `pages` is the design kept on that free page (`null` is blank), and the rest are blank. Inside a group it is exactly `pages` (one blank page when empty) for each repeat of the group. |
+| `group` | `name`, `children`, `repeat` | `children` are page, spread and free blocks (groups do not nest) that repeat together: a group's `repeat` repeats its whole contents. Inside a group a block's `repeat` is `{"times": n}` only and it has no `pin`. |
 
-```json
-"recipe": {
-  "month": "2026-11",
-  "gap": { "...": "a page; Notes when absent" },
-  "steps": [
-    { "section": { "...": "a dotwork-section" }, "repeat": { "kind": "weeks", "only_in_month": true } },
-    { "section": { "...": "a dotwork-section" }, "repeat": { "kind": "times", "count": 1 }, "start": "2026-11-01" },
-    { "section": { "...": "a dotwork-section" }, "repeat": { "kind": "fill" } }
-  ]
-}
-```
+Every page, spread and group block has a `repeat`: `{"times": n}` (1 to 400; the default is 1) or `{"fill": true}`, **fill what is
+left**: as many repeats as use up the pages the other blocks leave, so the book keeps its page count. Fill is allowed only on a
+top-level block. **At most one top-level block takes what is left: one fill, or one `free` block.**
 
-| Field | Meaning |
-|-------|---------|
-| `month` | The month the steps start from, `"YYYY-MM"`: the month of every `weeks` step without a month of its own, and the 1st of it is the first date of every other step without a `start`. |
-| `gap` | The page that keeps parts on their side of the spine. A Notes page when absent. |
-| `steps` | Up to 40, laid out in order from page 1. Each holds a whole `section` (so the book file is self-contained), a `repeat`, and optionally a `start`. |
-| `repeat` | `{"kind": "times", "count": n}`: n repeats (1 to 400). `{"kind": "weeks", "month": "YYYY-MM", "only_in_month": b}`: one repeat for each week touching the month (`month` is optional, the recipe's by default); every repeat starts on the section's `weekday`, the week holding the 1st first, until a week starts after the month's last day. With `only_in_month`, a **day page** (its tokens read its own day, `{weekday}` or `{day}`, with no offset and no `{months}`) dated outside the month is left out; week pages and undated pages stay. `{"kind": "fill"}`: as many whole repeats as fit in the pages the other steps leave; at most one step may do this. The steps after it sit on the last pages of the book, and any pages left over stay blank between. |
-| `start` | The first date (`YYYY-MM-DD`) of a `times` or `fill` step; later repeats move it as the section's `move` says (`none`, a `day`, a `week` or a `month`, keeping the day of the month unless the month is too short). A `weeks` step ignores it. |
+A top-level page, spread or group block can be **pinned** with `"pin": 52` (a page number, 1 to 400) or `"pin": "last"` (the
+last page of the book, which follows the book if it is resized). A pinned block is placed first, ending on the last page for
+`"last"`; the other blocks flow around it, and the fill or free pages before it take up the slack. A block cannot both fill and be
+pinned, and `free` blocks cannot be pinned. A pin that collides with another pinned block is reported as an issue in the layout.
 
-Each repeat of a section starts on the side of the spine the section began on (`left`). If it would begin on the other
-side, one gap page is inserted first; when steps after a `fill` don't end exactly on the last page, the pages after them are
-gap pages. A page dated by the section is dated its repeat's first date plus its `days`; an undated page stays undated.
-The build can't be applied when the steps need more pages than the book has (the window says by how many); fewer leaves
-the rest blank, and the window shows "38 of 52 used, 14 left" as the steps change.
+Page, spread and group blocks may carry `"from": { "id": "...", "fingerprint": "..." }`: the Library design they were placed from
+(the `id` of a saved page or spread, or `example:<name>` / `example:spread:<name>` for a built-in) and a short hash of that design
+as it was placed (`src/format/fingerprint.ts`: a hash of its `identity`, `grid` and `elements`; for a spread, the two pages'
+hashes joined with `/`). It is recorded only; nothing reads it yet.
 
-**Validation.** A reader rejects the whole file, and says which rule failed and
-where, if the format or version is wrong, `page_count` is not a multiple of 4,
-`pages` or `dates` has the wrong length, a date is not a real `YYYY-MM-DD` day, a `recipe` is malformed (its month, a step's `repeat` or `start`, more than one `fill`, or a section: see `library-format.md`), or a page breaks
-the page rules or sits on the wrong side. The page-number corner rule is not applied to the covers.
+**Laying the outline out** (`layoutOutline`):
+
+1. Pinned blocks are placed first, each at its page (`"last"`: so that it ends on the last page).
+2. The other blocks follow one after another from page 1, skipping pinned pages.
+3. The block that takes what is left gets the largest number of repeats (or free pages) whose last page is still within the book.
+4. Blocks that need more pages than the book has run past the end: the layout is **over** by the difference (the last page used
+   minus `page_count`), and the Book view turns the count red, offers **Make the book N pages** (the next multiple of 4 that holds
+   it) and does not print.
+
+**Gap pages.** Spreads start on a left (even) page. Where a spread would land on a right page, or its second page is taken by a
+pinned block, a **gap page** (the built-in Notes page) is inserted first. It counts in the page total and is shown as a dim row in
+the outline.
+
+**Page total.** "N of 52 pages" is the number of pages the blocks take, gap pages included; pages nothing is placed on print blank.
+
+**Sides.** Page 1 is a right-hand page, so odd pages are right-hand and even pages left-hand; `cover.front` is left, `cover.back` is
+right, `cover.outside_front` is right, `cover.outside_back` is left. A block's page is turned to the side of each page it lands on
+when it is drawn. If turning it would put an element over the page number's corner (see `page-format.md`), that placed page prints
+without its number; the design in the book is untouched. Cover pages are stored on their own side (`side` must match).
+
+**Covers.** The four cover pages never print a page number, so the page-number corner is not reserved on them: an element at row 0,
+x 0 to 2 of `cover.front` is valid whatever its `page_number` says. Seen from outside, the sheet that prints the outsides reads
+*outside back* (left) | *outside front* (right), and the sheet that prints the insides reads *inside front* (left) | *inside back*
+(right). The inside front cover is the back of the outside front cover, and so on. In Book view the four cover pages are the
+slots around the pages: outside front, inside front, pages 1 to N, inside back, outside back.
+
+**Tokens.** A book has no dates yet (they arrive with the calendar): in an outline book every date token (`{weekday}`,
+`{day+1}`, `{months}` and the rest, see `page-format.md`) in the pages and the covers prints blank, in `pages.pdf`, the print files
+and the previews, so the date can be written in by hand.
+
+**Validation.** A reader rejects the whole file, and says which rule failed and where, if the format or version is wrong,
+`page_count` is not a multiple of 4, `outline` is missing or not a list, a block has an unknown `type`, a `repeat` or `pin` is out of
+range, a `fill` is on a pinned block or inside a group, a group is inside a group, a spread's pages are on the wrong sides, more than
+one top-level block takes what is left, a `from` is not `{id, fingerprint}`, or a page breaks the page rules. The page-number corner
+rule is not applied to the covers.
 
 ## The printer profile
 

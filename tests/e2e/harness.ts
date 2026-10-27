@@ -1,7 +1,8 @@
 import { existsSync } from 'node:fs';
 import { chromium, type Browser, type BrowserContext, type CDPSession, type Page } from 'playwright-core';
-import { createServer, type ViteDevServer } from 'vite';
+import { createServer, preview } from 'vite';
 import { HELP } from '../../src/help';
+import { BUILT_DIR } from './built';
 
 export const SIZES = {
   phone: { width: 390, height: 844 },
@@ -13,11 +14,18 @@ export type Device = keyof typeof SIZES;
 
 const CANDIDATES = [process.env.CHROMIUM_PATH, '/opt/pw-browsers/chromium', '/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome'];
 
-export interface Env { server: ViteDevServer; browser: Browser; url: string }
+export interface Env { server: { close(): Promise<void> }; browser: Browser; url: string }
 
+/**
+ * Each file starts its own server and browser. By default the server serves the app built once before the run (opening a page
+ * takes about half as long as from the dev server, which loads each source file separately). `E2E_DEV=1 npm run test:e2e` serves
+ * the source from the Vite dev server instead, to debug a test against the code as it is being edited.
+ */
 export async function start(): Promise<Env> {
-  const server = await createServer({ server: { port: 0, host: '127.0.0.1' }, logLevel: 'silent', clearScreen: false });
-  await server.listen();
+  const host = '127.0.0.1';
+  const server = process.env.E2E_DEV
+    ? await createServer({ server: { port: 0, host }, logLevel: 'silent', clearScreen: false }).then((s) => s.listen())
+    : await preview({ build: { outDir: BUILT_DIR }, preview: { port: 0, host }, logLevel: 'silent' });
   const url = server.resolvedUrls!.local[0];
   const executablePath = CANDIDATES.find((p) => p && existsSync(p));
   const browser = await chromium.launch({ executablePath });
@@ -293,13 +301,6 @@ export async function missingHelp(app: App): Promise<string[]> {
   }, Object.keys(HELP));
 }
 
-/** Open the Book view's More menu and choose an item from it. */
-export async function bookMore(app: App, item: string) {
-  const press = async (target: ReturnType<App['page']['locator']>) => { if (app.touch) { await target.tap(); await settle(app); } else await target.click(); };
-  await press(app.page.locator('[data-key="book-more"]'));
-  await press(app.page.getByRole('menuitem', { name: item }));
-}
-
 /** Give the open document a real name from the document bar (an Untitled one is asked for a name before it is exported). */
 export async function nameOpen(app: App, name: string) {
   await hit(app, '#doc-name');
@@ -307,4 +308,21 @@ export async function nameOpen(app: App, name: string) {
   await app.page.press('#doc-name-field', 'Enter');
   await app.page.waitForSelector('#doc-name-field', { state: 'detached' });
   await waitSaved(app);
+}
+
+/** Put documents in the Library store as they are given (an old-format book, say), without opening them. They are listed after the next reload. */
+export async function seedLibrary(app: App, items: { id: string; kind: string; name: string; data: object }[]) {
+  await app.page.evaluate(async (list) => {
+    await new Promise<void>((resolve, reject) => {
+      const req = indexedDB.open('dotwork', 1);
+      req.onupgradeneeded = () => req.result.createObjectStore('library', { keyPath: 'id' });
+      req.onerror = () => reject(req.error);
+      req.onsuccess = () => {
+        const tx = req.result.transaction('library', 'readwrite');
+        for (const i of list) tx.objectStore('library').put({ ...i, updated: new Date().toISOString() });
+        tx.oncomplete = () => { req.result.close(); resolve(); };
+        tx.onerror = () => reject(tx.error);
+      };
+    });
+  }, items);
 }

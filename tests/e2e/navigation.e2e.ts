@@ -1,5 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { emptyBook } from '../../src/book/book';
+import { pageBlock } from '../../src/book/outline';
+import { BUILTIN_PAGES } from '../../src/builtin/library';
 import { box, cellToClient, choose, draft, drag, hit, nameOpen, open, shot, start, stop, tap, tool, type App, type Env, openDoc, reload, seedWidgets } from './harness';
 
 let env: Env;
@@ -477,10 +479,13 @@ describe('the export window', () => {
     noErrors(app);
   });
 
-  for (const [device, fixture] of [['phone', 'november-2026-journal'], ['desktop', 'november-2026-journal'], ['desktop', 'monthly-log-book']] as const) it(`Export saves the book as it is now, including edits made since the file was opened (${device}, ${fixture})`, async () => {
+  for (const device of ['phone', 'desktop'] as const) it(`Export saves the book as it is now, including edits made since the file was opened (${device})`, async () => {
     const app = await open(env, device);
     const { page } = app;
-    const opened = readFileSync(`tests/fixtures/${fixture}.json`);
+    const book = emptyBook();
+    book.name = 'Journal';
+    book.outline = [pageBlock(BUILTIN_PAGES.find((p) => p.name === 'Daily Log')!, 7), pageBlock(BUILTIN_PAGES.find((p) => p.name === 'Notes')!, 2)];
+    const opened = Buffer.from(JSON.stringify(book));
     const original = JSON.parse(opened.toString());
     const exported = async () => {
       await hit(app, '#export');
@@ -496,25 +501,25 @@ describe('the export window', () => {
     await page.setInputFiles('dialog.export input[type="file"]', { name: 'journal.json', mimeType: 'application/json', buffer: opened });
     await page.waitForSelector('dialog.export', { state: 'hidden' });
     await page.waitForSelector('.stage-page');
-    expect((await exported()).pages[0].name).toBe(original.pages[0].name); // untouched: the file as opened
+    expect((await exported()).outline).toEqual(original.outline); // untouched: the file as opened
 
     // Edit the book three ways, none of them saved to the Library: its name, a page's design, and a page's date.
     await choose(app, 'page', '#settings');
     await page.locator('[data-key="settings-book-name"]').fill('Edited since opening');
     await closeDialog(app, 'settings');
-    await page.getByRole('button', { name: 'Choose design…' }).click();
+    await page.locator('[data-key="book-add"]').click();
     await page.locator('dialog.picker .design', { hasText: 'Lined page' }).first().click();
 
     const now = await exported();
     const draftBook = await openDoc(app, 'book');
     expect(now.name).toBe('Edited since opening');
-    expect(now.pages[0].name).toBe('Lined page');
+    expect(now.outline.at(-1).page.name).toBe('Lined page');
     expect(now).toEqual(draftBook); // exactly the book on screen, which is what the Library document keeps
     expect(now).not.toEqual(original);
 
     // Undo is part of "as it is now" too.
     await page.getByRole('button', { name: 'Undo' }).first().click();
-    expect((await exported()).pages[0].name).toBe(original.pages[0].name);
+    expect((await exported()).outline).toEqual(original.outline);
     noErrors(app);
   });
 

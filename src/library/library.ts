@@ -1,7 +1,7 @@
 import { readPage } from '../format/read';
 import { readSpread, type Spread } from '../format/spread';
-import { readBook, type Book } from '../book/book';
-import { readSection, type Section } from '../book/sections';
+import { isOldBook, readBook, type Book } from '../book/book';
+import { isOldSection, readSection, type Section } from '../book/sections';
 import { readWidget, type WidgetData } from '../widgets';
 import { readPrinter } from '../printer';
 import type { PrintSettings } from '../book/impose';
@@ -19,6 +19,9 @@ export type LibraryItem =
   | (ItemBase & { kind: 'section'; data: Section })
   /** A widget is a group of elements; art is a widget of one art element (see art/widget.ts). Both are `{ name, elements }`. */
   | (ItemBase & { kind: 'widget' | 'art'; data: WidgetData });
+
+/** A book or section saved before the outline: it is listed in the Library as Old format, with Export and Delete, and can't be opened. */
+export const isOldFormat = (item: LibraryItem): boolean => (item.kind === 'book' && isOldBook(item.data)) || (item.kind === 'section' && isOldSection(item.data));
 
 /** Where items are kept. IndexedDB in the browser, memory in tests. */
 export interface Backend {

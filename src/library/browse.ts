@@ -17,8 +17,8 @@ export const TAB_LABEL: Record<LibraryTab, string> = { pages: 'Pages', spreads: 
 export type Entry =
   | { kind: 'page'; id: string; name: string; updated: string | null; example: boolean; data: Page }
   | { kind: 'spread'; id: string; name: string; updated: string | null; example: boolean; data: Spread }
-  | { kind: 'section'; id: string; name: string; updated: string | null; example: boolean; data: Section }
-  | { kind: 'book'; id: string; name: string; updated: string | null; example: boolean; data: Book }
+  | { kind: 'section'; id: string; name: string; updated: string | null; example: boolean; data: Section; /** Saved before the outline: listed, but not opened. */ old?: boolean }
+  | { kind: 'book'; id: string; name: string; updated: string | null; example: boolean; data: Book; old?: boolean }
   | { kind: 'widget'; id: string; name: string; updated: string | null; example: boolean; data: Widget }
   /** Saved art is a widget of one art element (see art/widget.ts). A saved one has the id of its Library document. */
   | { kind: 'art'; id: string; name: string; updated: string | null; example: boolean; data: Widget }

@@ -47,7 +47,7 @@ const profile = async (app: App) => {
 };
 /** The open book exactly as the Library holds it: no setting of the printer may ever change a byte of it. */
 const bookDraft = (app: App) => openDoc(app, 'book');
-const BOOK = JSON.stringify({ format: 'dotwork-book', version: 1, name: 'Untitled book', page_count: 52, page_numbers: true, print: { signatures: 1 }, pages: Array(52).fill(null), cover: { front: null, back: null } });
+const BOOK = JSON.stringify({ format: 'dotwork-book', version: 1, name: 'Untitled book', page_count: 52, page_numbers: true, print: { signatures: 1 }, outline: [], cover: { front: null, back: null } });
 const download = async (app: App, selector: string) => {
   const [d] = await Promise.all([app.page.waitForEvent('download'), hit(app, selector)]);
   return { name: d.suggestedFilename(), bytes: await readFile((await d.path())!) };
@@ -290,7 +290,7 @@ for (const device of ['phone', 'desktop'] as const) {
     it('uses the printer profile for every book: nothing is compared or copied into the book', async () => {
       const app = await open(env, device);
       const { page } = app;
-      const book = { format: 'dotwork-book', version: 1, page_count: 52, page_numbers: true, print: { signatures: 3 }, pages: Array(52).fill(null), cover: { front: null, back: null } };
+      const book = { format: 'dotwork-book', version: 1, page_count: 52, page_numbers: true, print: { signatures: 3 }, outline: [], cover: { front: null, back: null } };
       await page.evaluate((flat) => localStorage.setItem('dotwork.printer', JSON.stringify({ ...(flat as object), creep_per_sheet_mm: 0.1, shade_light_pct: 8 })), FLAT);
       await seedDoc(app, 'book', book, 'Book');
       await hit(app, '#menu-page');

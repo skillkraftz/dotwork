@@ -2,7 +2,7 @@
 
 Dotwork keeps pages, spreads, sections, books, widgets and art in the browser (IndexedDB), one entry each: `{ id, kind, name, updated, data }`. The page,
 spread or book you are editing *is* one of these entries and is written to it as you edit (after a 400 ms pause, and when the tab is hidden or
-closed); there are no drafts and no Save button. A section has no editor: it is added from a book, an import or a duplicate. **Back up library** (in the Library window) writes all of them,
+closed); there are no drafts and no Save button. A section has no editor: it is added from an import, a restore or a duplicate, and placed in a book as a group. **Back up library** (in the Library window) writes all of them,
 the favorites and the printer profile to one JSON file, and **Restore backup** adds it back (see **Backup and restore** below). Favorites
 and the printer profile themselves live in `localStorage` (`dotwork.favorites`, `dotwork.printer`); only the backup file carries them.
 
@@ -65,35 +65,38 @@ section, book or widget rules) is **refused** on its own, with the reason, and t
 
 ## Sections
 
-A section is a run of pages, such as a week (a weekly page, seven daily pages, a reflection, notes), that the book
-builder repeats (`book-format.md`, **Recipe**). **Save pages as a section…** in the Book view makes one from a page
-range of the book, as a new Library document (a taken name gets ` 2`; nothing is replaced). In the Library, Sections lists them with **Rename**, **Duplicate** (asks for a name), **Export** (the file below) and **Delete**; **Import** in the Import and export window adds a section file. There is no section editor. It keeps the pages inline, so one item is the whole section, and the same object sits inside a
-book's `recipe` steps.
+A section is a group kept in the Library: blocks that repeat together, such as a week (a weekly page, seven daily pages, a
+reflection, notes). Placing one in a book adds it as a **group** block (`book-format.md`, **The outline**). **Add…**, **Other** in
+the Book view lists the saved and built-in sections. In the Library, Sections lists them with **Rename**, **Duplicate** (asks for a
+name), **Export** (the file below) and **Delete**; **Import** in the Import and export window adds a section file. There is no
+section editor yet, and no control that saves a group as a section: a saved section comes from an import, a restore or a duplicate.
+It keeps its pages inline, so one item is the whole section.
 
 ```json
 {
   "format": "dotwork-section",
   "version": 1,
   "name": "Journal week",
-  "pages": [ { "...": "a dotwork-page" }, null ],
-  "days": [ 0, null ],
-  "weekday": 0,
-  "move": "week",
-  "left": false
+  "children": [
+    { "type": "page", "page": { "...": "a dotwork-page" }, "repeat": { "times": 1 } },
+    { "type": "page", "page": { "...": "a dotwork-page" }, "repeat": { "times": 7 } },
+    { "type": "free", "pages": [ null ] }
+  ]
 }
 ```
 
 | Field | Meaning |
 |-------|---------|
 | `name` | The section's name; it matches the Library item's. |
-| `pages` | 1 to 100 page designs, `null` for a blank page. Each is a complete page file. Placing one turns it to face the side of the page it lands on. |
-| `days` | One entry per page: its date as whole days after the section's first dated page, or `null` for an undated page. Dates are kept relative, so a repeat only needs its first date. |
-| `weekday` | The weekday (0 is Sunday) of the first dated page, so "each week of a month" starts every repeat on it. 0 when nothing is dated. |
-| `move` | How the dates move from one repeat to the next: `none`, `day`, `week` or `month`. `none` when nothing is dated. |
-| `left` | The section began on a left-hand (even) page. Every repeat begins on the same side. |
+| `children` | The group's blocks: page, spread and free blocks as in `book-format.md`, each repeating a number of times and never pinned. The section has no repeat or pin of its own: those belong to where it is placed. |
 
-A reader rejects a section, and says which rule failed and where, for a wrong `format` or `version`, a missing name,
-`pages` that is empty or too long or holds an invalid page, `days` of the wrong length or not whole numbers or null, a
-`weekday` outside 0 to 6, an unknown `move`, or a `left` that is not true or false. Built-in sections (the journal
-week, the month-end review, idea spreads, the book notes) come with Dotwork; their names are reserved, and a built-in
-can be duplicated but not replaced.
+A reader rejects a section, and says which rule failed and where, for a wrong `format` or `version`, a missing name, or
+`children` that is not a list of valid blocks. Built-in sections (the journal week, the month-end review, the idea spread, the book notes) come
+with Dotwork; their names are reserved, and a built-in can be duplicated but not replaced.
+
+## Old format
+
+A book or section saved before the outline (a book with `pages`, `dates` and a `recipe`; a section with `pages`, `days` and `move`) is
+not read and not converted. The Library lists it with the label **Old format**, with only **Export** (the file as it was kept) and
+**Delete**; tapping it says why it cannot be opened, the last-open pointer skips it, and it is left out of the two-up bottom-book list.
+Restoring a backup refuses such an item with the reason, like any item that breaks its format.

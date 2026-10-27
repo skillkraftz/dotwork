@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { emptyBook, readBook, setSlot } from '../src/book/book';
+import { emptyBook, readBook } from '../src/book/book';
+import { onPages } from './books';
 import { emptyPage } from '../src/format/types';
 import { exportBookFiles } from '../src/print/export';
 import { FLAT } from './flat';
@@ -141,7 +142,7 @@ describe('settings never touch the book', () => {
   it('prints with the printer profile it is given, not anything in the book', async () => {
     const fontBytes = { regular: readFileSync('src/fonts/CourierPrime-Regular.ttf'), bold: readFileSync('src/fonts/CourierPrime-Bold.ttf') };
     const book = emptyBook(8);
-    setSlot(book, 1, { ...emptyPage(), identity: '', elements: [{ type: 'text', x: 1, y: 3, text: 'HELLO', tone: 'black' }] });
+    onPages(book, { 1: { ...emptyPage(), identity: '', elements: [{ type: 'text', x: 1, y: 3, text: 'HELLO', tone: 'black' }] } });
     const a = await exportBookFiles(book, DEFAULT_PRINT, fontBytes, { pages: false, cover: false });
     const twoUp = clonePrint(DEFAULT_PRINT); twoUp.sheet_layout = 'letter_two_up';
     twoUp.layouts.letter_two_up = { ...FLAT.layouts.letter_two_up }; // the owner’s calibrated two-up offsets put the last row inside the 3 mm edge check

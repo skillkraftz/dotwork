@@ -1,13 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { applyDesign, emptyBook, fillSlots, getSlot, readBook, resizeBook, setDates, setSlot, slotCount, slotSide, type Book } from '../src/book/book';
-import { buildSpread } from '../src/format/spread';
+import { bookLayout, bookPage, emptyBook, getSlot, readBook, resizeBook, setCover, slotSide, type Book } from '../src/book/book';
+import { pageBlock, spreadBlock } from '../src/book/outline';
 import { emptyPage, type Page } from '../src/format/types';
-import { validatePage } from '../src/format/validate';
+import { formatIssue, validatePage } from '../src/format/validate';
 import { BUILTIN_PAGES, BUILTIN_SPREADS } from '../src/builtin/library';
-import { designKey, scopeSlots, whatChanges } from '../src/book/plan';
 import { TEMPLATES } from '../src/builtin/templates';
 import { errorLog, withBookJson } from '../src/print/bundle';
-import { formatIssue } from '../src/format/validate';
 
 const problems = (b: Book) => { const r = readBook(b); return r.ok ? [] : r.issues.map(formatIssue); };
 
@@ -23,43 +21,40 @@ describe('a page that is valid on one side', () => {
     expect(validatePage({ ...cornerPage('left'), side: 'right' }).map((i) => i.rule)).toEqual(['header-corner']);
   });
 
-  it('can be placed on either side of the interior without breaking the book', () => {
+  it('can be placed on either side of the interior without breaking the book, and prints fine on both', () => {
     for (const from of ['left', 'right'] as const) {
-      for (const slot of [1, 2, 3, 52]) {
-        const b = emptyBook();
-        setSlot(b, slot, cornerPage(from));
-        expect(problems(b), `${from} page in slot ${slot}`).toEqual([]);
-      }
+      const b = emptyBook();
+      b.outline = [pageBlock(cornerPage(from), 52)];
+      expect(problems(b), `${from} page`).toEqual([]);
+      for (let slot = 1; slot <= 52; slot++) expect(validatePage(bookPage(b, slot)), `${from} page in slot ${slot}`).toEqual([]);
     }
   });
 
   it('keeps its page number when it fits, and loses it (on the placed copy only) when it would cover the corner', () => {
     const b = emptyBook(), src = cornerPage('left');
-    expect(setSlot(b, 2, src)).toBe(false); // slot 2 is a left page: fits
-    expect(getSlot(b, 2)!.page_number).toBeUndefined();
-    expect(setSlot(b, 1, src)).toBe(true); // slot 1 is a right page: the corner moved
-    expect(getSlot(b, 1)!.page_number).toBe(false);
+    b.outline = [pageBlock(src, 2)];
+    expect(bookPage(b, 2).page_number).toBeUndefined(); // slot 2 is a left page: fits
+    expect(bookPage(b, 1).page_number).toBe(false); // slot 1 is a right page: the corner moved
     expect(src.page_number).toBeUndefined(); // the design itself is untouched
   });
 
   it('can be placed on both covers (they carry no page number)', () => {
     for (const from of ['left', 'right'] as const) {
       const b = emptyBook();
-      setSlot(b, 0, cornerPage(from));
-      setSlot(b, b.page_count + 1, cornerPage(from));
+      setCover(b, 0, cornerPage(from));
+      setCover(b, b.page_count + 1, cornerPage(from));
       expect(problems(b), `${from} page on the covers`).toEqual([]);
     }
   });
 
-  it('survives a spread filled across slots, apply to more pages, resize and dates', () => {
+  it('survives a spread block, a repeated page, and resizing', () => {
     const b = emptyBook();
-    fillSlots(b, 0, 53, buildSpread('Corners', cornerPage('left'), cornerPage('right')));
+    b.outline = [spreadBlock('Corners', cornerPage('left'), cornerPage('right'), 26)];
     expect(problems(b)).toEqual([]);
     const c = emptyBook();
-    applyDesign(c, Array.from({ length: 53 }, (_, i) => i), cornerPage('left'));
+    c.outline = [pageBlock(cornerPage('left'), 52)];
     expect(problems(c)).toEqual([]);
     resizeBook(c, 8);
-    setDates(c, 1, ['2026-01-04', '2026-01-11']);
     expect(problems(c)).toEqual([]);
   });
 });
@@ -73,40 +68,38 @@ describe('the owner’s case', () => {
     expect(problems(b)).toEqual([]);
   });
 
-  it('is still refused on an interior page, with the reason', () => {
+  it('is still refused in the outline, with the reason', () => {
     const b = emptyBook();
-    b.pages[1] = cover(); // left page, outer corner x 0-2: a real clash
+    b.outline = [pageBlock({ ...cover(), side: 'right', elements: [{ type: 'text', x: 25, y: 0, text: 'MINE' }] })];
     expect(problems(b).join('\n')).toContain('header-corner');
   });
 
   it('a book with this problem still gets a book.json, and an error.txt that says why', () => {
     const b = emptyBook();
-    b.pages[1] = cover(); // a hand-edited book that does break the rule
+    b.outline = [pageBlock({ ...cover(), side: 'right', elements: [{ type: 'text', x: 25, y: 0, text: 'MINE' }] })]; // a hand-edited book that does break the rule
     const files = withBookJson(b, []);
     expect(files.map((f) => f.name)).toEqual(['book.json', 'error.txt']);
     const log = new TextDecoder().decode(files[1].bytes);
-    expect(log).toContain('pages[1].elements[0]');
+    expect(log).toContain('outline[0].page.elements[0]');
     expect(log).toContain('header-corner');
     expect(errorLog(emptyBook())).toBeNull();
   });
 });
 
 describe('every design on every slot', () => {
-  const dates = (b: Book) => { b.dates = Array.from({ length: b.page_count }, (_, i) => `2026-01-${String((i % 28) + 1).padStart(2, '0')}`); };
   const saved: Page[] = [cornerPage('left'), cornerPage('right'), cornerPage('left', false)];
-  const designs: [string, Page | ReturnType<typeof buildSpread>][] = [
+  const designs: [string, Page | (typeof BUILTIN_SPREADS)[number]][] = [
     ...BUILTIN_PAGES.map((p) => [p.name, p] as [string, Page]),
     ...BUILTIN_SPREADS.map((s) => [s.name, s] as [string, typeof s]),
     ...saved.map((p) => [`saved ${p.name}${p.page_number === false ? ' (no number)' : ''}`, p] as [string, Page]),
   ];
 
-  it.each(designs)('“%s” is accepted in every slot, covers included, dated and resized', (_name, design) => {
+  it.each(designs)('“%s” is accepted in every slot, covers included, and resized', (_name, design) => {
     const b = emptyBook();
-    dates(b);
-    for (let slot = 0; slot < slotCount(b); slot++) {
-      setSlot(b, slot, design.format === 'dotwork-spread' ? design[slotSide(slot)] : design);
-    }
+    b.outline = design.format === 'dotwork-spread' ? [spreadBlock(design.name, design.left, design.right, 26)] : [pageBlock(design, 52)];
+    for (const slot of [-1, 0, 53, 54]) setCover(b, slot, design.format === 'dotwork-spread' ? design[slotSide(slot)] : design);
     expect(problems(b)).toEqual([]);
+    for (let slot = 1; slot <= b.page_count; slot++) expect(validatePage(bookPage(b, slot)), `slot ${slot}`).toEqual([]);
     resizeBook(b, 28);
     expect(problems(b)).toEqual([]);
     resizeBook(b, 60);
@@ -118,36 +111,19 @@ describe('every design on every slot', () => {
   });
 });
 
-
-describe('spreads applied to a range', () => {
+describe('spread blocks', () => {
   const names = ['Lined spread', 'Dot grid spread', 'Notes spread', 'Weekly spread', 'Weekly spread (undated)'];
-  const range = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => from + i);
 
-  it.each(names.flatMap((n) => [[n, 2, 50], [n, 1, 52]] as const))('“%s” on pages %i-%i puts left pages on left slots and right pages on right slots', (name, from, to) => {
+  it.each(names)('“%s” puts left pages on left slots and right pages on right slots', (name) => {
     const sp = BUILTIN_SPREADS.find((s) => s.name === name)!;
     const b = emptyBook();
-    const slots = scopeSlots(b, { mode: 'range', from, to }, from);
-    expect(applyDesign(b, slots, sp)).toEqual([]);
-    for (const n of range(from, to)) {
+    b.outline = [pageBlock(null), spreadBlock(sp.name, sp.left, sp.right, 25)]; // one blank page, so the spreads start on page 2
+    for (let n = 2; n <= 51; n++) {
       const want = n % 2 ? sp.right : sp.left;
-      expect(getSlot(b, n)!.side, `page ${n}`).toBe(n % 2 ? 'right' : 'left');
-      expect(designKey(getSlot(b, n))).toBe(designKey(want));
+      expect(bookPage(b, n).side, `page ${n}`).toBe(n % 2 ? 'right' : 'left');
+      expect(getSlot(b, n)!.name, `page ${n}`).toBe(want.name);
     }
-    expect(getSlot(b, from === 2 ? 1 : 53)).toBeNull();
+    expect(bookLayout(b).cells[51]).toBeNull();
     expect(problems(b)).toEqual([]);
-  });
-
-  it('reports what would change per page for a pair', () => {
-    const b = emptyBook(), sp = BUILTIN_SPREADS.find((s) => s.name === 'Weekly spread')!;
-    applyDesign(b, [2, 3], sp);
-    expect(whatChanges(b, [2, 3, 4, 5], sp)).toEqual({ changed: [4, 5], replaced: 0 });
-  });
-
-  it('every built-in spread passes the book format on every pair of slots', () => {
-    for (const sp of BUILTIN_SPREADS) {
-      const b = emptyBook();
-      for (let from = 0; from < slotCount(b) - 1; from += 2) fillSlots(b, from, from + 1, sp);
-      expect(problems(b), sp.name).toEqual([]);
-    }
   });
 });

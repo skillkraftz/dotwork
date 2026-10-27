@@ -1,12 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { weeklyReflection } from '../src/builtin/pages';
-import { bookExpand, emptyBook, setDates, setSlot } from '../src/book/book';
 import { readPage } from '../src/format/read';
 import { expandFor, expandTokens, findEndOffsets, findUnknownTokens, pageKind, pageSpan, sampleFor, tokenProblem } from '../src/format/tokens';
 import { emptyPage, type Page, type PageElement } from '../src/format/types';
-import { findChangedTokens, changedTokensProblem } from '../src/library/tokennotice';
-import { Library, MemoryBackend } from '../src/library/library';
-import { emptySpread } from '../src/format/spread';
 
 const text = (t: string): PageElement => ({ type: 'text', x: 0, y: 2, text: t });
 const page = (identity: string, ...els: string[]): Page => ({ ...emptyPage(), name: 'P', identity, elements: els.map(text) });
@@ -132,61 +128,5 @@ describe('the built-in Weekly reflection', () => {
     expect(sampleFor(p)(p.identity!)).toBe('WEEK 44  OCT 25-OCT 31');
     expect(expandFor('2026-12-01', p)(p.identity!)).toBe('WEEK 49  NOV 29-DEC 5');
     expect(readPage(p).ok).toBe(true);
-  });
-
-  it('prints in a book from the page’s stored date', () => {
-    const book = emptyBook();
-    setSlot(book, 1, weeklyReflection());
-    setDates(book, 1, ['2026-12-03']);
-    expect(bookExpand(book, 1)(book.pages[0]!.identity!)).toBe('WEEK 49  NOV 29-DEC 5');
-  });
-});
-
-describe('the notice about changed tokens', () => {
-  async function library() {
-    let n = 0;
-    const lib = new Library(new MemoryBackend(), undefined, () => `id${++n}`);
-    await lib.create('page', 'Plan', page('{month+1} {day+1}', '{year+1}'));
-    await lib.create('page', 'Fine', page('{month} {month+0} {day+3} {months+7} {month@end}'));
-    const spread = emptySpread();
-    spread.right = page('', 'a', '{week-1}');
-    await lib.create('spread', 'Ideas', spread);
-    const book = emptyBook();
-    setSlot(book, 3, page('{monthname+2}'));
-    book.cover.back = page('{year-1}');
-    await lib.create('book', 'Journal', book);
-    await lib.create('widget', 'Footer', { name: 'Footer', elements: [text('{week+2}')] });
-    return lib;
-  }
-
-  it('lists each place, by document, page and element', async () => {
-    const found = findChangedTokens(await (await library()).list());
-    const lines = found.map((c) => [c.document, c.kind, c.page, c.element.split(' (')[0], c.text]);
-    expect(lines).toContainEqual(['Plan', 'page', null, 'identity', '{month+1}']);
-    expect(lines).toContainEqual(['Plan', 'page', null, 'element 1', '{year+1}']);
-    expect(lines).toContainEqual(['Ideas', 'spread', 'right page', 'element 2', '{week-1}']);
-    expect(lines).toContainEqual(['Journal', 'book', 'page 3', 'identity', '{monthname+2}']);
-    expect(lines).toContainEqual(['Journal', 'book', 'inside back cover', 'identity', '{year-1}']);
-    expect(lines).toContainEqual(['Footer', 'widget', null, 'element 1', '{week+2}']);
-    expect(found.some((c) => c.document === 'Fine')).toBe(false); // {month+0}, {day+3}, {months+7}, {month@end} are not changed
-    expect(found).toHaveLength(6);
-  });
-
-  it('says what changed, with every place in Copy details, and changes nothing', async () => {
-    const lib = await library();
-    const before = JSON.stringify(await lib.list());
-    const problem = changedTokensProblem(findChangedTokens(await lib.list()))!;
-    expect(problem.title).toBe('4 saved documents use {month±N}, {year±N} or {week±N}, whose meaning changed.');
-    expect(problem.lines.join('\n')).toMatch(/count months, years and weeks/);
-    expect(problem.lines).toHaveLength(7); // the note, five places, and "…and 1 more"
-    expect(problem.details).toContain('Journal (book), inside back cover, identity: {year-1}');
-    expect(problem.details).toContain('Footer (widget), element 1 (text “{week+2}”): {week+2}');
-    expect(JSON.stringify(await lib.list())).toBe(before);
-  });
-
-  it('is silent when nothing uses them', async () => {
-    const lib = new Library(new MemoryBackend());
-    await lib.create('page', 'Fine', page('{month} {day+3}'));
-    expect(changedTokensProblem(findChangedTokens(await lib.list()))).toBeNull();
   });
 });

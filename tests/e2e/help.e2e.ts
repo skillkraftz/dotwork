@@ -280,7 +280,7 @@ describe('every control has a help entry', () => {
     expect(app.errors).toEqual([]);
   });
 
-  it('in the book: the arranger, contents, design list, apply window and print files', async () => {
+  it('in the book: the arranger, outline, design list, row settings and print files', async () => {
     for (const device of ['phone', 'desktop'] as const) {
       const app = await open(env, device);
       const { page } = app;
@@ -297,25 +297,30 @@ describe('every control has a help entry', () => {
       await go('.view-toggle'); // spreads
       expect(await missingHelp(app), `${device} spreads`).toEqual([]);
       if (app.touch) await go('.contents-toggle');
-      if (app.touch) expect(await missingHelp(app), `${device} contents`).toEqual([]);
+      expect(await missingHelp(app), `${device} outline`).toEqual([]);
       if (app.touch) await go('.contents-close');
-      await go('button[data-help="book-choose"]');
-      await page.waitForSelector('dialog.picker[open]');
+      await go('[data-key="book-add"]');
+      await page.waitForSelector('dialog.picker[open] .design');
       expect(await missingHelp(app), `${device} picker`).toEqual([]);
-      await go('dialog.picker .design:nth-of-type(1)');
+      await go('dialog.picker [data-tab="spreads"]');
+      expect(await missingHelp(app), `${device} picker spreads`).toEqual([]);
+      await go('dialog.picker [data-tab="blocks"]');
+      expect(await missingHelp(app), `${device} picker other`).toEqual([]);
+      await go('dialog.picker [data-key="add-group"]');
       await page.waitForSelector('dialog.picker', { state: 'hidden' });
-      await go('button[data-help="book-apply"]');
-      await page.waitForSelector('dialog.apply[open]');
-      expect(await missingHelp(app), `${device} apply`).toEqual([]);
-      await go('dialog.apply button[data-help="apply-cancel"]');
-      await go('button[data-help="book-more"]');
-      expect(await missingHelp(app), `${device} book more menu`).toEqual([]);
-      await go('button[data-help="book-dates"]');
-      await page.waitForSelector('dialog.dates[open]');
-      expect(await missingHelp(app), `${device} dates`).toEqual([]);
-      await go('dialog.dates [data-key="dates-mode-day"]');
-      expect(await missingHelp(app), `${device} dates by day`).toEqual([]);
-      await go('dialog.dates button[data-help="dates-cancel"]');
+      if (app.touch) await go('.contents-toggle');
+      await go('.orow [data-key="outline-more"]');
+      expect(await missingHelp(app), `${device} row settings`).toEqual([]);
+      await go('[data-key="outline-pin-page"]');
+      expect(await missingHelp(app), `${device} pinned row settings`).toEqual([]);
+      await go('[data-key="outline-add-to-group"]');
+      await page.waitForSelector('dialog.picker[open] .design');
+      await go('dialog.picker [data-tab="blocks"]');
+      expect(await missingHelp(app), `${device} picker for a group`).toEqual([]);
+      await go('dialog.picker [data-key="add-free"]');
+      await page.waitForSelector('dialog.picker', { state: 'hidden' });
+      expect(await missingHelp(app), `${device} child row`).toEqual([]);
+      if (app.touch) await go('.contents-close');
       await go('button[data-help="book-export"]');
       await page.waitForSelector('dialog.export[open] .export-actions .primary');
       expect(await missingHelp(app), `${device} export`).toEqual([]);

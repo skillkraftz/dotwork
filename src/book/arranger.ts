@@ -1,22 +1,24 @@
 import { PAGE_H_MM, PAGE_W_MM } from '../format/types';
 import type { Page } from '../format/types';
 import { withSide, type Spread } from '../format/spread';
-import { addDays, formatDate, parts, sundayOf, todayIso, weekNumber } from '../format/dates';
-import { MONTH_NAMES } from '../builtin/calendar';
+import { fingerprint } from '../format/fingerprint';
 import { pageContent, thumbnailSvg } from '../render';
 import { h, tabBar } from '../panel';
 import { issuesProblem, problemView } from '../problems';
 import type { Library, LibraryItem } from '../library/library';
-import { applyDesign, blankPage, bookExpand, bookPage, dateOf, fillSlots, FIRST_SLOT, getSlot, isCover, lastSlot, readBook, setDates, setSlot, slotSide, type Book, type Design, type Facing } from './book';
+import { exampleId, spreadId } from '../library/browse';
+import { blankPage, bookExpand, bookLayout, bookPage, FIRST_SLOT, getSlot, isCover, lastSlot, readBook, resizeBook, setCover, slotSide, type Book } from './book';
 import { BUILTIN_SPREADS } from '../builtin/library';
+import { BUILTIN_SECTIONS } from '../builtin/sections';
+import { sectionGroup, type Section } from './sections';
 import { checkPrintSettings, signatureSizes, type PrintSettings } from './impose';
-import { applyBuild, buildSummary, guessMove, planSteps, sectionFrom, stepLine, type BuildPlan } from './build';
-import { MOVES, MOVE_LABEL, readSection, type Move, type Recipe, type Section, type Step } from './sections';
-import { notesPage } from '../builtin/pages';
-import { BUILTIN_SECTIONS, PRESETS } from '../builtin/sections';
 import { flipThrough } from './flip';
 import { isUntitled } from '../documents';
-import { contentsRows, datesLabel, datesStart, datesSummary, designName, endOfRun, listPages, opening, planDates, scopeSlots, slotLabel, whatChanges, type DatePlan, type Scope } from './plan';
+import { designName, opening, slotLabel } from './labels';
+import {
+  addBlock, blockAt, canAddFree, canFill, canMove, canMoveIn, duplicateBlock, fillRepeat, freeBlock, groupBlock, moveBlock, moveIntoGroup, moveOutOfGroup,
+  nameOf, pageBlock, removeBlock, repeatLabel, replaceBlock, setPin, setRepeat, spreadBlock, timesOf, totalLine, MAX_REPEAT, type Block, type Child, type Link, type Path, type Row,
+} from './outline';
 
 export interface ArrangerHost {
   library: Library;
@@ -39,12 +41,11 @@ export interface ArrangerHost {
 const MAX_UNDO = 30;
 const SPREADS_KEY = 'dotwork.book.spreads';
 const PICKER_TAB_KEY = 'dotwork.book.picker-tab';
-type PickerTab = 'pages' | 'spreads';
-const PICKER_TABS: [PickerTab, string][] = [['pages', 'Pages'], ['spreads', 'Spreads']];
+type PickerTab = 'pages' | 'spreads' | 'blocks';
+const PICKER_TABS: [PickerTab, string][] = [['pages', 'Pages'], ['spreads', 'Spreads'], ['blocks', 'Other']];
 const SWIPE_PX = 50;
-/** January … December, for people (the calendar's names are all capitals). */
-const monthTitle = (month: number) => MONTH_NAMES[month - 1][0] + MONTH_NAMES[month - 1].slice(1).toLowerCase();
 const stored = (key: string) => { try { return localStorage.getItem(key); } catch { return null; } };
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 /** A slot's page as an SVG, as it prints (with its page number unless it is a cover or numbers are off). */
 const slotSvg = (book: Book, slot: number, extra = '', attrs = '') => {
@@ -52,20 +53,21 @@ const slotSvg = (book: Book, slot: number, extra = '', attrs = '') => {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${PAGE_W_MM} ${PAGE_H_MM}" aria-hidden="true"${attrs}>` +
     pageContent(bookPage(book, slot), { mode: 'export', pageNumber: number, expand: bookExpand(book, slot) }) + extra + '</svg>';
 };
-const outline = `<rect class="outline" x="0.15" y="0.15" width="${PAGE_W_MM - 0.3}" height="${PAGE_H_MM - 0.3}" fill="none"/>`;
+const outlineMark = `<rect class="outline" x="0.15" y="0.15" width="${PAGE_W_MM - 0.3}" height="${PAGE_H_MM - 0.3}" fill="none"/>`;
 
-/** What can be put on a page: a page, or a spread (which fills this page and the one beside it). */
-type Choice = { name: string; kind: 'blank' | 'page' | 'spread'; data: Page | Spread | null; /** The Library entry, for a saved design. */ id?: string };
+/** What can be put on a page: a page, or a spread (which takes two pages). */
+type Choice = { name: string; kind: 'blank' | 'page' | 'spread'; data: Page | Spread | null; /** The Library entry (or the built-in's id), for the link kept with the block. */ id: string | null };
 
-type ScopeMode = Scope['mode'];
-const SCOPE_MODES: { mode: ScopeMode; label: string }[] = [
-  { mode: 'range', label: 'Pages … to …' },
-  { mode: 'from', label: 'Every page from here to …' },
-  { mode: 'left', label: 'Every left page, from … to …' },
-  { mode: 'right', label: 'Every right page, from … to …' },
-];
+/** A path as an attribute value: "2" or "2.1". */
+const keyOf = (path: Path) => path.join('.');
 
-/** The book, one page at a time: step through it, choose a design for the page, copy it to more pages, and read the contents. */
+/** The pages a child takes in one repeat of its group (not counting any gap pages). */
+const childPages = (c: Child) => (c.type === 'free' ? Math.max(1, c.pages.length) : (c.type === 'spread' ? 2 : 1) * timesOf(c.repeat));
+
+/**
+ * The book: its pages one at a time (or as spreads), and the outline that makes them. The outline is a list of blocks (a page,
+ * a spread, free pages or a group) with a repeat and, if wanted, a page to pin to. The covers are designed on their own.
+ */
 export class Arranger {
   private book: Book;
   /** The slot being looked at: -1 is the outside front cover, 0 the inside front cover, 1..N the pages, N+1 the inside back cover, N+2 the outside back cover. */
@@ -73,14 +75,18 @@ export class Arranger {
   private spreads = stored(SPREADS_KEY) === '1';
   private undoStack: string[] = [];
   private saved: LibraryItem[] = [];
-  private expanded = new Set<number>();
+  private savedSections: Section[] = [];
   private swipe: { x: number; y: number } | null = null;
+  /** The row last tapped, and the row whose settings are open. */
+  private selected: Path | null = null;
+  private openRow: string | null = null;
 
   private bar = h('div', { class: 'book-bar' });
   private nav = h('div', { class: 'book-nav' });
+  private totalEl = h('div', { class: 'book-total', role: 'status' });
   private stage = h('div', { class: 'book-stage' });
   private actions = h('div', { class: 'book-actions' });
-  private contents = h('aside', { class: 'book-contents', 'aria-label': 'Contents' });
+  private contents = h('aside', { class: 'book-contents', 'aria-label': 'Outline' });
   private warnEl = h('p', { class: 'warn', hidden: true });
   private msgEl = h('p', { class: 'book-msg', role: 'status', hidden: true });
   /** Why the book breaks the format (with Copy details), when it does. */
@@ -91,34 +97,11 @@ export class Arranger {
     try { localStorage.setItem(PICKER_TAB_KEY, t); } catch { /* ignore */ }
     this.renderPicker();
   });
-  /** Whether the Apply window also copies the facing page, so that a spread keeps its left and right pages. */
-  private withFacing = false;
   private picker: HTMLDialogElement;
   private pickerBody = h('div', { class: 'picker-body' });
   private pickerTitle = h('h2', {});
-  private apply: HTMLDialogElement;
-  private applyBody = h('div', { class: 'apply-body' });
-  private scope: Scope = { mode: 'range', from: 1, to: 1 };
-  /** The "from" field's value, kept while the mode ("every page from here") has no `from`. */
-  private scopeFrom = 1;
-  private datesDialog: HTMLDialogElement;
-  private datesBody = h('div', { class: 'apply-body' });
-  private buildDialog: HTMLDialogElement;
-  private buildBody = h('div', { class: 'apply-body' });
-  private buildTitle = h('h2', {});
-  /** What the book builder window is set to: the recipe being edited, and whether it is listing steps, sections to add, or gap pages. */
-  private recipe: Recipe = { month: '2026-01', steps: [] };
-  private buildView: 'steps' | 'add' | 'gap' = 'steps';
-  /** What the steps list redraws when a number or date changes, so that typing doesn't lose its place. */
-  private buildRefs: { summary: HTMLElement; go: HTMLButtonElement; lines: HTMLElement[] } | null = null;
-  private savedSections: Section[] = [];
-  private sectionDialog: HTMLDialogElement;
-  private sectionBody = h('div', { class: 'apply-body' });
-  /** What the Save pages as a section window is set to. */
-  private sectioning = { from: 1, to: 1, name: '', move: 'none' as Move };
-  private moreOpen = false;
-  /** What the Dates window is set to; its first and last page are kept apart from the plan. */
-  private dating = { mode: 'week' as 'week' | 'day', year: 2026, week: 1, start: '2026-01-01', from: 1, to: 1 };
+  /** What the picker is choosing: a design for a cover, or a block to add (to a group, or to the end of the outline). */
+  private picking: { for: 'cover' } | { for: 'add'; group: number | null } = { for: 'add', group: null };
 
   constructor(root: HTMLElement, private host: ArrangerHost, book: Book) {
     this.book = book;
@@ -126,23 +109,8 @@ export class Arranger {
       h('header', {}, this.pickerTitle, h('button', { type: 'button', 'data-help': 'picker-close', onclick: () => this.picker.close() }, 'Close')),
       h('div', { class: 'lib-find' }, this.pickerTabs.el),
       this.pickerBody) as HTMLDialogElement;
-    this.apply = h('dialog', { class: 'library apply', 'aria-label': 'Apply to more pages' },
-      h('header', {}, h('h2', {}, 'Apply to more pages'), h('button', { type: 'button', 'data-help': 'apply-close', onclick: () => this.apply.close() }, 'Close')),
-      this.applyBody) as HTMLDialogElement;
-    this.datesDialog = h('dialog', { class: 'library apply dates', 'aria-label': 'Dates' },
-      h('header', {}, h('h2', {}, 'Dates'), h('button', { type: 'button', 'data-help': 'dates-close', onclick: () => this.datesDialog.close() }, 'Close')),
-      this.datesBody) as HTMLDialogElement;
-    this.buildDialog = h('dialog', { class: 'library apply build', 'aria-label': 'Book builder' },
-      h('header', {}, this.buildTitle, h('button', { type: 'button', 'data-help': 'build-close', onclick: () => this.buildDialog.close() }, 'Close')),
-      this.buildBody) as HTMLDialogElement;
-    this.sectionDialog = h('dialog', { class: 'library apply section-save', 'aria-label': 'Save pages as a section' },
-      h('header', {}, h('h2', {}, 'Save pages as a section'), h('button', { type: 'button', 'data-help': 'section-close', onclick: () => this.sectionDialog.close() }, 'Close')),
-      this.sectionBody) as HTMLDialogElement;
-    for (const d of [this.picker, this.apply, this.datesDialog, this.buildDialog, this.sectionDialog]) d.addEventListener('click', (e) => { if (e.target === d) d.close(); });
-    document.body.append(this.picker, this.apply, this.datesDialog, this.buildDialog, this.sectionDialog);
-    document.addEventListener('pointerdown', (e) => {
-      if (this.moreOpen && !(e.target as HTMLElement).closest('.book-more')) { this.moreOpen = false; this.renderBar(); }
-    }, true);
+    this.picker.addEventListener('click', (e) => { if (e.target === this.picker) this.picker.close(); });
+    document.body.append(this.picker);
 
     this.stage.addEventListener('pointerdown', (e) => { this.swipe = e.pointerType === 'mouse' ? null : { x: e.clientX, y: e.clientY }; });
     this.stage.addEventListener('pointercancel', () => { this.swipe = null; });
@@ -159,7 +127,7 @@ export class Arranger {
       if (e.key === 'ArrowLeft') { e.preventDefault(); this.step(-1); } else if (e.key === 'ArrowRight') { e.preventDefault(); this.step(1); }
     });
     root.replaceChildren(this.bar, h('div', { class: 'book-body' },
-      h('div', { class: 'book-main' }, this.nav, this.stage, this.problemEl, this.msgEl, this.warnEl, this.actions), this.contents));
+      h('div', { class: 'book-main' }, this.nav, this.totalEl, this.stage, this.problemEl, this.msgEl, this.warnEl, this.actions), this.contents));
     this.render();
   }
 
@@ -169,7 +137,8 @@ export class Arranger {
   setBook(book: Book) {
     this.book = book;
     this.undoStack = [];
-    this.expanded.clear();
+    this.selected = null;
+    this.openRow = null;
     this.slot = 1;
     this.say(null);
     this.checkBook();
@@ -197,6 +166,11 @@ export class Arranger {
     this.render();
   }
 
+  /** Change the outline as one undo step. `change` gets the outline as it is when the change is made and returns the new one; `after` then sets what is selected. */
+  private editOutline(change: (outline: Block[]) => Block[], after?: () => void) {
+    this.edit(() => { this.book.outline = change(this.book.outline); after?.(); });
+  }
+
   /** Read the book back through the book format after a change. If it breaks, say why (never silently keep a book that can't be exported). */
   private checkBook() {
     const r = readBook(this.book);
@@ -209,6 +183,8 @@ export class Arranger {
     if (!last) return;
     this.book = JSON.parse(last) as Book;
     this.slot = Math.min(this.slot, lastSlot(this.book));
+    this.selected = null;
+    this.openRow = null;
     this.say(null);
     this.host.changed(this.book);
     this.checkBook();
@@ -225,7 +201,7 @@ export class Arranger {
   private go(slot: number) {
     this.slot = Math.max(FIRST_SLOT, Math.min(lastSlot(this.book), slot));
     this.say(null);
-    this.renderView();
+    this.renderView(true);
   }
 
   /** Previous or next: one page, or one opening when viewing spreads. */
@@ -244,33 +220,29 @@ export class Arranger {
   private render() {
     this.renderBar();
     this.renderView();
-    this.renderContents();
+    this.renderOutline();
   }
 
-  /** Everything that follows the current page. */
-  private renderView() {
+  /** Everything that follows the current page. `scroll` also brings the page's row into view in the outline (when the page changed, not when a row was edited). */
+  private renderView(scroll = false) {
     this.renderNav();
+    this.renderTotal();
     this.renderStage();
     this.renderActions();
-    this.markCurrent();
+    this.markCurrent(scroll);
   }
 
   private renderBar() {
-    const undo = h('button', { type: 'button', disabled: this.undoStack.length === 0, onclick: () => this.undo(), 'data-help': 'book-undo', title: 'Undo the last change to the book' }, 'Undo');
-    const item = (help: string, label: string, run: () => void) =>
-      h('button', { type: 'button', role: 'menuitem', 'data-key': help, 'data-help': help, onclick: () => { this.moreOpen = false; this.renderBar(); run(); } }, label);
-    // The less-used actions sit in a menu, so that the bar fits a phone without scrolling sideways.
-    const more = h('div', { class: 'book-more' },
-      h('button', { type: 'button', 'data-key': 'book-more', 'data-help': 'book-more', 'aria-haspopup': 'menu', 'aria-expanded': String(this.moreOpen), onclick: () => { this.moreOpen = !this.moreOpen; this.renderBar(); } }, 'More ▾'),
-      this.moreOpen ? h('div', { class: 'menu-list', role: 'menu', 'aria-label': 'More for the book' },
-        item('book-dates', 'Dates…', () => this.openDates()),
-        item('book-save-section', 'Save pages as a section…', () => this.openSaveSection()),
-        item('book-flip', 'Flip through', () => this.flip())) : null);
+    const lay = bookLayout(this.book);
     this.bar.replaceChildren(
-      undo,
-      h('button', { type: 'button', 'data-key': 'book-build', 'data-help': 'book-build', onclick: () => void this.openBuild() }, 'Build book…'),
-      more,
-      h('button', { type: 'button', class: 'primary', 'data-help': 'book-export', onclick: () => this.host.exportFiles(this.book) }, 'Print files…'),
+      h('button', { type: 'button', disabled: this.undoStack.length === 0, onclick: () => this.undo(), 'data-key': 'book-undo', 'data-help': 'book-undo', title: 'Undo the last change to the book' }, 'Undo'),
+      h('button', { type: 'button', 'data-key': 'book-add', 'data-help': 'book-add', onclick: () => void this.openAdd(null) }, 'Add…'),
+      h('button', { type: 'button', 'data-key': 'book-flip', 'data-help': 'book-flip', onclick: () => this.flip() }, 'Flip through'),
+      h('button', {
+        type: 'button', class: 'primary', 'data-key': 'book-export', 'data-help': 'book-export', disabled: lay.over > 0,
+        title: lay.over > 0 ? `The book is over by ${plural(lay.over, 'page')}: make it longer or take blocks out before printing.` : null,
+        onclick: () => this.host.exportFiles(this.book),
+      }, 'Print files…'),
     );
     this.updateWarning();
   }
@@ -281,6 +253,19 @@ export class Arranger {
     this.warnEl.textContent = problem ?? '';
     this.warnEl.hidden = !problem;
   }
+
+  /** "48 of 52 pages", or in red how far over the book is, with the way to fix it. */
+  private totalView(): HTMLElement {
+    const lay = bookLayout(this.book), line = totalLine(lay, this.book.page_count);
+    const make = line.makeLonger;
+    return h('div', { class: `total${line.over ? ' over' : ''}` },
+      h('strong', { 'data-key': 'book-used' }, line.used),
+      line.over ? h('span', { class: 'over-by', 'data-key': 'book-over' }, line.over) : null,
+      make ? h('button', { type: 'button', 'data-key': 'book-make-longer', 'data-help': 'book-make-longer', onclick: () => this.edit(() => resizeBook(this.book, make)) }, `Make the book ${make} pages`) : null,
+      ...lay.issues.map((t) => h('span', { class: 'issue' }, t)));
+  }
+
+  private renderTotal() { this.totalEl.replaceChildren(this.totalView()); }
 
   private renderNav() {
     const last = lastSlot(this.book);
@@ -297,7 +282,7 @@ export class Arranger {
       h('div', { class: 'where', 'aria-live': 'polite' }, h('strong', {}, where), h('span', { class: 'hint' }, sub)),
       h('button', { type: 'button', class: 'nav-step', 'data-help': 'nav-next', 'aria-label': this.spreads ? 'Next spread' : 'Next page', disabled: nextAt >= last, onclick: () => this.step(1) }, '›'),
       h('button', { type: 'button', class: 'view-toggle', 'data-help': 'book-spreads', 'aria-pressed': String(this.spreads), title: 'Show two facing pages side by side', onclick: () => this.setSpreads(!this.spreads) }, 'Spreads'),
-      h('button', { type: 'button', class: 'contents-toggle', 'data-help': 'book-contents', onclick: () => this.contents.classList.add('open') }, 'Contents'),
+      h('button', { type: 'button', class: 'contents-toggle', 'data-help': 'book-outline', onclick: () => this.contents.classList.add('open') }, 'Outline'),
     );
   }
 
@@ -316,530 +301,343 @@ export class Arranger {
         'aria-label': `${slotLabel(this.book, n)}, ${designName(getSlot(this.book, n))}`, 'aria-pressed': this.spreads ? String(n === this.slot) : null,
         tabindex: this.spreads ? 0 : -1, 'data-slot': n, 'data-help': 'book-stage-page',
       });
-      el.innerHTML = slotSvg(this.book, n, outline, ` preserveAspectRatio="${align} meet"`);
+      el.innerHTML = slotSvg(this.book, n, outlineMark, ` preserveAspectRatio="${align} meet"`);
       el.onclick = () => { if (this.spreads) this.go(n); };
       return el;
     }));
   }
 
-  private renderActions() {
-    const here = getSlot(this.book, this.slot);
-    const date = dateOf(this.book, this.slot);
-    this.actions.replaceChildren(
-      h('p', { class: 'design-name' }, h('span', { class: 'hint' }, `${slotLabel(this.book, this.slot)}: `), h('strong', {}, designName(here)),
-        date ? h('span', { class: 'hint page-date' }, ` · ${formatDate(date)}`) : null),
-      h('div', { class: 'row' },
-        h('button', { type: 'button', class: 'primary', 'data-help': 'book-choose', onclick: () => this.openPicker() }, 'Choose design…'),
-        h('button', { type: 'button', 'data-help': 'book-apply', onclick: () => this.openApply() }, 'Apply to more pages…'),
-        h('button', { type: 'button', disabled: !here, 'data-help': 'book-clear', onclick: () => this.edit(() => setSlot(this.book, this.slot, null)), title: 'Make this page blank' }, 'Clear'),
-      ),
-    );
+  /** The block that makes a page, as a sentence: "from block 3, Daily Log ×6", or the gap page's reason. */
+  private origin(slot: number): string {
+    const cell = bookLayout(this.book).cells[slot - 1];
+    if (!cell) return 'Nothing is placed here, so the page is blank.';
+    const block = this.book.outline[cell.block];
+    if (cell.kind === 'gap') return 'Gap page: keeps the spread on a left page.';
+    return `From block ${cell.block + 1}, ${nameOf(block)}.`;
   }
 
-  // ---- contents -----------------------------------------------------------------
+  private renderActions() {
+    const here = getSlot(this.book, this.slot);
+    const cover = isCover(this.book, this.slot);
+    this.actions.replaceChildren(...([
+      h('p', { class: 'design-name' }, h('span', { class: 'hint' }, `${slotLabel(this.book, this.slot)}: `), h('strong', {}, designName(here)),
+        cover ? null : h('span', { class: 'hint page-origin' }, ` · ${this.origin(this.slot)}`)),
+      cover ? h('div', { class: 'row' },
+        h('button', { type: 'button', class: 'primary', 'data-help': 'book-choose', onclick: () => void this.openCoverPicker() }, 'Choose design…'),
+        h('button', { type: 'button', disabled: !here, 'data-help': 'book-clear', onclick: () => this.edit(() => setCover(this.book, this.slot, null)), title: 'Make this cover blank' }, 'Clear'),
+      ) : null,
+    ].filter(Boolean) as HTMLElement[]));
+  }
 
-  private renderContents() {
-    const b = this.book;
-    const item = (from: number, to: number, name: string, expandable: boolean) => {
-      const label = expandable ? `Pages ${from}–${to}` : isCover(b, from) ? slotLabel(b, from) : `Page ${from}`;
-      const thumb = h('span', { class: 'crow-thumb' });
-      thumb.innerHTML = slotSvg(b, from, outline);
-      const open = this.expanded.has(from);
-      const row = h('button', {
-        type: 'button', class: 'crow', 'data-help': 'contents-row', 'data-from': from, 'data-to': to, 'aria-expanded': expandable ? String(open) : null,
-        onclick: () => {
-          if (expandable) { if (open) this.expanded.delete(from); else this.expanded.add(from); this.renderContents(); return; }
-          this.go(from);
-          this.contents.classList.remove('open');
-        },
-      }, thumb, h('span', { class: 'crow-text' }, h('strong', {}, label), h('span', { class: 'crow-name' }, name),
-        datesLabel(b, from, to) ? h('span', { class: 'crow-date' }, datesLabel(b, from, to)) : null),
-      expandable ? h('span', { class: 'crow-more', 'aria-hidden': 'true' }, open ? '▾' : '▸') : null);
-      return row;
-    };
+  // ---- the outline -----------------------------------------------------------------
+
+  private renderOutline() {
+    const b = this.book, lay = bookLayout(b);
     const rows: HTMLElement[] = [];
-    for (const r of contentsRows(b)) {
-      const many = r.to > r.from;
-      rows.push(h('li', {}, item(r.from, r.to, r.name, many)));
-      if (many && this.expanded.has(r.from)) {
-        const kids = [];
-        for (let n = r.from; n <= r.to; n++) kids.push(h('li', {}, item(n, n, r.name, false)));
-        rows.push(h('li', {}, h('ul', { class: 'crow-kids' }, ...kids)));
+    rows.push(this.coverRow(FIRST_SLOT), this.coverRow(0));
+    if (!b.outline.length) rows.push(h('li', { class: 'orow-empty' }, h('p', { class: 'hint', 'data-key': 'outline-empty' }, 'No blocks yet, so every page is blank. Tap Add… to put pages, spreads, free pages or a group in the book.')));
+    b.outline.forEach((block, i) => {
+      const row = lay.rows[i];
+      if (row.gaps.length) rows.push(this.gapRow(row.gaps));
+      rows.push(this.blockRow([i], block, row, b.outline.length));
+      if (block.type === 'group') {
+        const kids = block.children.map((c, k) => this.blockRow([i, k], c, null, block.children.length));
+        rows.push(h('li', { class: 'orow-kids-item' }, h('ul', { class: 'orows orow-kids' }, ...kids)));
       }
-    }
+    });
+    rows.push(this.coverRow(b.page_count + 1), this.coverRow(lastSlot(b)));
     this.contents.replaceChildren(
-      h('header', {}, h('h2', {}, 'Contents'), h('button', { type: 'button', class: 'contents-close', 'data-help': 'contents-close', onclick: () => this.contents.classList.remove('open') }, 'Close')),
-      h('ul', { class: 'crows' }, ...rows),
+      h('header', {}, h('h2', {}, 'Outline'), h('button', { type: 'button', class: 'contents-close', 'data-help': 'outline-close', onclick: () => this.contents.classList.remove('open') }, 'Close')),
+      h('div', { class: 'outline-total' }, this.totalView()),
+      h('ul', { class: 'orows' }, ...rows),
+      h('div', { class: 'outline-add' }, h('button', { type: 'button', class: 'primary', 'data-key': 'outline-add', 'data-help': 'book-add', onclick: () => void this.openAdd(null) }, 'Add…')),
     );
     this.markCurrent();
   }
 
-  /** Mark the contents row for the current page (without rebuilding the list) and keep it in view. */
-  private markCurrent() {
+  private thumbOf(block: Block): string {
+    const first = block.type === 'group' ? block.children[0] : block;
+    if (!first || first.type === 'free') return thumbnailSvg([blankPage('right')]);
+    if (first.type === 'spread') return thumbnailSvg([first.left, first.right]);
+    return thumbnailSvg([withSide(first.page ?? blankPage('right'), 'right')]);
+  }
+
+  /** A cover: not a block, just a way to look at it (it is designed with Choose design). */
+  private coverRow(slot: number): HTMLElement {
+    const thumb = h('span', { class: 'crow-thumb' });
+    thumb.innerHTML = slotSvg(this.book, slot, outlineMark);
+    return h('li', { class: 'orow cover' },
+      h('button', { type: 'button', class: 'orow-main', 'data-help': 'outline-row', 'data-slot': slot, onclick: () => { this.go(slot); this.contents.classList.remove('open'); } },
+        thumb, h('span', { class: 'crow-text' }, h('strong', {}, slotLabel(this.book, slot)), h('span', { class: 'crow-name' }, designName(getSlot(this.book, slot))))));
+  }
+
+  private gapRow(slots: number[]): HTMLElement {
+    return h('li', { class: 'orow gap', 'data-key': 'gap-row' },
+      h('button', { type: 'button', class: 'orow-main', 'data-help': 'outline-row', onclick: () => { this.go(slots[0]); this.contents.classList.remove('open'); } },
+        h('span', { class: 'crow-text' }, h('strong', {}, plural(slots.length, 'gap page')), h('span', { class: 'crow-name' }, `${slots.length === 1 ? `Page ${slots[0]}` : `Pages ${slots.join(', ')}`}: keeps the spread on a left page`))));
+  }
+
+  /** What a block row says under its name: "×10 · 10 pages · p.1–10 · pinned: last page". */
+  private summary(block: Block, row: Row | null): string {
+    const parts: string[] = [];
+    if (block.type === 'free') parts.push(row ? 'takes what’s left' : 'free pages');
+    else parts.push(repeatLabel(block));
+    if (row) {
+      parts.push(plural(row.pages, 'page'));
+      if (row.first !== null) parts.push(row.last !== row.first ? `p.${row.first}–${row.last}` : `p.${row.first}`);
+      if (row.innerGaps) parts.push(plural(row.innerGaps, 'gap page'));
+    } else if (block.type !== 'group') parts.push(plural(childPages(block), 'page'));
+    if (block.type === 'group') parts.push(plural(block.children.length, 'block'));
+    if (block.type !== 'free' && block.pin !== undefined) parts.push(block.pin === 'last' ? 'pinned: last page' : `pinned: p.${block.pin}`);
+    return parts.join(' · ');
+  }
+
+  private blockRow(path: Path, block: Block, row: Row | null, siblings: number): HTMLElement {
+    const key = keyOf(path), name = nameOf(block);
+    const thumb = h('span', { class: 'crow-thumb' });
+    thumb.innerHTML = this.thumbOf(block);
+    const open = this.openRow === key;
+    const here = this.selected && keyOf(this.selected) === key;
+    const tool = (help: string, label: string, text: string, disabled: boolean, run: () => void) =>
+      h('button', { type: 'button', class: 'orow-tool', 'data-key': help, 'data-help': help, 'aria-label': `${label}: ${name}`, disabled, onclick: run }, text);
+    const at = path.length === 1 ? path[0] : path[1];
+    const main = h('button', {
+      type: 'button', class: 'orow-main', 'data-help': 'outline-row', 'data-block': key, 'aria-label': `${name}, ${this.summary(block, row)}`,
+      onclick: () => {
+        this.selected = path;
+        const first = row?.first ?? null;
+        if (first !== null) this.go(first);
+        this.renderOutline();
+        this.contents.classList.remove('open'); // on a phone the outline covers the page: show it
+      },
+    }, thumb, h('span', { class: 'crow-text' }, h('strong', {}, name), h('span', { class: 'crow-name' }, this.summary(block, row))));
+    return h('li', { class: `orow${here ? ' selected' : ''}${path.length === 2 ? ' child' : ''}`, 'data-block-row': key },
+      h('div', { class: 'orow-line' }, main,
+        h('div', { class: 'orow-tools' },
+          tool('outline-up', 'Move up', '↑', !canMove(this.book.outline, path, -1) || at === 0, () => this.move(path, -1)),
+          tool('outline-down', 'Move down', '↓', !canMove(this.book.outline, path, 1) || at === siblings - 1, () => this.move(path, 1)),
+          h('button', { type: 'button', class: 'orow-tool', 'data-key': 'outline-more', 'data-help': 'outline-more', 'aria-expanded': String(open), 'aria-label': `Settings: ${name}`, onclick: () => { this.openRow = open ? null : key; this.renderOutline(); } }, '⋯'))),
+      open ? this.settings(path, block) : null);
+  }
+
+  private move(path: Path, by: -1 | 1) {
+    const next: Path = path.length === 1 ? [path[0] + by] : [path[0], path[1] + by];
+    this.editOutline((o) => moveBlock(o, path, by), () => {
+      this.selected = next;
+      this.openRow = this.openRow === keyOf(path) ? keyOf(next) : this.openRow;
+    });
+  }
+
+  /** The open settings of a row: repeat, pin, duplicate, delete, move into or out of a group. */
+  private settings(path: Path, block: Block): HTMLElement {
+    const o = this.book.outline, top = path.length === 1;
+    const key = keyOf(path);
+    const button = (help: string, label: string, run: () => void, extra: Record<string, unknown> = {}) =>
+      h('button', { type: 'button', 'data-key': help, 'data-help': help, onclick: run, ...extra }, label);
+    const controls: (HTMLElement | null)[] = [];
+
+    if (block.type === 'free') {
+      controls.push(h('p', { class: 'hint' }, top ? 'Pages you fill by hand. They take whatever pages the other blocks leave.' : 'Pages you fill by hand, for each repeat of the group.'));
+    } else {
+      const filling = 'fill' in block.repeat;
+      if (!filling) controls.push(this.stepper('Repeat', 'outline-repeat', timesOf(block.repeat), 1, MAX_REPEAT, (n) => this.editOutline((x) => setRepeat(x, path, { times: n }))));
+      if (top) {
+        controls.push(h('div', { class: 'field' }, h('span', { class: 'field-label' }, 'Fill'),
+          button('outline-fill', filling ? 'Filling what’s left' : 'Fill what’s left', () => this.editOutline((x) => setRepeat(x, path, filling ? { times: 1 } : fillRepeat())), {
+            'aria-pressed': String(filling), disabled: !filling && !canFill(o, path),
+            title: !filling && !canFill(o, path) ? 'Another block already takes what is left' : null,
+          })));
+        const pin = block.pin;
+        controls.push(h('div', { class: 'field' }, h('span', { class: 'field-label' }, 'Pin to page'),
+          h('div', { class: 'seg', role: 'group', 'aria-label': 'Pin to page' },
+            button('outline-pin-none', 'Not pinned', () => this.editOutline((x) => setPin(x, path, null)), { 'aria-pressed': String(pin === undefined) }),
+            button('outline-pin-page', 'Page', () => this.editOutline((x) => setPin(x, path, typeof pin === 'number' ? pin : this.pinDefault(path[0], block))), { 'aria-pressed': String(typeof pin === 'number') }),
+            button('outline-pin-last', 'Last page', () => this.editOutline((x) => setPin(x, path, 'last')), { 'aria-pressed': String(pin === 'last') }))));
+        if (typeof pin === 'number') controls.push(this.stepper('Page', 'outline-pin-number', pin, 1, MAX_REPEAT, (n) => this.editOutline((x) => setPin(x, path, n))));
+      }
+    }
+
+    if (block.type === 'group') {
+      const name = h('input', { type: 'text', value: block.name, maxlength: 80, autocomplete: 'off', 'aria-label': 'Group name', 'data-key': 'outline-group-name', 'data-help': 'outline-group-name' });
+      name.onchange = () => this.editOutline((x) => replaceBlock(x, path, { ...(blockAt(x, path) as typeof block), name: name.value.trim() || 'Group' }));
+      controls.push(h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Name'), name),
+        button('outline-add-to-group', 'Add to this group…', () => void this.openAdd(path[0])));
+    }
+
+    const actions: HTMLElement[] = [
+      button('outline-duplicate', 'Duplicate', () => this.editOutline((x) => duplicateBlock(x, path), () => { this.selected = top ? [path[0] + 1] : [path[0], path[1] + 1]; this.openRow = null; })),
+      button('outline-delete', 'Delete', () => this.editOutline((x) => removeBlock(x, path), () => { this.selected = null; this.openRow = null; })),
+    ];
+    if (!top) actions.push(button('outline-out', 'Move out of the group', () => this.editOutline((x) => moveOutOfGroup(x, path as [number, number]), () => { this.selected = [path[0] + 1]; this.openRow = null; })));
+    if (top && canMoveIn(o, path)) {
+      const groups = o.flatMap((b, i) => (b.type === 'group' ? [[i, b.name] as const] : []));
+      const into = h('select', { 'aria-label': 'Move into a group', 'data-key': 'outline-into', 'data-help': 'outline-into' },
+        h('option', { value: '' }, 'Move into a group…'), ...groups.map(([i, n]) => h('option', { value: String(i) }, `${n} (block ${i + 1})`)));
+      into.onchange = () => {
+        if (into.value === '') return;
+        const g = Number(into.value);
+        this.editOutline((x) => moveIntoGroup(x, path, g), () => { this.selected = [g > path[0] ? g - 1 : g]; this.openRow = null; });
+      };
+      actions.push(into);
+    }
+    return h('div', { class: 'orow-settings', 'data-key': `settings-${key}` }, ...controls, h('div', { class: 'row' }, ...actions));
+  }
+
+  /** The page a block is at now, for Pin to page to start from (a spread needs a left, even, page). */
+  private pinDefault(index: number, block: Block): number {
+    const at = bookLayout(this.book).rows[index]?.first ?? 1;
+    return block.type === 'spread' && at % 2 ? at + 1 : at;
+  }
+
+  /** A whole number with − and + buttons. A typed number counts when the field is left; the buttons count at once. */
+  private stepper(label: string, help: string, value: number, min: number, max: number, set: (n: number) => void): HTMLElement {
+    const clamp = (v: number) => Math.max(min, Math.min(max, Math.round(v)));
+    const input = h('input', { type: 'text', inputmode: 'numeric', value: String(value), autocomplete: 'off', 'aria-label': label, 'data-key': help, 'data-help': help });
+    input.onchange = () => { const v = parseInt(input.value, 10); if (Number.isFinite(v) && clamp(v) !== value) set(clamp(v)); else input.value = String(value); };
+    input.onkeydown = (e) => { if (e.key === 'Enter') input.blur(); };
+    const step = (dir: 1 | -1) => h('button', {
+      type: 'button', class: 'step', 'data-key': `${help}-${dir > 0 ? 'inc' : 'dec'}`, 'data-help': dir > 0 ? 'step-inc' : 'step-dec', 'aria-label': `${dir > 0 ? 'More' : 'Fewer'}: ${label}`,
+      disabled: clamp(value + dir) === value, onmousedown: (e: Event) => e.preventDefault(), onclick: () => set(clamp(value + dir)),
+    }, dir > 0 ? '+' : '−');
+    return h('div', { class: 'field num' }, h('label', {}, label), h('div', { class: 'stepper' }, step(-1), input, step(1)));
+  }
+
+  /** Mark the row holding the current page (without rebuilding the list), and bring it into view if asked. */
+  private markCurrent(scroll = false) {
     const n = this.slot;
+    const lay = bookLayout(this.book);
+    const cell = n >= 1 && n <= this.book.page_count ? lay.cells[n - 1] : null;
     let found: HTMLElement | null = null;
-    for (const el of this.contents.querySelectorAll<HTMLElement>('.crow')) {
-      const here = n >= Number(el.dataset.from) && n <= Number(el.dataset.to);
-      // A collapsed run holds the page too, but its own row is a better mark when it is expanded.
-      const inside = here && (el.dataset.from === el.dataset.to || !this.expanded.has(Number(el.dataset.from)));
+    for (const el of this.contents.querySelectorAll<HTMLElement>('.orow')) {
+      const main = el.querySelector<HTMLElement>('.orow-main');
+      const inside = main?.dataset.slot !== undefined ? Number(main.dataset.slot) === n : !!cell && cell.kind !== 'gap' && main?.dataset.block === String(cell.block);
       el.classList.toggle('current', inside);
-      if (inside) el.setAttribute('aria-current', 'true'); else el.removeAttribute('aria-current');
+      if (inside) main?.setAttribute('aria-current', 'true'); else main?.removeAttribute('aria-current');
       if (inside) found = el;
     }
-    found?.scrollIntoView?.({ block: 'nearest' });
+    if (scroll) found?.scrollIntoView?.({ block: 'nearest' });
   }
 
   // ---- choosing a design ---------------------------------------------------------
 
-  private openPicker() {
-    // Spreads fill this page and the next, so they are offered on left pages only.
-    if (slotSide(this.slot) !== 'left') this.pickerTab = 'pages';
+  private async openAdd(group: number | null) {
+    await this.refreshDesigns();
+    this.picking = { for: 'add', group };
+    this.renderPicker();
+    this.picker.showModal();
+  }
+
+  private async openCoverPicker() {
+    await this.refreshDesigns();
+    this.picking = { for: 'cover' };
     this.renderPicker();
     this.picker.showModal();
   }
 
   private renderPicker() {
-    this.pickerTitle.textContent = `Design for ${slotLabel(this.book, this.slot).toLowerCase()}`;
-    const side = slotSide(this.slot);
-    // A spread fills this page and the next, so it is offered on left pages that have a page after them (not the outside back cover).
-    const spreadOk = side === 'left' && this.slot <= this.book.page_count;
-    const tab = spreadOk ? this.pickerTab : 'pages';
-    this.pickerTabs.el.parentElement!.hidden = !spreadOk;
+    const cover = this.picking.for === 'cover';
+    const into = this.picking.for === 'add' ? this.picking.group : null;
+    this.pickerTitle.textContent = cover ? `Design for ${slotLabel(this.book, this.slot).toLowerCase()}` : into !== null ? `Add to ${nameOf(this.book.outline[into] ?? groupBlock('the group'))}` : 'Add to the book';
+    const tab = cover ? 'pages' : this.pickerTab;
+    this.pickerTabs.el.parentElement!.hidden = cover;
     this.pickerTabs.select(tab);
+    const side = cover ? slotSide(this.slot) : 'right';
     const card = (c: Choice) => {
       const thumb = h('div', { class: 'thumb' });
       const pages = c.kind === 'spread' ? [(c.data as Spread).left, (c.data as Spread).right] : [withSide(c.data ? (c.data as Page) : blankPage(side), side)];
       thumb.innerHTML = thumbnailSvg(pages);
       return h('button', {
-        type: 'button', class: `design${c.kind === 'spread' ? ' wide' : ''}`, 'data-kind': c.kind, 'data-help': 'picker-design',
-        onclick: () => this.choose(c),
-      }, thumb, h('span', { class: 'design-title' }, c.name), h('span', { class: 'hint' }, c.kind === 'blank' ? 'Empty page' : c.kind === 'spread' ? 'Spread: fills this page and the next' : 'Page'));
+        type: 'button', class: `design${c.kind === 'spread' ? ' wide' : ''}`, 'data-kind': c.kind, 'data-help': 'picker-design', 'data-name': c.name,
+        onclick: () => void this.choose(c),
+      }, thumb, h('span', { class: 'design-title' }, c.name), h('span', { class: 'hint' }, c.kind === 'blank' ? 'Empty page' : c.kind === 'spread' ? 'Spread: two facing pages' : 'Page'));
     };
     const section = (title: string, items: Choice[], empty?: string) => [
       h('h3', {}, title),
       items.length ? h('div', { class: 'design-list' }, ...items.map(card)) : h('p', { class: 'hint' }, empty ?? ''),
     ];
-    const choice = (kind: 'page' | 'spread') => (data: Page | Spread): Choice => ({ name: data.name, kind, data });
-    const saved = (kind: 'page' | 'spread') => this.saved.filter((i) => i.kind === kind).map((i) => ({ ...choice(kind)(i.data as Page | Spread), id: i.id }));
+    const choice = (kind: 'page' | 'spread', id: (d: never) => string) => (data: Page | Spread): Choice => ({ name: data.name, kind, data, id: id(data as never) });
+    const saved = (kind: 'page' | 'spread') => this.saved.filter((i) => i.kind === kind).map((i): Choice => ({ name: i.name, kind, data: { ...(i.data as Page | Spread), name: i.name }, id: i.id }));
+    const builtinPage = choice('page', exampleId), builtinSpread = choice('spread', spreadId);
+    if (tab === 'blocks') {
+      this.pickerBody.replaceChildren(...this.otherBlocks());
+      return;
+    }
     this.pickerBody.replaceChildren(...(tab === 'pages'
       ? [
-        h('div', { class: 'design-list' }, card({ name: 'Blank', kind: 'blank', data: null })),
+        ...(cover ? [h('div', { class: 'design-list' }, card({ name: 'Blank', kind: 'blank', data: null, id: null }))] : []),
         ...section('Saved pages', saved('page'), 'Nothing saved yet. Pages you save to the Library appear here.'),
-        ...section('Built-in pages', this.host.examples.map(choice('page'))),
+        ...section('Built-in pages', this.host.examples.map(builtinPage)),
       ]
       : [
         ...section('Saved spreads', saved('spread'), 'No saved spreads.'),
-        ...section('Built-in spreads', BUILTIN_SPREADS.map(choice('spread'))),
+        ...section('Built-in spreads', BUILTIN_SPREADS.map(builtinSpread)),
       ]));
   }
 
+  /** The Other tab: a blank page, free pages, a new group, and sections (which add a group). */
+  private otherBlocks(): HTMLElement[] {
+    const inGroup = this.picking.for === 'add' && this.picking.group !== null;
+    const thumbOf = (pages: Page[]) => { const t = h('div', { class: 'thumb' }); t.innerHTML = thumbnailSvg(pages); return t; };
+    const card = (name: string, hint: string, key: string, thumb: HTMLElement, run: () => void, disabled = false) =>
+      h('button', { type: 'button', class: 'design', 'data-help': 'picker-design', 'data-key': key, 'data-name': name, disabled, onclick: run }, thumb, h('span', { class: 'design-title' }, name), h('span', { class: 'hint' }, hint));
+    const blank = () => thumbOf([blankPage('right')]);
+    const sectionCard = (s: Section) => card(s.name, `Section: ${plural(s.children.length, 'block')}`, 'add-section', thumbOf([this.sectionFirstPage(s)]), () => this.addBlock(sectionGroup(s)));
+    const free = canAddFree(this.book.outline) || inGroup;
+    return [
+      h('div', { class: 'design-list' },
+        card('Blank page', 'An empty page, repeated as often as you set.', 'add-blank', blank(), () => this.addBlock(pageBlock(null))),
+        card('Free pages', inGroup ? 'A page you fill by hand, in each repeat.' : free ? 'Pages you fill by hand: they take the pages the other blocks leave.' : 'Another block already takes what is left.', 'add-free', blank(), () => this.addBlock(freeBlock(inGroup ? [null] : [])), !free),
+        ...(inGroup ? [] : [card('New group', 'Blocks that repeat together. Add pages and spreads to it after.', 'add-group', blank(), () => this.addBlock(groupBlock('Group')))])),
+      ...(inGroup ? [] : [
+        h('h3', {}, 'Saved sections'), this.savedSections.length ? h('div', { class: 'design-list' }, ...this.savedSections.map(sectionCard)) : h('p', { class: 'hint' }, 'No saved sections.'),
+        h('h3', {}, 'Built-in sections'), h('div', { class: 'design-list' }, ...BUILTIN_SECTIONS.map(sectionCard)),
+      ]),
+    ];
+  }
+
+  private sectionFirstPage(s: Section): Page {
+    const first = s.children[0];
+    return !first || first.type === 'free' ? blankPage('right') : first.type === 'spread' ? first.left : withSide(first.page ?? blankPage('right'), 'right');
+  }
+
   private async choose(c: Choice) {
-    if (c.id && c.data && isUntitled(c.name)) {
+    if (c.id && !c.id.startsWith('example:') && c.data && isUntitled(c.name)) {
       const name = await this.host.nameSaved(c.id, c.name, c.kind as 'page' | 'spread');
       if (name === null) return;
       c = { ...c, name, data: { ...c.data, name } as Page | Spread };
       void this.refreshDesigns();
     }
     this.picker.close();
-    const at = this.slot;
-    let numberOff: number[] = [];
-    this.edit(() => {
-      if (c.kind === 'blank') setSlot(this.book, at, null);
-      else if (c.kind === 'spread') numberOff = fillSlots(this.book, at, at + 1, c.data as Spread);
-      else if (setSlot(this.book, at, c.data as Page)) numberOff = [at];
-    });
-    this.say([
-      c.kind === 'spread' ? `Placed “${c.name}” on ${slotLabel(this.book, at).toLowerCase()} and the page beside it.` : '',
-      this.numberOffNote(numberOff),
-    ].filter(Boolean).join(' ') || null);
-  }
-
-  /** Tell the owner when placing a design on this side moved its page-number corner under something. */
-  private numberOffNote(slots: number[]) {
-    const pages = slots.filter((n) => n >= 1 && n <= this.book.page_count);
-    return pages.length ? `The page number is off on ${listPages(pages)}: the design has something in the corner it would sit in on that side.` : '';
-  }
-
-  // ---- applying to more pages ----------------------------------------------------
-
-  private openApply() {
-    const last = this.book.page_count;
-    const from = Math.max(1, Math.min(last, this.slot + 1));
-    this.scope = { mode: 'range', from, to: last };
-    this.scopeFrom = from;
-    this.renderApply();
-    this.apply.showModal();
-  }
-
-  /** Build the dialog's controls. Typing in a number field only updates the summary, so the field keeps its focus. */
-  private renderApply() {
-    const b = this.book;
-    const design = getSlot(b, this.slot);
-    const thumb = h('div', { class: 'thumb small' });
-    thumb.innerHTML = thumbnailSvg([bookPage(b, this.slot)]);
-    const summary = h('p', { class: 'apply-summary', role: 'status' });
-    const go = h('button', { type: 'button', class: 'primary', 'data-help': 'apply-go' });
-    const fromField = this.field('From page', 'from', () => update());
-    const toField = this.field('To page', 'to', () => update());
-    const facing = getSlot(b, this.slot % 2 ? this.slot - 1 : this.slot + 1);
-    const both = h('input', { type: 'checkbox', checked: this.withFacing, 'aria-label': 'Copy the facing page too', 'data-key': 'apply-facing', 'data-help': 'apply-facing' });
-    const bothLabel = h('label', { class: 'choice' }, both, 'Copy the facing page too, so the pair repeats as a spread');
-    bothLabel.hidden = !facing;
-    both.onchange = () => { this.withFacing = both.checked; update(); };
-    const update = () => {
-      const s = this.scope;
-      fromField.hidden = s.mode === 'from';
-      const targets = scopeSlots(b, s, this.slot).filter((n) => n !== this.slot);
-      const pair = this.withFacing && facing ? this.pairFrom(design, facing) : null;
-      const { changed, replaced } = whatChanges(b, targets, pair ?? design);
-      summary.textContent = changed.length === 0
-        ? 'Nothing would change: those pages already have this design, or the range is empty.'
-        : `Will change ${listPages(changed)}${replaced ? `. ${replaced === changed.length ? 'All of them' : replaced} already ${replaced === 1 && changed.length === 1 ? 'has' : 'have'} a design that will be replaced` : ''}.`;
-      go.disabled = changed.length === 0;
-      go.textContent = `${design ? 'Apply to' : 'Clear'} ${changed.length} page${changed.length === 1 ? '' : 's'}`;
-      go.onclick = () => this.applyTo(changed, pair ?? design);
-    };
-    const radios = SCOPE_MODES.map(({ mode, label }) => {
-      const input = h('input', { type: 'radio', name: 'scope', checked: this.scope.mode === mode, 'aria-label': label, 'data-help': 'apply-scope' });
-      input.onchange = () => {
-        const { from, to } = { from: 'from' in this.scope ? this.scope.from : this.scopeFrom, to: this.scope.to };
-        this.scope = mode === 'from' ? { mode, to } : { mode, from, to };
-        this.scopeFrom = from;
-        update();
-      };
-      return h('label', { class: 'choice' }, input, label);
-    });
-    this.applyBody.replaceChildren(
-      h('div', { class: 'apply-design' }, thumb, h('p', {}, h('span', { class: 'hint' }, `Copy the design of ${slotLabel(b, this.slot).toLowerCase()}:`), h('strong', {}, designName(design)))),
-      h('div', { class: 'choices', role: 'radiogroup', 'aria-label': 'Which pages' }, ...radios),
-      h('div', { class: 'row' }, fromField, toField),
-      bothLabel,
-      summary,
-      h('div', { class: 'row' }, go, h('button', { type: 'button', 'data-help': 'apply-cancel', onclick: () => this.apply.close() }, 'Cancel')),
-    );
-    update();
-  }
-
-  /** A page-number field bound to the scope's `from` or `to`. */
-  private field(label: string, key: 'from' | 'to', changed: () => void) {
-    const value = key === 'to' ? this.scope.to : this.scopeFrom;
-    const input = h('input', { type: 'number', value, min: 1, max: this.book.page_count, 'aria-label': label, 'data-help': `apply-${key}` });
-    const read = () => {
-      const v = Math.round(Number(input.value));
-      if (!input.value || !Number.isFinite(v)) return;
-      const n = Math.max(1, Math.min(this.book.page_count, v));
-      if (key === 'from') { this.scopeFrom = n; if ('from' in this.scope) this.scope.from = n; } else this.scope.to = n;
-      changed();
-    };
-    input.oninput = read;
-    input.onchange = () => { read(); input.value = String(key === 'to' ? this.scope.to : this.scopeFrom); };
-    return h('label', { class: 'compact' }, label, input);
-  }
-
-  // ---- dates ---------------------------------------------------------------------
-
-  private openDates() {
-    const b = this.book, d = this.dating;
-    const from = Math.max(1, Math.min(b.page_count, this.slot));
-    const { start: known, weekly } = datesStart(b, from);
-    if (!dateOf(b, from) && b.dates) d.mode = weekly ? 'week' : 'day'; // continue the rhythm of the dates before it
-    d.from = from;
-    d.to = endOfRun(b, from);
-    d.start = known;
-    d.year = parts(addDays(sundayOf(known), 6)).year; // the year whose week numbers count it
-    d.week = weekNumber(known);
-    this.renderDates();
-    this.datesDialog.showModal();
-  }
-
-  private renderDates() {
-    const b = this.book, d = this.dating;
-    const plan = (): DatePlan => (d.mode === 'week' ? { mode: 'week', year: d.year, week: d.week } : { mode: 'day', start: d.start });
-    const range = (): [number, number] => [Math.min(d.from, d.to), Math.max(d.from, d.to)];
-    const summary = h('p', { class: 'apply-summary', role: 'status' });
-    const set = h('button', { type: 'button', class: 'primary', 'data-key': 'dates-set', 'data-help': 'dates-set' }, 'Set dates');
-    const clear = h('button', { type: 'button', 'data-key': 'dates-clear', 'data-help': 'dates-clear' }, 'Clear dates');
-    const update = () => {
-      const [lo, hi] = range();
-      const dates = planDates(plan(), hi - lo + 1);
-      summary.textContent = datesSummary(plan(), lo, hi);
-      set.disabled = !dates;
-      clear.disabled = !b.dates || b.dates.slice(lo - 1, hi).every((x) => x === null);
-      set.onclick = () => {
-        if (!dates) return;
-        this.datesDialog.close();
-        this.edit(() => setDates(b, lo, dates));
-        this.say(`Dated ${hi - lo + 1} page${hi === lo ? '' : 's'}. Undo takes it back.`);
-      };
-      clear.onclick = () => {
-        this.datesDialog.close();
-        this.edit(() => setDates(b, lo, Array.from({ length: hi - lo + 1 }, () => null)));
-        this.say(`Cleared the dates on ${hi - lo + 1} page${hi === lo ? '' : 's'}. Undo takes it back.`);
-      };
-    };
-    const num = (label: string, key: 'year' | 'week' | 'from' | 'to', help: string, min: number, max: number) => {
-      const input = h('input', { type: 'number', value: d[key], min, max, 'aria-label': label, 'data-key': `dates-${key}`, 'data-help': help });
-      const read = () => { const v = Math.round(Number(input.value)); if (input.value && Number.isFinite(v)) { d[key] = key === 'from' || key === 'to' ? Math.max(1, Math.min(b.page_count, v)) : v; update(); } };
-      input.oninput = read;
-      input.onchange = () => { read(); if (key === 'from' || key === 'to') input.value = String(d[key]); };
-      return h('label', { class: 'compact' }, label, input);
-    };
-    const mode = (value: 'week' | 'day', label: string) => {
-      const input = h('input', { type: 'radio', name: 'dates-mode', checked: d.mode === value, 'aria-label': label, 'data-key': `dates-mode-${value}`, 'data-help': 'dates-mode' });
-      input.onchange = () => { d.mode = value; this.renderDates(); };
-      return h('label', { class: 'choice' }, input, label);
-    };
-    const start = h('input', { type: 'date', value: d.start, 'aria-label': 'Starting date', 'data-key': 'dates-start', 'data-help': 'dates-start' });
-    start.oninput = start.onchange = () => { d.start = start.value; update(); };
-    this.datesBody.replaceChildren(
-      h('p', { class: 'hint' }, 'Dated pages print their {weekday}, {day}, {month} and other tokens with the date; pages without a date leave them blank.'),
-      h('div', { class: 'choices', role: 'radiogroup', 'aria-label': 'Each page is' }, mode('week', 'Each page is one week'), mode('day', 'Each page is one day')),
-      d.mode === 'week'
-        ? h('div', { class: 'row' }, num('Year', 'year', 'dates-year', 1900, 2200), num('Starting week', 'week', 'dates-week', 1, 54))
-        : h('div', { class: 'row' }, h('label', { class: 'compact' }, 'Starting date', start)),
-      h('div', { class: 'row' }, num('From page', 'from', 'dates-from', 1, b.page_count), num('To page', 'to', 'dates-to', 1, b.page_count)),
-      summary,
-      h('div', { class: 'row' }, set, clear, h('button', { type: 'button', 'data-help': 'dates-cancel', onclick: () => this.datesDialog.close() }, 'Cancel')),
-    );
-    update();
-  }
-
-  // ---- save pages as a section -----------------------------------------------------
-
-  private openSaveSection() {
-    const s = this.sectioning, last = this.book.page_count;
-    s.from = s.to = Math.max(1, Math.min(last, this.slot));
-    s.name = '';
-    s.move = guessMove(this.book, s.from, s.to);
-    this.renderSaveSection();
-    this.sectionDialog.showModal();
-  }
-
-  private renderSaveSection() {
-    const b = this.book, s = this.sectioning;
-    const summary = h('p', { class: 'apply-summary', role: 'status' });
-    const save = h('button', { type: 'button', class: 'primary', 'data-key': 'section-save', 'data-help': 'section-save' }, 'Save section');
-    const range = (): [number, number] => [Math.min(s.from, s.to), Math.max(s.from, s.to)];
-    const update = () => {
-      const [lo, hi] = range();
-      const dated = Array.from({ length: hi - lo + 1 }, (_, i) => dateOf(b, lo + i)).some(Boolean);
-      summary.textContent = `${hi === lo ? `Page ${lo}` : `Pages ${lo}–${hi}`}: ${hi - lo + 1} page${hi === lo ? '' : 's'}, starting on a ${lo % 2 === 0 ? 'left' : 'right'} page. ${dated ? 'Their dates are kept relative to the first dated page.' : 'None has a date, so its dates can’t move.'}`;
-      save.onclick = () => void this.saveSection();
-    };
-    const num = (label: string, key: 'from' | 'to', help: string) => {
-      const input = h('input', { type: 'number', value: s[key], min: 1, max: b.page_count, inputmode: 'numeric', 'aria-label': label, 'data-key': `section-${key}`, 'data-help': help });
-      const read = () => { const v = Math.round(Number(input.value)); if (input.value && Number.isFinite(v)) { s[key] = Math.max(1, Math.min(b.page_count, v)); update(); } };
-      input.oninput = read;
-      input.onchange = () => { read(); input.value = String(s[key]); };
-      return h('label', { class: 'compact' }, label, input);
-    };
-    const name = h('input', { type: 'text', value: s.name, placeholder: 'Name', maxlength: 80, 'aria-label': 'Name', 'data-key': 'section-name', 'data-help': 'section-name', autocomplete: 'off' });
-    name.oninput = () => { s.name = name.value; };
-    const move = h('select', { 'aria-label': 'Each time it repeats, its dates', 'data-key': 'section-move', 'data-help': 'section-move' },
-      ...MOVES.map((m) => h('option', { value: m, selected: m === s.move }, MOVE_LABEL[m])));
-    move.onchange = () => { s.move = move.value as Move; };
-    this.sectionBody.replaceChildren(
-      h('p', { class: 'hint' }, 'Saves a run of this book’s pages to the Library, with its dates, so the book builder can repeat it. A section keeps the side of the spine it began on.'),
-      h('div', { class: 'row' }, num('From page', 'from', 'section-from'), num('To page', 'to', 'section-to')),
-      h('label', { class: 'compact wide' }, 'Name', name),
-      h('label', { class: 'compact wide' }, 'Each repeat, its dates', move),
-      summary,
-      h('div', { class: 'row' }, save, h('button', { type: 'button', 'data-help': 'section-cancel', onclick: () => this.sectionDialog.close() }, 'Cancel')));
-    update();
-  }
-
-  private async saveSection() {
-    const s = this.sectioning, [lo, hi] = [Math.min(s.from, s.to), Math.max(s.from, s.to)];
-    const name = s.name.trim() || (hi === lo ? `Page ${lo}` : `Pages ${lo}–${hi}`);
-    const section = sectionFrom(this.book, lo, hi, name, s.move);
-    const check = readSection(section);
-    if (!check.ok) { this.say(`Not saved: ${check.issues[0].message}`); this.sectionDialog.close(); return; }
-    let saved: string;
-    try {
-      saved = (await this.host.library.create('section', name, section)).name; // a name already used gets " 2"; nothing is replaced
-    } catch (err) {
-      this.say(`Not saved: ${err instanceof Error ? err.message : String(err)}`);
-      this.sectionDialog.close();
+    if (this.picking.for === 'cover') {
+      const at = this.slot;
+      this.edit(() => setCover(this.book, at, c.kind === 'blank' ? null : (c.data as Page)));
       return;
     }
-    this.sectionDialog.close();
-    await this.refreshDesigns();
-    this.say(`Saved the section “${saved}” (${section.pages.length} page${section.pages.length === 1 ? '' : 's'}). Find it in Library, Sections, and add it to the book with Build book.`);
+    const link = (p: Page | null, q?: Page): Link | undefined => (c.id && p ? { id: c.id, fingerprint: q ? `${fingerprint(p)}/${fingerprint(q)}` : fingerprint(p) } : undefined);
+    if (c.kind === 'spread') {
+      const s = c.data as Spread;
+      this.addBlock(spreadBlock(c.name, s.left, s.right, 1, link(s.left, s.right)));
+    } else this.addBlock(pageBlock(c.data as Page, 1, link(c.data as Page)));
   }
 
-  // ---- the book builder ------------------------------------------------------------
-
-  private async openBuild() {
-    const b = this.book;
-    await this.refreshDesigns();
-    const first = b.dates?.find(Boolean);
-    this.recipe = b.recipe ? structuredClone(b.recipe) : { month: (first ?? todayIso()).slice(0, 7), steps: [] };
-    this.buildView = 'steps';
-    this.renderBuild();
-    this.buildDialog.showModal();
-  }
-
-  /** The recipe's month as its year and its month number. */
-  private get recipeMonth() { const [year, month] = this.recipe.month.split('-').map(Number); return { year, month }; }
-
-  private renderBuild() {
-    if (this.buildView !== 'steps') return this.renderChooser();
-    const r = this.recipe;
-    this.buildTitle.textContent = 'Book builder';
-    const summary = h('div', { class: 'apply-summary', role: 'status' });
-    const go = h('button', { type: 'button', class: 'primary', 'data-key': 'build-go', 'data-help': 'build-go' }, 'Generate book');
-    const lines: HTMLElement[] = [];
-    this.buildRefs = { summary, go, lines };
-
-    const { year, month } = this.recipeMonth;
-    const setMonth = (y: number, m: number) => { r.month = `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}`; this.refreshBuild(); };
-    const monthSel = h('select', { 'aria-label': 'Month', 'data-key': 'build-month', 'data-help': 'build-month' },
-      ...MONTH_NAMES.map((_, i) => h('option', { value: i + 1, selected: i + 1 === month }, monthTitle(i + 1))));
-    monthSel.onchange = () => setMonth(this.recipeMonth.year, Number(monthSel.value));
-    const yearIn = h('input', { type: 'number', value: year, min: 1900, max: 2200, inputmode: 'numeric', 'aria-label': 'Year', 'data-key': 'build-year', 'data-help': 'build-year' });
-    yearIn.oninput = () => { const v = Math.round(Number(yearIn.value)); if (yearIn.value && v >= 1900 && v <= 2200) setMonth(v, this.recipeMonth.month); };
-
-    const fillTaken = r.steps.some((s) => s.repeat.kind === 'fill');
-    const stepCard = (step: Step, i: number) => {
-      const rep = step.repeat;
-      const sec = step.section;
-      const kind = h('select', { 'aria-label': `Step ${i + 1}: how often`, 'data-key': 'step-repeat', 'data-help': 'build-step-repeat' },
-        h('option', { value: 'times', selected: rep.kind === 'times' }, 'A number of times'),
-        h('option', { value: 'weeks', selected: rep.kind === 'weeks' }, 'Each week of a month'),
-        h('option', { value: 'fill', selected: rep.kind === 'fill', disabled: fillTaken && rep.kind !== 'fill' }, 'Fill what’s left'));
-      kind.onchange = () => {
-        delete step.start;
-        step.repeat = kind.value === 'weeks' ? { kind: 'weeks', only_in_month: true } : kind.value === 'fill' ? { kind: 'fill' } : { kind: 'times', count: 1 };
-        this.renderBuild();
-      };
-      const controls: HTMLElement[] = [h('label', { class: 'compact wide' }, 'Repeat', kind)];
-      if (rep.kind === 'times') controls.push(this.countField(rep.count, `Step ${i + 1}: times`, (n) => { rep.count = n; this.refreshBuild(); }));
-      if (rep.kind === 'weeks') {
-        const only = h('input', { type: 'checkbox', checked: rep.only_in_month, 'aria-label': `Step ${i + 1}: only days in the month`, 'data-key': 'step-only', 'data-help': 'build-step-only' });
-        only.onchange = () => { rep.only_in_month = only.checked; this.refreshBuild(); };
-        const m = h('input', { type: 'month', value: rep.month ?? '', 'aria-label': `Step ${i + 1}: month`, 'data-key': 'step-month', 'data-help': 'build-step-start' });
-        m.oninput = m.onchange = () => { if (m.value) rep.month = m.value; else delete rep.month; this.refreshBuild(); };
-        controls.push(h('label', { class: 'compact wide' }, 'Other month', m), h('label', { class: 'choice' }, only, 'Only days in the month'));
-      } else {
-        const start = h('input', { type: 'date', value: step.start ?? '', 'aria-label': `Step ${i + 1}: first date`, 'data-key': 'step-start', 'data-help': 'build-step-start' });
-        start.oninput = start.onchange = () => { if (start.value) step.start = start.value; else delete step.start; this.refreshBuild(); };
-        controls.push(h('label', { class: 'compact wide' }, 'First date', start));
-      }
-      const tool = (help: string, label: string, text: string, disabled: boolean, run: () => void) =>
-        h('button', { type: 'button', class: 'step-tool', 'data-key': help, 'data-help': help, 'aria-label': `${label} step ${i + 1}`, disabled, onclick: run }, text);
-      const move = (to: number) => { const [x] = r.steps.splice(i, 1); r.steps.splice(to, 0, x); this.renderBuild(); };
-      const line = h('p', { class: 'hint step-adds' });
-      lines.push(line);
-      return h('li', { class: 'step-card', 'data-step': i },
-        h('div', { class: 'step-head' },
-          h('strong', {}, `${i + 1}. ${sec.name}`),
-          h('span', { class: 'step-tools' },
-            tool('build-step-up', 'Move up', '↑', i === 0, () => move(i - 1)),
-            tool('build-step-down', 'Move down', '↓', i === r.steps.length - 1, () => move(i + 1)),
-            tool('build-step-remove', 'Remove', '✕', false, () => { r.steps.splice(i, 1); this.renderBuild(); }))),
-        h('p', { class: 'hint' }, `${sec.pages.length} page${sec.pages.length === 1 ? '' : 's'} · starts on a ${sec.left ? 'left' : 'right'} page · dates ${sec.move === 'none' ? 'stay the same' : MOVE_LABEL[sec.move].toLowerCase()} each repeat`),
-        h('div', { class: 'step-controls' }, ...controls),
-        line);
-    };
-
-    const gapName = r.gap?.name ?? 'Notes';
-    this.buildBody.replaceChildren(
-      h('p', { class: 'hint' }, 'Builds the whole book from steps. Each step repeats a section from the Library. This replaces every page of the book, and Undo takes it back. To build another month, change the month and generate again.'),
-      h('div', { class: 'row' }, h('label', { class: 'compact' }, 'Month', monthSel), h('label', { class: 'compact' }, 'Year', yearIn)),
-      h('div', { class: 'row' }, h('span', { class: 'hint' }, 'Start from'),
-        ...PRESETS.map((p) => h('button', { type: 'button', 'data-key': `build-preset-${p.id}`, 'data-help': 'build-preset', title: p.description, onclick: () => { r.steps = structuredClone(p.steps); this.renderBuild(); } }, p.name))),
-      r.steps.length ? h('ol', { class: 'steps' }, ...r.steps.map(stepCard)) : h('p', { class: 'hint', 'data-key': 'build-empty' }, 'No steps yet. Start from a preset, or add a section as the first step.'),
-      h('div', { class: 'row' },
-        h('button', { type: 'button', 'data-key': 'build-add', 'data-help': 'build-add', onclick: () => { this.buildView = 'add'; this.renderBuild(); } }, 'Add a step…'),
-        h('button', { type: 'button', 'data-key': 'build-gap', 'data-help': 'build-gap', onclick: () => { this.buildView = 'gap'; this.renderBuild(); } }, `Gap page: ${gapName}…`)),
-      h('div', { class: 'build-foot' }, summary, h('div', { class: 'row' }, go, h('button', { type: 'button', 'data-help': 'build-cancel', onclick: () => this.buildDialog.close() }, 'Cancel'))));
-    this.refreshBuild();
-  }
-
-  /** A number of repeats with − and + buttons. */
-  private countField(value: number, label: string, set: (n: number) => void) {
-    const input = h('input', { type: 'text', inputmode: 'numeric', value: String(value), autocomplete: 'off', 'aria-label': label, 'data-key': 'step-count', 'data-help': 'build-step-count' });
-    let n = value;
-    const clamp = (v: number) => Math.max(1, Math.min(400, Math.round(v)));
-    input.oninput = () => { const v = parseInt(input.value, 10); if (Number.isFinite(v)) { n = clamp(v); set(n); } };
-    input.onblur = () => { input.value = String(n); };
-    const step = (dir: 1 | -1) => h('button', {
-      type: 'button', class: 'step', 'data-key': `step-count-${dir > 0 ? 'inc' : 'dec'}`, 'data-help': dir > 0 ? 'step-inc' : 'step-dec', 'aria-label': `${dir > 0 ? 'More' : 'Fewer'}: ${label}`,
-      onmousedown: (e: Event) => e.preventDefault(),
-      onclick: () => { n = clamp(n + dir); input.value = String(n); set(n); },
-    }, dir > 0 ? '+' : '−');
-    return h('div', { class: 'field num step-count' }, h('label', {}, 'Times'), h('div', { class: 'stepper' }, step(-1), input, step(1)));
-  }
-
-  /** Re-plan after any change and update the summary, each step's line and the Generate button, without redrawing the controls. */
-  private refreshBuild() {
-    const refs = this.buildRefs;
-    if (!refs) return;
-    const b = this.book, r = this.recipe;
-    const plan: BuildPlan = planSteps(r, b.page_count);
-    refs.summary.replaceChildren(...buildSummary(plan, b.page_count).map((line, i) => h('p', { class: i === 0 ? 'usage' : '' }, line)));
-    r.steps.forEach((step, i) => { if (refs.lines[i]) refs.lines[i].textContent = `Adds ${stepLine(step, plan.steps[i], r.month)}`; });
-    refs.go.disabled = !!plan.problem || r.steps.length === 0;
-    refs.go.onclick = () => {
-      this.buildDialog.close();
-      let off: number[] = [];
-      this.edit(() => { off = applyBuild(b, plan); });
-      this.slot = Math.min(this.slot, b.page_count);
-      this.say([
-        `Built the book from ${r.steps.length} step${r.steps.length === 1 ? '' : 's'}: ${plan.used} of ${b.page_count} pages used. Undo takes it back.`,
-        plan.gaps.length ? `Added a gap page (${plan.gapName}) on ${listPages(plan.gaps)}.` : '', this.numberOffNote(off),
-      ].filter(Boolean).join(' '));
-    };
-  }
-
-  /** The list a step is added from (sections), or the gap page is chosen from (pages). */
-  private renderChooser() {
-    const adding = this.buildView === 'add';
-    this.buildTitle.textContent = adding ? 'Add a step' : 'Gap page';
-    const back = h('button', { type: 'button', 'data-key': 'build-back', 'data-help': 'build-back', onclick: () => { this.buildView = 'steps'; this.renderBuild(); } }, 'Back to the steps');
-    const card = (name: string, hint: string, pages: (Page | null)[], pick: () => void) => {
-      const thumb = h('div', { class: 'thumb' });
-      thumb.innerHTML = thumbnailSvg(pages.slice(0, 2).map((p) => p ?? blankPage('right')));
-      return h('button', { type: 'button', class: 'design wide', 'data-key': 'build-pick', 'data-help': 'build-pick', 'data-name': name, onclick: pick },
-        thumb, h('span', { class: 'design-title' }, name), h('span', { class: 'hint' }, hint));
-    };
-    const group = (title: string, cards: HTMLElement[], empty: string) => [h('h3', {}, title), cards.length ? h('div', { class: 'design-list' }, ...cards) : h('p', { class: 'hint' }, empty)];
-    if (adding) {
-      const add = (section: Section) => () => {
-        this.recipe.steps.push({ section: structuredClone(section), repeat: { kind: 'times', count: 1 } });
-        this.buildView = 'steps';
-        this.renderBuild();
-      };
-      const sectionCard = (s: Section) => card(s.name, `${s.pages.length} page${s.pages.length === 1 ? '' : 's'} · dates ${s.move === 'none' ? 'stay the same' : MOVE_LABEL[s.move].toLowerCase()}`, s.pages, add(s));
-      this.buildBody.replaceChildren(back,
-        ...group('Saved sections', this.savedSections.map(sectionCard), 'None yet. In the Book view, More, Save pages as a section.'),
-        ...group('Built-in sections', BUILTIN_SECTIONS.map(sectionCard), ''));
-    } else {
-      const pick = (page: Page | null) => () => { if (page) this.recipe.gap = structuredClone(page); else delete this.recipe.gap; this.buildView = 'steps'; this.renderBuild(); };
-      const pageCard = (p: Page) => card(p.name, 'Page', [p], pick(p));
-      this.buildBody.replaceChildren(back,
-        h('p', { class: 'hint' }, 'The page that fills in so a part starts on the same side of the spine. Notes unless you choose another.'),
-        h('div', { class: 'design-list' }, card('Notes', 'The default', [notesPage()], pick(null))),
-        ...group('Saved pages', this.saved.filter((i) => i.kind === 'page').map((i) => pageCard(i.data as Page)), 'No saved pages yet.'),
-        ...group('Built-in pages', this.host.examples.filter((p) => p.name !== 'Notes').map(pageCard), ''));
-    }
+  /** Add a block to the end of the outline (or the end of the group the picker was opened from) and show it. */
+  private addBlock(block: Block) {
+    this.picker.close();
+    const group = this.picking.for === 'add' ? this.picking.group : null;
+    this.editOutline((o) => addBlock(o, block, group !== null ? { group } : undefined), () => {
+      const o = this.book.outline;
+      this.selected = group !== null ? [group, (o[group] as Extract<Block, { type: 'group' }>).children.length - 1] : [o.length - 1];
+      this.openRow = null;
+      const row = bookLayout(this.book).rows[group ?? o.length - 1];
+      if (row?.first) this.slot = row.first;
+      this.say(`Added “${nameOf(block)}”${group !== null ? ` to ${nameOf(o[group])}` : ''}. Undo takes it back.`);
+    });
+    this.contents.querySelector('.orow.selected')?.scrollIntoView?.({ block: 'nearest' });
   }
 
   // ---- flip through --------------------------------------------------------------
 
   private flip() {
-    flipThrough(this.book, (slot, align) => slotSvg(this.book, slot, outline, ` preserveAspectRatio="${align} meet"`), (left) => this.go(left));
-  }
-
-  /** This page and the one facing it, as a left and right pair. */
-  private pairFrom(here: Page | null, facing: Page | null): Facing {
-    return slotSide(this.slot) === 'left' ? { left: here, right: facing } : { left: facing, right: here };
-  }
-
-  private applyTo(pages: number[], design: Design) {
-    this.apply.close();
-    let numberOff: number[] = [];
-    this.edit(() => { numberOff = applyDesign(this.book, pages, design); });
-    this.say([`${design ? 'Applied' : 'Cleared'} ${pages.length} page${pages.length === 1 ? '' : 's'}. Undo takes it back.`, this.numberOffNote(numberOff)].filter(Boolean).join(' '));
+    flipThrough(this.book, (slot, align) => slotSvg(this.book, slot, outlineMark, ` preserveAspectRatio="${align} meet"`), (left) => this.go(left));
   }
 }

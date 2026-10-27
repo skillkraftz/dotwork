@@ -231,7 +231,7 @@ A month offset keeps the day of the month where it can (Jan 31 + 1 month is in F
 
 **What a page covers.** A page is a *week page* if its tokens include `{week}`, any `@end`, or a day offset of 6 or more
 (`{day}`, `{weekday}` or `{months}` with +6 or beyond, or −6); otherwise it is a *day page*. (Until the book has a calendar this is
-how Dotwork decides; the book's dates are still stored per page.)
+how Dotwork decides; a book has no dates yet, so in a book every token prints blank.)
 
 - A **day page** reads its date.
 - A **week page** reads the week holding its date, Sunday to Saturday: `{weekday}`, `{day}`, `{month}`, `{year}` are the
