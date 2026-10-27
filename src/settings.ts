@@ -1,5 +1,5 @@
 import { h } from './panel';
-import { TOKENS, findUnknownTokens } from './format/tokens';
+import { TOKEN_LIST, tokenProblem } from './format/tokens';
 import { PAGE_SIDES, type Page } from './format/types';
 import { validatePage } from './format/validate';
 import { LAYOUT_LIMITS, MAX_PAGES, MIN_PAGES, PRINT_LIMITS, pagesLostByResize, resizeBook, roundPageCount, type Book } from './book/book';
@@ -112,8 +112,8 @@ export class SettingsDialog {
     const identityMsg = message();
     const tokens = h('div');
     const showTokens = () => {
-      const bad = findUnknownTokens(identity.value);
-      tokens.replaceChildren(...(bad.length ? [h('p', { class: 'warn' }, `Unknown token ${bad.map((b) => `{${b}}`).join(' ')} – the page can’t be exported until it is fixed.`)] : []));
+      const bad = tokenProblem(identity.value);
+      tokens.replaceChildren(...(bad ? [h('p', { class: 'warn' }, `${bad} – the page can’t be exported until it is fixed.`)] : []));
     };
     identity.oninput = () => {
       const v = identity.value;
@@ -139,7 +139,7 @@ export class SettingsDialog {
       h('label', { class: 'inline' }, numberOn, 'Print the page number'),
       numberMsg,
       labelled('Identity', identity, identityMsg, tokens),
-      h('p', { class: 'hint' }, `Optional text by the spine. Tokens: ${TOKENS.map((t) => `{${t}}`).join(' ')}; add +1 or -1 for another day, as in {day+1}. With no identity, row 0 (the header row) is free to draw on, except the page number’s corner.`),
+      h('p', { class: 'hint' }, `Optional text by the spine. Tokens: ${TOKEN_LIST}; add +1 or -1 to move by the token’s own unit (days, weeks, months or years), as in {month+1}, or @end for the last day the page covers, as in {day@end}. With no identity, row 0 (the header row) is free to draw on, except the page number’s corner.`),
       sideField,
     ].filter(Boolean) as HTMLElement[];
   }

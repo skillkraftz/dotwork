@@ -5,7 +5,7 @@ import {
 import { isIcons, itemOrigin, itemSize, sequenceItems } from './format/sequence';
 import { ICON_GRID, ICONS } from './icons/icons';
 import { elementArea, headerOf, TEXT_INSET_MM, TEXT_SIZE_MM } from './format/bounds';
-import { expandTokens } from './format/tokens';
+import { expandTokens, sampleFor } from './format/tokens';
 import { shadeRects } from './format/shade';
 import { artPaths, type ArtTone } from './format/art';
 import { boundsOf, handlesFor, type Pt } from './geometry';
@@ -211,7 +211,7 @@ export function elementMarkup(e: PageElement, expand: (t: string) => string = sa
 export interface HeaderItem { text: string; x: number; bold: boolean; anchor: 'start' | 'end' }
 
 /** Header row, in cells' mm from the grid's corner: page number at the outer top corner, identity by the spine. The spine is right of a left page. */
-export function headerItems(page: Page, pageNumber: string | null, expand: (t: string) => string = sample): HeaderItem[] {
+export function headerItems(page: Page, pageNumber: string | null, expand: (t: string) => string = sampleFor(page)): HeaderItem[] {
   const spineRight = page.side === 'left';
   const edge = (atEnd: boolean) => (atEnd ? COLS * P : 0);
   const items: HeaderItem[] = [];
@@ -273,7 +273,7 @@ export function pageContent(page: Page, opts: RenderOptions): string {
     if (shaded) out += `<rect x="${shaded.x * P}" y="0" width="${shaded.w * P}" height="${P}" fill="#e4e4e4"/>`;
     out += gridDots();
   }
-  const expand = opts.expand ?? sample;
+  const expand = opts.expand ?? sampleFor(page);
   const inside = edit && opts.inside?.length ? new Set(opts.inside) : null;
   page.elements.forEach((e, i) => {
     if (edit && opts.hidden?.has(i)) return;

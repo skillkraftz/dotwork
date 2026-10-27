@@ -179,7 +179,7 @@ describe('page numbers and tokens in a book', () => {
   it('expands tokens the way it is told to, in the header and in text', () => {
     const els: PageElement[] = [{ type: 'text', x: 0, y: 1, text: 'Week {week}' }];
     const p = page(els, { identity: '{weekday} {month}' });
-    expect(header(p)).toContain('MON OCT');
+    expect(header(p)).toContain('SUN OCT'); // the page has {week}, so it is a week page and reads the week of the sample date, from Sunday Oct 25
     expect(header(p)).toContain('Week 44');
     const blank = header(p, { expand: blankTokens, pageNumber: null });
     expect(blank).toContain('>Week <');

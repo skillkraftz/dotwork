@@ -22,7 +22,7 @@ import { emptyBook, readBook, type Book } from './book/book';
 import { readSection } from './book/sections';
 import { DEFAULT_PRINT, clonePrint, type PrintSettings } from './book/impose';
 import { loadPrinter, savePrinter } from './printer';
-import { moveOldWidgets } from './widgetmove';
+import { changedTokensProblem, findChangedTokens } from './library/tokennotice'; // removed in phase 5
 import { ExportDialog } from './exporter';
 import { SettingsDialog } from './settings';
 import { checkItem, setupMenus } from './menus';
@@ -819,8 +819,10 @@ applyGuards();
 void (async () => {
   await keeper.start(); // does the browser keep documents? If not, the notice says so before anything is opened
   widgets.onError = (problem) => notifyProblems([problem]);
-  const moved = await moveOldWidgets(draftStorage(), library, () => keeper.keeping); // removed in phase 4 (docs/product-model.md)
-  if (moved.status === 'failed') notifyProblems([moved.problem], true);
+  try { // removed in phase 5 (docs/product-model.md): once per start, the documents whose tokens changed meaning in phase 4
+    const changed = changedTokensProblem(findChangedTokens(await library.list()));
+    if (changed) notifyProblems([changed], true);
+  } catch { /* the notice is a courtesy; reading the Library failing is reported below */ }
   try { await widgets.refresh(); } catch (err) { notifyProblems([errorProblem('Your saved widgets and art couldn’t be read.', err)]); }
   await ensureOpen(view);
   started = true;

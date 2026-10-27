@@ -5823,7 +5823,7 @@
       "version": 2,
       "name": "Weekly reflection",
       "side": "right",
-      "identity": "WEEK {week}  {month} {day}-{month+6} {day+6}",
+      "identity": "WEEK {week}  {month} {day}-{month@end} {day@end}",
       "grid": {
         "cols": 27,
         "rows": 44,
@@ -12102,7 +12102,7 @@
       "version": 2,
       "name": "Weekly reflection",
       "side": "right",
-      "identity": "WEEK {week}  {month} {day}-{month+6} {day+6}",
+      "identity": "WEEK {week}  {month} {day}-{month@end} {day@end}",
       "grid": {
         "cols": 27,
         "rows": 44,
@@ -18381,7 +18381,7 @@
       "version": 2,
       "name": "Weekly reflection",
       "side": "right",
-      "identity": "WEEK {week}  {month} {day}-{month+6} {day+6}",
+      "identity": "WEEK {week}  {month} {day}-{month@end} {day@end}",
       "grid": {
         "cols": 27,
         "rows": 44,
@@ -24660,7 +24660,7 @@
       "version": 2,
       "name": "Weekly reflection",
       "side": "right",
-      "identity": "WEEK {week}  {month} {day}-{month+6} {day+6}",
+      "identity": "WEEK {week}  {month} {day}-{month@end} {day@end}",
       "grid": {
         "cols": 27,
         "rows": 44,
@@ -33421,7 +33421,7 @@
               "version": 2,
               "name": "Weekly reflection",
               "side": "right",
-              "identity": "WEEK {week}  {month} {day}-{month+6} {day+6}",
+              "identity": "WEEK {week}  {month} {day}-{month@end} {day@end}",
               "grid": {
                 "cols": 27,
                 "rows": 44,

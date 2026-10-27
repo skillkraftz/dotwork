@@ -29,7 +29,7 @@ export const notesPage = (): Page => makePage('Notes', 'either', 'NOTES', [lines
 // ---- reflections and reviews -----------------------------------------------------------
 
 /** The Good Time Journal's weekly page: what engaged, drained and surprised me, a top and low entry, and what to change. */
-export function weeklyReflection(identity = 'WEEK {week}  {month} {day}-{month+6} {day+6}'): Page {
+export function weeklyReflection(identity = 'WEEK {week}  {month} {day}-{month@end} {day@end}'): Page {
   const aeiou = (y: number): PageElement[] => [
     { type: 'sequence', x: 0, y: y + 1, count: 5, values: 'list', list: ['A', 'E', 'I', 'O', 'U'], tone: 'black' } as Sequence,
     ...['ctivities', 'nvironments', 'nteractions', 'bjects', 'sers'].map((t, i) => label(1, y + 1 + i, t)),

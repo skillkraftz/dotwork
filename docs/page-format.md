@@ -214,27 +214,41 @@ each of its pages a date, see `book-format.md`). A page with no date prints
 tokens blank. Dotwork shows sample values in the editor, for Monday
 2026-10-26.
 
-| Token        | Example   |
-|--------------|-----------|
-| `{weekday}`  | `MON`     |
-| `{month}`    | `OCT`     |
-| `{monthname}`| `OCTOBER` |
-| `{day}`      | `26`      |
-| `{year}`     | `2026`    |
-| `{week}`     | `44`      |
-| `{months}`   | `OCT`, or `NOV / DEC` when the 7 days from the date reach the next month |
+| Token        | Unit    | Example   |
+|--------------|---------|-----------|
+| `{weekday}`  | day     | `MON`     |
+| `{day}`      | day     | `26`      |
+| `{week}`     | week    | `44`      |
+| `{month}`    | month   | `OCT`     |
+| `{monthname}`| month   | `OCTOBER` |
+| `{year}`     | year    | `2026`    |
+| `{months}`   | days    | `OCT`, or `NOV / DEC` when the 7 days from the date reach the next month |
 
-**Day offsets.** Any token may carry a whole-day offset: `{day+1}` is the day
-of the month tomorrow, `{weekday+6}` the weekday six days on, `{day-1}`
-yesterday's. The offset counts from the page's date (from the sample date in
-the editor). So a weekly page dated its Sunday can show `{weekday}` ...
-`{weekday+6}` and `{day}` ... `{day+6}`.
+**Offsets count in the token's own unit.** `{day+1}` is the next day, `{weekday+1}` the next day's name,
+`{week+1}` the next week's number, `{month+1}` the next month, `{year+1}` the next year; a minus counts back.
+A month offset keeps the day of the month where it can (Jan 31 + 1 month is in February, Feb 29 + 1 year is Feb 28), so
+`{month+1}` on any date of January reads `FEB`. `{months+N}` still moves by days. An offset is a whole number of at most four digits.
+
+**What a page covers.** A page is a *week page* if its tokens include `{week}`, any `@end`, or a day offset of 6 or more
+(`{day}`, `{weekday}` or `{months}` with +6 or beyond, or −6); otherwise it is a *day page*. (Until the book has a calendar this is
+how Dotwork decides; the book's dates are still stored per page.)
+
+- A **day page** reads its date.
+- A **week page** reads the week holding its date, Sunday to Saturday: `{weekday}`, `{day}`, `{month}`, `{year}` are the
+  week's first day (a Sunday), `{day+6}` its last, and offsets count from that first day.
+
+**`@end`.** Any token may end in `@end` to read the last day of what the page covers: a week page's Saturday, a day
+page's own day. `{month} {day} – {month@end} {day@end}` on the week of 29 Nov 2026 prints `NOV 29 – DEC 5`. `@end` takes
+no offset: `{day+1@end}` and `{day@end+1}` are errors, and the reader says so.
+
+In the editor the sample date is Monday 2026-10-26, read the way the page's kind reads it: a week page shows the week of
+Sunday 2026-10-25 (`OCT 25` to `OCT 31`).
 
 **Weeks** run Sunday to Saturday, and week 1 is the week that holds January 1
 (as in journal-system): 2026-10-18 is week 43, and week 1 of 2027 starts on
 2026-12-27.
 
-Identities print in all caps. An unknown token (or a malformed offset) is an
+Identities print in all caps. An unknown token (or a malformed offset, or an offset with `@end`) is an
 error.
 
 ## Spreads

@@ -6,7 +6,7 @@ import { ART_FILLS, ART_SCALINGS, ART_STROKES, canFill, canStroke, type ArtPath 
 import { cleanTones, toneAt } from './format/shade';
 import { SHADE_TONES } from './render';
 import { iconGlyph } from './icons/glyph';
-import { findUnknownTokens } from './format/tokens';
+import { tokenProblem } from './format/tokens';
 import { validateElement } from './format/validate';
 import { headerOf } from './format/bounds';
 import { canNudge, deleteElement, deleteElements, duplicateElement, nudgeButton, nudgeStep, reorderElement } from './actions';
@@ -45,8 +45,8 @@ export function tabBar<T extends string>(label: string, tabs: readonly [T, strin
 }
 
 const warnNodes = (text: string): HTMLElement[] => {
-  const bad = findUnknownTokens(text);
-  return bad.length ? [h('p', { class: 'warn' }, `Unknown token ${bad.map((b) => `{${b}}`).join(' ')} – the page can’t be exported until it is fixed.`)] : [];
+  const bad = tokenProblem(text);
+  return bad ? [h('p', { class: 'warn' }, `${bad} – the page can’t be exported until it is fixed.`)] : [];
 };
 
 const ICONS = {
