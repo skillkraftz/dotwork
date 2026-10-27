@@ -58,6 +58,23 @@ const outlineMark = `<rect class="outline" x="0.15" y="0.15" width="${PAGE_W_MM 
 /** What can be put on a page: a page, or a spread (which takes two pages). */
 type Choice = { name: string; kind: 'blank' | 'page' | 'spread'; data: Page | Spread | null; /** The Library entry (or the built-in's id), for the link kept with the block. */ id: string | null };
 
+/**
+ * Commit a field when it changes or Enter is pressed, once, and after the event that caused it has finished. Changing the outline
+ * redraws the rows, which removes the field; doing that inside its own change or blur event (Enter used to blur it, a phone's Go key
+ * blurs it) throws "The node to be removed is no longer a child", because removing a focused field fires blur again.
+ */
+function commitField(field: HTMLInputElement | HTMLSelectElement, commit: () => void) {
+  let pending = false, last = field.value; // the value already committed: a blur after Enter fires change again for the same text
+  const run = () => {
+    if (pending || field.value === last) return;
+    pending = true;
+    last = field.value;
+    setTimeout(() => { pending = false; commit(); }, 0); // a microtask would still run inside the event
+  };
+  field.addEventListener('change', run);
+  field.addEventListener('keydown', (e) => { if ((e as KeyboardEvent).key === 'Enter') run(); });
+}
+
 /** A path as an attribute value: "2" or "2.1". */
 const keyOf = (path: Path) => path.join('.');
 
@@ -459,7 +476,7 @@ export class Arranger {
 
     if (block.type === 'group') {
       const name = h('input', { type: 'text', value: block.name, maxlength: 80, autocomplete: 'off', 'aria-label': 'Group name', 'data-key': 'outline-group-name', 'data-help': 'outline-group-name' });
-      name.onchange = () => this.editOutline((x) => replaceBlock(x, path, { ...(blockAt(x, path) as typeof block), name: name.value.trim() || 'Group' }));
+      commitField(name, () => this.editOutline((x) => replaceBlock(x, path, { ...(blockAt(x, path) as typeof block), name: name.value.trim() || 'Group' })));
       controls.push(h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Name'), name),
         button('outline-add-to-group', 'Add to this group…', () => void this.openAdd(path[0])));
     }
@@ -473,11 +490,11 @@ export class Arranger {
       const groups = o.flatMap((b, i) => (b.type === 'group' ? [[i, b.name] as const] : []));
       const into = h('select', { 'aria-label': 'Move into a group', 'data-key': 'outline-into', 'data-help': 'outline-into' },
         h('option', { value: '' }, 'Move into a group…'), ...groups.map(([i, n]) => h('option', { value: String(i) }, `${n} (block ${i + 1})`)));
-      into.onchange = () => {
+      commitField(into, () => {
         if (into.value === '') return;
         const g = Number(into.value);
         this.editOutline((x) => moveIntoGroup(x, path, g), () => { this.selected = [g > path[0] ? g - 1 : g]; this.openRow = null; });
-      };
+      });
       actions.push(into);
     }
     return h('div', { class: 'orow-settings', 'data-key': `settings-${key}` }, ...controls, h('div', { class: 'row' }, ...actions));
@@ -493,8 +510,7 @@ export class Arranger {
   private stepper(label: string, help: string, value: number, min: number, max: number, set: (n: number) => void): HTMLElement {
     const clamp = (v: number) => Math.max(min, Math.min(max, Math.round(v)));
     const input = h('input', { type: 'text', inputmode: 'numeric', value: String(value), autocomplete: 'off', 'aria-label': label, 'data-key': help, 'data-help': help });
-    input.onchange = () => { const v = parseInt(input.value, 10); if (Number.isFinite(v) && clamp(v) !== value) set(clamp(v)); else input.value = String(value); };
-    input.onkeydown = (e) => { if (e.key === 'Enter') input.blur(); };
+    commitField(input, () => { const v = parseInt(input.value, 10); if (Number.isFinite(v) && clamp(v) !== value) set(clamp(v)); else input.value = String(value); });
     const step = (dir: 1 | -1) => h('button', {
       type: 'button', class: 'step', 'data-key': `${help}-${dir > 0 ? 'inc' : 'dec'}`, 'data-help': dir > 0 ? 'step-inc' : 'step-dec', 'aria-label': `${dir > 0 ? 'More' : 'Fewer'}: ${label}`,
       disabled: clamp(value + dir) === value, onmousedown: (e: Event) => e.preventDefault(), onclick: () => set(clamp(value + dir)),

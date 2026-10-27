@@ -205,6 +205,47 @@ for (const device of ['phone', 'desktop'] as Device[]) {
       expect(app.errors).toEqual([]);
     });
 
+    it('commits a typed number or name with Enter, or by tapping elsewhere, without an error', async () => {
+      const app = await open(env, device);
+      const { page } = app;
+      await openBook(app);
+      // Some browsers throw when the outline is redrawn inside a field's own change or blur event; this browser doesn't, so look for the cause:
+      // the outline must never be redrawn while one of those events is being handled.
+      await page.evaluate(() => {
+        const w = window as unknown as { redrawnIn: string[] };
+        w.redrawnIn = [];
+        const outline = document.querySelector('.book-contents')!;
+        const real = outline.replaceChildren.bind(outline);
+        outline.replaceChildren = (...nodes: (Node | string)[]) => {
+          const type = (window.event as Event | undefined)?.type ?? '';
+          if (['change', 'blur', 'focusout', 'focus', 'focusin'].includes(type)) w.redrawnIn.push(type);
+          real(...nodes);
+        };
+      });
+      await add(app, 'blocks', 'Blank page');
+      await settings(app, '0');
+      const repeat = () => row(app, '0').locator('[data-key="outline-repeat"]');
+      await repeat().click();
+      await repeat().fill('7');
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(() => document.querySelector('[data-key="book-used"]')?.textContent === '7 of 52 pages');
+      await repeat().click();
+      await repeat().fill('9');
+      await page.locator('.book-contents header h2').click(); // leaving the field commits it
+      await page.waitForFunction(() => document.querySelector('[data-key="book-used"]')?.textContent === '9 of 52 pages');
+      await add(app, 'blocks', 'New group');
+      await settings(app, '1');
+      const name = row(app, '1').locator('[data-key="outline-group-name"]');
+      await name.click();
+      await name.fill('Ideas');
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(() => document.body.textContent?.includes('Ideas'));
+      expect((await openDoc(app, 'book')).outline[1].name).toBe('Ideas');
+      expect((await openDoc(app, 'book')).outline[0].repeat.times).toBe(9);
+      expect(await page.evaluate(() => (window as unknown as { redrawnIn: string[] }).redrawnIn)).toEqual([]);
+      expect(app.errors).toEqual([]);
+    });
+
     it('lists a book and a section from before the outline as Old format, with Export and Delete, and does not open them', async () => {
       const app = await open(env, device);
       const { page } = app;
