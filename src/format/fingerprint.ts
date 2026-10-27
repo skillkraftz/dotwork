@@ -3,10 +3,10 @@ import type { Page } from './types';
 /**
  * A short hash of a page design: its `identity`, `grid` and `elements`, in the order stored. The name, `side` and
  * `page_number` are left out, because placing a page in a book turns those to fit the slot. The same function describes
- * a design and a copy of it in a book, so two equal fingerprints mean the same design.
+ * a design and a copy of it in a book, so two equal fingerprints mean the same design. `mirror_left` is part of the design, and counts only when on.
  */
 export function fingerprint(page: Page): string {
-  const text = JSON.stringify([page.identity ?? null, page.grid ?? null, page.elements]);
+  const text = JSON.stringify([page.identity ?? null, page.grid ?? null, page.elements, ...(page.mirror_left ? [true] : [])]);
   // cyrb53: a small, well-spread 53-bit hash; this is a change marker, not security.
   let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
   for (let i = 0; i < text.length; i++) {

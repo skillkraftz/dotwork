@@ -58,6 +58,9 @@ export function validatePage(input: unknown): ValidationIssue[] {
   if (input.page_number !== undefined && typeof input.page_number !== 'boolean') {
     fail('page-number', 'page_number', '"page_number" must be true or false when present.');
   }
+  if (input.mirror_left !== undefined && typeof input.mirror_left !== 'boolean') {
+    fail('mirror-left', 'mirror_left', '"mirror_left" must be true or false when present.');
+  }
   if (input.side !== undefined && !oneOf(PAGE_SIDES, input.side)) {
     fail('side', 'side', `"side" must be one of ${list(PAGE_SIDES)}, got ${JSON.stringify(input.side)}.`);
   }

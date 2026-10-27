@@ -13,6 +13,7 @@ import { shadeRects } from '../format/shade';
 import { artPaths } from '../format/art';
 import { compose, parseStored, parseSvgPath, transformSegs, type Matrix, type Seg } from '../format/path';
 import { isIcons, sequenceItems } from '../format/sequence';
+import { placedElements } from '../format/mirror';
 import { resolveWeek, shownOn } from '../format/week';
 import type { Expander } from '../format/tokens';
 import { ICONS } from '../icons/icons';
@@ -172,7 +173,7 @@ export function layoutPage(page: Page, o: PageLayoutOptions, out: Item[]): void 
   };
 
   out.push({ k: 'clip', pts: rectPts(o.x, o.y, PAGE_W_MM, PAGE_H_MM) });
-  for (const e of page.elements) element(e);
+  for (const e of placedElements(page, o.expand.read)) element(e);
   for (const item of headerItems(page, o.pageNumber, o.expand)) {
     text(item.text, TEXT_SIZE_MM.label, item.bold ? 'bold' : 'regular', HEADER_COLOR, { x: item.x, y: HEADER_BASELINE_MM }, item.anchor === 'end' ? 'end' : 'start', 0);
   }

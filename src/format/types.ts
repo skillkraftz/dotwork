@@ -193,6 +193,8 @@ export interface Page {
   /** Whether the page number prints in the header's outer corner. Default true. */
   page_number?: boolean;
   side?: PageSide;
+  /** Draw the page flipped left to right when it is on a left page (see format/mirror.ts). Default false. */
+  mirror_left?: boolean;
   grid: { cols: 27; rows: 44; pitch_mm: 3 };
   elements: PageElement[];
 }
