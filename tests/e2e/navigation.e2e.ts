@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { emptyBook } from '../../src/book/book';
 import { pageBlock } from '../../src/book/outline';
 import { BUILTIN_PAGES } from '../../src/builtin/library';
-import { box, cellToClient, choose, draft, drag, hit, nameOpen, open, shot, start, stop, tap, tool, type App, type Env, openDoc, reload, seedWidgets } from './harness';
+import { box, cellToClient, choose, draft, drag, hit, missingHelp, nameOpen, open, shot, start, stop, tap, tool, type App, type Env, openDoc, reload, seedWidgets } from './harness';
 
 let env: Env;
 beforeAll(async () => { env = await start(); });
@@ -10,7 +10,7 @@ afterAll(async () => { await stop(env); });
 
 const noErrors = (app: App) => expect(app.errors).toEqual([]);
 const visible = (app: App, sel: string) => app.page.locator(sel).isVisible();
-const pageData = (app: App) => draft(app) as Promise<{ elements: Record<string, unknown>[]; identity?: string; page_number?: boolean; name: string }>;
+const pageData = (app: App) => draft(app) as Promise<{ elements: Record<string, unknown>[]; identity?: string; page_number?: boolean; mirror_left?: boolean; name: string }>;
 const closeDialog = (app: App, dialog: string) => hit(app, `dialog.${dialog} header button`);
 
 /** Every visible control in the open menus and windows is finger-sized (a hair of slack for rounding). */
@@ -152,6 +152,23 @@ describe('the settings window', () => {
     expect(await numbers()).toBe(1);
     noErrors(app);
   });
+
+  for (const device of ['phone', 'desktop'] as const) {
+    it(`turns Mirror on left pages on and off, with its help entry (${device})`, async () => {
+      const app = await open(env, device);
+      await choose(app, 'page', '#settings');
+      const toggle = '[data-key="settings-mirror-page"]';
+      expect(await app.page.locator(toggle).isChecked()).toBe(false);
+      expect((await pageData(app)).mirror_left).toBeUndefined();
+      await hit(app, toggle);
+      expect((await pageData(app)).mirror_left).toBe(true);
+      expect(await missingHelp(app)).toEqual([]);
+      await shot(app, `${device}-mirror-setting`);
+      await hit(app, toggle);
+      expect((await pageData(app)).mirror_left).toBeUndefined(); // back to the default
+      noErrors(app);
+    });
+  }
 
   it('frees row 0 when the identity is empty, except the page number corner, and refuses changes that would break it', async () => {
     const app = await open(env, 'desktop');

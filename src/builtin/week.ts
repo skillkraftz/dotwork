@@ -21,8 +21,11 @@ export function weekBlock(): Generated | null {
   return { type: 'generated', kind: 'week', x: 0, y: 1, ...naturalSize(parts), ...parts };
 }
 
-/** The Week planner: one week block filling the page, with the week tracker checklist's header (none: the row is free but for the page number). */
+/**
+ * The Week planner: one week block filling the page, with the week tracker checklist's header (none: the row is free but for the page number).
+ * The widgets' strip is on the right edge, so on a left page the page is drawn mirrored and the strip sits on the outer edge there too.
+ */
 export const weekPlanner = (): Page[] => {
   const block = weekBlock();
-  return block ? [makePage('Week planner', 'left', '', [block])] : [];
+  return block ? [{ ...makePage('Week planner', 'left', '', [block]), mirror_left: true }] : [];
 };

@@ -7,6 +7,7 @@ import { ICON_GRID, ICONS } from './icons/icons';
 import { elementArea, headerOf, TEXT_INSET_MM, TEXT_SIZE_MM } from './format/bounds';
 import { expandTokens, sampleFor, type Expander } from './format/tokens';
 import { resolveWeek, shownOn, type WeekPreview } from './format/week';
+import { placedElements } from './format/mirror';
 import { shadeRects } from './format/shade';
 import { artPaths, type ArtTone } from './format/art';
 import { boundsOf, handlesFor, type Pt } from './geometry';
@@ -283,7 +284,8 @@ export function pageContent(page: Page, opts: RenderOptions): string {
   }
   const expand = opts.expand ?? sampleFor(page);
   const inside = edit && opts.inside?.length ? new Set(opts.inside) : null;
-  page.elements.forEach((e, i) => {
+  // The editor draws the design as it is stored (its handles and taps use those places); the preview and every export draw it mirrored on a left page.
+  (edit ? page.elements : placedElements(page, expand.read, opts.weekPreview)).forEach((e, i) => {
     if (edit && opts.hidden?.has(i)) return;
     // The editor shows every element, whatever days it is limited to: it has no day to read.
     const markup = elementMarkup(edit ? { ...e, days: undefined } : e, expand, opts.weekPreview);

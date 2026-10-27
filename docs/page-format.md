@@ -47,8 +47,23 @@ no back compatibility, so a file of any other version is refused.
 | `identity` | string | no       | Header text by the spine. May contain tokens. Empty or absent frees row 0 for drawing. |
 | `page_number` | boolean | no    | `false` leaves the page number off this page. Default `true`. A book's own `page_numbers` setting can turn numbers off for every page. |
 | `side`     | string | no       | `"left"`, `"right"` or `"either"` (default). Which page of a spread the design is meant for. The spine is on the right of a left page and on the left of a right page. |
+| `mirror_left` | boolean | no    | `true` draws the page flipped left to right when it sits on a left page (see "Mirror on left pages"). Default `false`. Anything but a boolean is an error. |
 | `grid`     | object | yes      | Always `{ "cols": 27, "rows": 44, "pitch_mm": 3 }`. |
 | `elements` | array  | yes      | The elements, bottom to top. |
+
+## Mirror on left pages
+
+A page made for a right-hand page often has something along its outer (right) edge, like the week block's strip. With `"mirror_left": true`, when
+the page sits on a left page (its `side` is `"left"`: in a book, in a spread, or in the editor's Preview) it is drawn flipped left to right at
+layout time, so that edge is still the outer one. The file is not changed, and the editor shows the design as stored. Right pages, and
+pages on neither side, are drawn as they are. The header and the page number stay where the page rules put them.
+
+- Every element's `x` becomes `27 - x - w` (a rule's ends, and the first column of checkboxes and sequences, are flipped the same way as a block).
+  A box's `left` and `right` sides swap; a shade's tones run from the other end; art is flipped as a whole.
+- Text is never drawn backwards: its anchor moves to `27 - x`, `left` and `right` alignment swap, and turned text turns the other way
+  (90 and 270 swap) so it keeps its tops toward the same side of the page. Items of a run stay in reading order.
+- A week block mirrors the elements it draws (its goals, each day and its outcomes), like any other.
+- A pattern whose width is not a multiple of its `every` keeps its lattice running from the left.
 
 ## Element types
 

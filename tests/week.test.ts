@@ -228,7 +228,8 @@ function ink(items: Item[]) {
 
 describe('the Week planner', () => {
   const printed = (page: Page, expand = sampleFor(page)) => { const out: Item[] = []; layoutPage(page, { x: 0, y: 0, pageNumber: null, expand }, out); return ink(out); };
-  const planner = findBuiltinPage('Week planner')!, tracker = findBuiltinPage('week tracker checklist')!;
+  // The planner is made to mirror on a left page; the tracker it matches is not, so it is compared as made (mirroring off, see mirror.test.ts).
+  const planner = { ...findBuiltinPage('Week planner')!, mirror_left: undefined }, tracker = findBuiltinPage('week tracker checklist')!;
 
   it('is a built-in page of one week block with the tracker\'s header: no identity, the page number\'s corner kept', () => {
     expect(planner.elements).toHaveLength(1);

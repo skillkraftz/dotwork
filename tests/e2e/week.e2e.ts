@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { bar, cellToClient, choose, draft, hit, missingHelp, open, openDoc, openDrawer, shot, start, stop, tap, tool, unzip, waitSaved, type App, type Device, type Env } from './harness';
-import { readPdf, segments } from '../pdf-text';
+import { readPdf, segments, textMatrices, textPositions } from '../pdf-text';
 
 let env: Env;
 beforeAll(async () => { env = await start(); });
@@ -71,6 +71,64 @@ for (const device of ['phone', 'desktop'] as Device[]) {
       const below = (info: typeof last) => new Set(rows(info).filter((r) => r > 24));
       expect(below(last).size).toBe(20); // rows 25 to 44, one line each
       expect(Math.max(...rows(full))).toBe(44); // a full week ends at the same bottom edge
+      expect(app.errors).toEqual([]);
+    });
+
+    it('prints the Monthly log\'s Week planner on a left page mirrored, with its strip on the outer (left) edge and its labels reading correctly', async () => {
+      const app = await open(env, device);
+      const { page } = app;
+      await buildLog(app, '2026', '11');
+      const where = () => page.locator('.where strong').innerText();
+      // the stage walks a page at a time: page 1 is week 1's planner on a right page, page 10 is week 2's, on a left page
+      const goTo = async (n: number) => {
+        for (let i = 0; i < 60 && (await where()) !== `Page ${n}`; i++) {
+          await page.focus('.stage-page');
+          await page.keyboard.press(Number((await where()).slice(5)) < n ? 'ArrowRight' : 'ArrowLeft');
+          await page.waitForTimeout(40);
+        }
+        expect(await where()).toBe(`Page ${n}`);
+      };
+      /** What the stage draws of the open page: the left edge of its shaded strip (mm from the page's left edge), and how GOAL is turned. */
+      const strip = () => page.locator('.stage-page svg').first().evaluate((svg) => {
+        const rects = [...svg.querySelectorAll('rect[fill="#efefef"]')].map((r) => +r.getAttribute('x')! + 3.95);
+        const goal = [...svg.querySelectorAll('text')].find((t) => t.textContent === 'GOAL');
+        return { left: Math.min(...rects), right: Math.max(...rects), goal: goal?.getAttribute('transform') ?? '', words: [...svg.querySelectorAll('text')].map((t) => t.textContent) };
+      });
+
+      await goTo(1);
+      const right = await strip();
+      expect(right.left).toBeGreaterThan(70); // the strip is at the right edge, x 25 to 27 (78.95 to 84.95 mm)
+      expect(right.goal).toContain('rotate(90)'); // reads from the top down, tops toward the page's inside
+      await shot(app, `${device}-week-planner-right-page`);
+      await goTo(10);
+      const left = await strip();
+      expect(left.right).toBeLessThan(15); // the strip is at the left edge, the outer edge of a left page
+      expect(left.goal).toContain('rotate(-90)'); // GOAL turns the other way: now reading from the bottom up
+      const named = (w: (string | null)[]) => w.filter((t) => /^[A-Z]{3,}$/.test(t ?? '')); // the dates and page numbers differ from week to week
+      expect(named(left.words)).toEqual(named(right.words)); // the same words, in the same order, none of them backwards
+      expect(left.words).toEqual(expect.arrayContaining(['GOAL', 'OUTCOME', 'SUN', '8']));
+      await shot(app, `${device}-week-planner-left-page`);
+      expect(await missingHelp(app)).toEqual([]);
+      if (app.touch && (await page.locator('.contents-close').isVisible())) await hit(app, '.contents-close');
+
+      // print: the same on the PDF page; GOAL is turned the other way and everything else is as it was
+      await hit(app, '.book-bar [data-key="book-export"]');
+      await page.waitForSelector('dialog.export[open] [data-key="export-pdf"]');
+      const [download] = await Promise.all([page.waitForEvent('download', { timeout: 50_000 }), hit(app, '[data-key="export-pdf"]')]);
+      const pages = await readPdf(unzip(readFileSync((await download.path())!)).get('pages.pdf')!);
+      const find = (info: (typeof pages)[number], word: string) => {
+        const at = info.strings.indexOf(word);
+        return { ...textPositions(info)[at], m: textMatrices(info.content)[at].map((v) => Math.round(v * 1000) / 1000 + 0) };
+      };
+      const rightPage = pages[0], leftPage = pages[9]; // pages 1 and 10
+      expect(leftPage.strings.filter((t) => /^[A-Z]{3,}$/.test(t))).toEqual(rightPage.strings.filter((t) => /^[A-Z]{3,}$/.test(t)));
+      for (const word of ['GOAL', 'OUTCOME', 'SUN', 'MON']) {
+        expect(find(rightPage, word).x, `${word} on page 1`).toBeGreaterThan(70);
+        expect(find(leftPage, word).x, `${word} on page 10`).toBeLessThan(15);
+      }
+      expect(find(rightPage, 'GOAL').m.slice(0, 4)).toEqual([0, -1, 1, 0]); // reads from the top down
+      expect(find(leftPage, 'GOAL').m.slice(0, 4)).toEqual([0, 1, -1, 0]); // reads from the bottom up
+      expect(find(leftPage, 'SUN').m.slice(0, 4)).toEqual([1, 0, 0, 1]); // not mirrored, not backwards
       expect(app.errors).toEqual([]);
     });
 

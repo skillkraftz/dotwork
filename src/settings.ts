@@ -107,6 +107,9 @@ export class SettingsDialog {
       if (problem) numberOn.checked = !numberOn.checked;
     };
 
+    const mirror = h('input', { type: 'checkbox', checked: store.page.mirror_left === true, 'data-key': `settings-mirror-${tag}`, 'data-help': 'page-mirror' });
+    mirror.onchange = () => { edit('page-mirror', (p) => { if (mirror.checked) p.mirror_left = true; else delete p.mirror_left; }); };
+
     const identity = h('input', {
       type: 'text', value: store.page.identity ?? '', placeholder: IDENTITY_EXAMPLE, autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false',
       'data-key': `settings-identity-${tag}`, 'data-help': 'page-identity', 'aria-label': 'Identity',
@@ -140,6 +143,8 @@ export class SettingsDialog {
       labelled('Name', name),
       h('label', { class: 'inline' }, numberOn, 'Print the page number'),
       numberMsg,
+      h('label', { class: 'inline' }, mirror, 'Mirror on left pages'),
+      h('p', { class: 'hint' }, 'On a left page this page is printed flipped left to right, so a strip along its outer edge stays on the outer edge. Text still reads normally. The editor shows the page as designed; Preview shows it mirrored.'),
       labelled('Identity', identity, identityMsg, tokens),
       h('p', { class: 'hint' }, `Optional text by the spine. Tokens: ${TOKEN_LIST}; add +1 or -1 to move by the token’s own unit (days, weeks, months or years), as in {month+1}, or @start / @end for the first or last day the page covers, as in {day@end}. With no identity, row 0 (the header row) is free to draw on, except the page number’s corner.`),
       sideField,
