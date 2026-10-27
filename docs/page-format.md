@@ -54,6 +54,12 @@ no back compatibility, so a file of any other version is refused.
 
 Every element has a `type`, the fields listed for it, and may have a `group`. Optional fields show their default.
 
+### `days`: limit an element to weekends or weekdays
+
+Any element may have `"days": "weekends"` (Saturday and Sunday) or `"days": "weekdays"`. It shows only on such a day, for the day it reads: a row of a
+week block's day widget reads that row's day, a page placed for a day reads that day. Where no single day is read (the editor, which always shows
+every element, an undated page, a week or month page) the element always shows. Any other value is an error.
+
 ### `group`: elements edited together
 
 Any element may have `"group": "g1"`, a non-empty string. Elements with the same value form a group: the editor selects and moves them as one. The file stays a flat list and printing ignores groups.
@@ -192,6 +198,23 @@ The importer reads shapes (paths, circles, ellipses, rectangles, lines, polyline
 gradients, filters, masks, scripts, styles, links to other files and presentation attributes it cannot honor (line joins, even-odd fills and so on), and
 lists what it left out; an empty or oversized result is refused with the reason.
 
+### `generated`: drawn from the book
+
+| Field | Meaning |
+|-------|---------|
+| `x`, `y`, `w`, `h` | The box, as for `box`. |
+| `kind` | `"week"`, the only kind so far. |
+| `goals`, `day`, `outcomes` | Three parts, each `{ "name": "Week goals", "elements": [...] }`: a widget's elements, relative to its top-left corner, copied in (the page keeps no link to the widget). At least one element each; no `generated` inside; each must fit the grid wherever placed. |
+
+The **week block** stacks `goals`, a `day` for each day of the page's week that is inside the book's calendar, and `outcomes`. The box's height sets
+the height of a day row: `rowH = (h - goals height - outcomes height) / 7`, rounded down to a half cell, and never less than the day part's height; `w` is at
+least the widest part. Every weekday has the row it has in a full week (row `i` starts at `y + goals height + i * rowH`), so a partial week keeps its
+days where they always are: the goals sit directly above the first present day, the outcomes directly under the last, and the rows of the missing days
+become **lined writing space** (hair `lines`, every cell, the full width `w`) with a thin rule between it and the goals (first week, above) or the
+outcomes (last week, below). A full week has none. In a day row, text tokens read that row's own day; elements with `days` show or not for it. A page with a week
+block reads its week (it is a week page whatever its tokens say). A page that reads nothing (no calendar) draws a full week with blank dates; the editor
+draws the sample week (Sun 25 to Sat 31 Oct 2026) and can preview a first week (Fri, Sat) or a last week (Sun, Mon); that choice is not stored in the file.
+
 ### `text`: a label or heading
 
 | Field | Meaning |
@@ -281,6 +304,6 @@ not have `"side": "left"` or whose `right` page does not have
 A reader must reject a file with the wrong `format`, an unknown `version`, an
 unknown element type or field value, a coordinate that is not a multiple of
 0.5, an element outside the grid or above the first usable row (y = 1, or y = 0 when row 0 is free), an element on the page number's corner, a diagonal rule, a
-`checkboxes` or `sequence` element whose items leave the grid, a `shade` whose `tones` are not the letters L, M, D and B, an `art` whose `view_box`, `paths`, path data, tones or line widths break the rules above (or whose points leave the view box), an empty `group`, a `sequence`
+`checkboxes` or `sequence` element whose items leave the grid, a `shade` whose `tones` are not the letters L, M, D and B, a `days` that is not `weekends` or `weekdays`, a `generated` whose kind, parts, box width or height break the rules above, an `art` whose `view_box`, `paths`, path data, tones or line widths break the rules above (or whose points leave the view box), an empty `group`, a `sequence`
 with a text item of more than two characters or an unknown icon name, or an unknown token, and say
 which rule failed. Overlap is allowed.

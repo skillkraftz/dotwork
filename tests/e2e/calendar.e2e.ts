@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { hit, missingHelp, nameOpen, open, openDoc, shot, start, stop, choose, type App, type Device, type Env } from './harness';
+import { hit, missingHelp, nameOpen, open, openDoc, shot, start, stop, choose, unzip, type App, type Device, type Env } from './harness';
 import { readPdf } from '../pdf-text';
 
 let env: Env;
@@ -8,18 +8,6 @@ beforeAll(async () => { env = await start(); });
 afterAll(async () => { await stop(env); });
 
 const noOverflow = (app: App) => app.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
-
-/** The entries of a zip whose files are stored without compression, as Dotwork writes them. */
-function unzip(bytes: Buffer): Map<string, Buffer> {
-  const out = new Map<string, Buffer>();
-  for (let at = 0; bytes.readUInt32LE(at) === 0x04034b50;) {
-    const size = bytes.readUInt32LE(at + 18), name = bytes.readUInt16LE(at + 26), extra = bytes.readUInt16LE(at + 28);
-    const begin = at + 30 + name + extra;
-    out.set(bytes.subarray(at + 30, at + 30 + name).toString('utf8'), bytes.subarray(begin, begin + size));
-    at = begin + size;
-  }
-  return out;
-}
 
 async function showOutline(app: App) {
   if (app.touch && !(await app.page.locator('.book-contents').isVisible())) await hit(app, '.contents-toggle');

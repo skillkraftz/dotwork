@@ -13,6 +13,8 @@ import { shadeRects } from '../format/shade';
 import { artPaths } from '../format/art';
 import { compose, parseStored, parseSvgPath, transformSegs, type Matrix, type Seg } from '../format/path';
 import { isIcons, sequenceItems } from '../format/sequence';
+import { resolveWeek, shownOn } from '../format/week';
+import type { Expander } from '../format/tokens';
 import { ICONS } from '../icons/icons';
 import { SCREEN_TONES, type PrintTones } from './tones';
 import { rectPts, type Cap, type FontName, type Item } from './display';
@@ -22,7 +24,7 @@ export interface PageLayoutOptions {
   x: number;
   y: number;
   pageNumber: string | null;
-  expand: (text: string) => string;
+  expand: Expander;
   /** The grays of shade tones and gray text. Defaults to the fixed grays of the screen. */
   tones?: PrintTones;
 }
@@ -152,7 +154,10 @@ export function layoutPage(page: Page, o: PageLayoutOptions, out: Item[]): void 
     }
   };
 
-  const element = (e: PageElement) => {
+  // An element limited to weekends or weekdays shows for the day a day page reads; where no single day is read it always shows.
+  const day = o.expand.read?.kind === 'day' ? o.expand.read.first : null;
+  const element = (e: PageElement): void => {
+    if (!shownOn(e.days, day)) return;
     switch (e.type) {
       case 'sequence': return sequence(e);
       case 'pattern': return pattern(e);
@@ -162,6 +167,7 @@ export function layoutPage(page: Page, o: PageLayoutOptions, out: Item[]): void 
       case 'checkboxes': return checkboxes(e);
       case 'text': return label(e);
       case 'art': return art(e);
+      case 'generated': return resolveWeek(e, o.expand.read).forEach(element);
     }
   };
 

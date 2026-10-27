@@ -80,7 +80,7 @@ Settings > Pages > Source: GitHub Actions). The build uses relative paths, so it
 
 The next step is not more features but a simpler shape. [docs/product-model.md](docs/product-model.md) describes it. Done so far: every page, spread, section
 and book is a document that saves itself, and a book is an outline of blocks (pages, spreads, groups) each with a repeat (×N, "fill what's left") and
-an optional pin. A book may have a calendar, and blocks repeat "each day / week / month of the calendar" so dates are worked out, never typed; free pages hold designs of their own. Next: the week block; pages stay linked
+an optional pin. A book may have a calendar, and blocks repeat "each day / week / month of the calendar" so dates are worked out, never typed; free pages hold designs of their own. The week block and the Monthly log are in. Next: pages stay linked
 to their designs so a change can be brought into a book, with snapshots to go back; and the app is organised as Design, Plan and Print, sharing one
 Library. A database comes after that.
 

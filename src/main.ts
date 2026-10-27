@@ -30,7 +30,8 @@ import { errorProblem, issuesProblem, problemView, type Problem } from './proble
 import { AdvancedPicker, type AdvancedChoice } from './advanced';
 import { NameDialog } from './namedialog';
 import { WidgetStore, type Widget } from './widgets';
-import { BUILTIN_PAGES, BUILTIN_SPREADS, isBuiltinName } from './builtin/library';
+import { BUILTIN_PAGES, BUILTIN_SPREADS, BUILTIN_WIDGETS, isBuiltinName } from './builtin/library';
+import { isArtWidget } from './art/widget';
 import { exampleId, spreadId } from './library/browse';
 import { isBuiltinSection } from './builtin/sections';
 
@@ -341,6 +342,7 @@ function armArt(art: Widget, problem: Problem | null = null) {
 }
 panel.saveWidget = () => void saveWidget();
 panel.pickIcon = (pick) => picker.pickIcon(pick);
+panel.widgetList = () => [...BUILTIN_WIDGETS, ...widgets.list().filter((w) => !isArtWidget(w))];
 
 for (const key of ['page', 'left', 'right'] as const) {
   let last = stores[key].page;

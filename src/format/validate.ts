@@ -1,13 +1,15 @@
 import {
-  ALIGNS, ALONGS, COLS, DIRECTIONS, DOT_SIZES, ELEMENT_TYPES, ICON_SIZES, PAGE_SIDES, PATTERNS, PITCH_MM, ROTATIONS, ROWS, RULE_WEIGHTS,
-  SEQUENCE_VALUES, SIDES, TEXT_SIZES, TEXT_STYLES, TEXT_TONES, WEIGHTS, type Sequence,
+  ALIGNS, ALONGS, COLS, DAY_FILTERS, DIRECTIONS, DOT_SIZES, ELEMENT_TYPES, ICON_SIZES, PAGE_SIDES, PATTERNS, PITCH_MM, ROTATIONS, ROWS, RULE_WEIGHTS,
+  GENERATED_KINDS, SEQUENCE_VALUES, SIDES, TEXT_SIZES, TEXT_STYLES, TEXT_TONES, WEIGHTS, type Sequence,
 } from './types';
 import { tonesProblem } from './shade';
 import { CLOSED_HEADER, checkboxSpan, headerOf, hitsCorner, insideGrid, limitsArea, type Header } from './bounds';
 import { ART_SCALINGS, artProblems } from './art';
 import { sequenceProblem, sequenceSpan } from './sequence';
 import { findEndOffsets, findUnknownTokens, TOKEN_LIST } from './tokens';
-import type { PageElement } from './types';
+import type { Generated, PageElement } from './types';
+import { naturalSize, partArea, rowHeight } from './week';
+import { translate } from '../geometry';
 
 export interface ValidationIssue {
   /** Short name of the rule that failed, e.g. "bounds". */
@@ -123,11 +125,14 @@ function validateElementInto(el: unknown, at: string, fail: Fail, header: Header
     fail('group', `${at}.group`, `"group" must be a non-empty string when present, got ${JSON.stringify(el.group)}.`);
   }
 
+  choice('days', DAY_FILTERS);
+
   switch (el.type) {
     case 'pattern':
     case 'shade':
     case 'box':
-    case 'art': {
+    case 'art':
+    case 'generated': {
       for (const k of ['x', 'y', 'w', 'h']) half(k);
       if (usable && ((el.w as number) <= 0 || (el.h as number) <= 0)) {
         fail('size', at, `"w" and "h" must be greater than 0 (got w=${el.w}, h=${el.h}).`);
@@ -146,6 +151,10 @@ function validateElementInto(el: unknown, at: string, fail: Fail, header: Header
         if (problem) fail('tones', `${at}.tones`, problem);
         choice('along', ALONGS);
         every();
+      }
+      if (el.type === 'generated') {
+        if (!oneOf(GENERATED_KINDS, el.kind)) fail('value', `${at}.kind`, `"kind" is required and must be one of ${list(GENERATED_KINDS)}.`);
+        else if (usable) generatedInto(el as unknown as Generated, at, fail);
       }
       if (el.type === 'art') {
         choice('scaling', ART_SCALINGS);
@@ -234,4 +243,34 @@ function checkTokens(text: string, path: string, fail: Fail) {
   for (const name of findEndOffsets(text)) {
     fail('token', path, `{${name}}: @start and @end take no offset. They read the first or last day of what the page covers inside the calendar; write {${name.replace(/[+-]\d+/, '')}} or an offset without @start / @end.`);
   }
+}
+
+const PART_NAMES = ['goals', 'day', 'outcomes'] as const;
+
+/**
+ * The rules of a generated element beyond its box: each of its three parts is a name and a list of elements (never another generated one) that
+ * fit the page wherever they are placed (they are checked one row down, as a widget's are), the box is at least as wide as the widest part,
+ * and it is tall enough for the goals, seven day rows and the outcomes.
+ */
+function generatedInto(el: Generated, at: string, fail: Fail) {
+  let sound = true;
+  const failing: Fail = (rule, path, message) => { sound = false; fail(rule, path, message); };
+  for (const key of PART_NAMES) {
+    const part = el[key] as unknown;
+    const here = `${at}.${key}`;
+    if (!isObject(part) || typeof part.name !== 'string' || !Array.isArray(part.elements) || part.elements.length === 0) {
+      failing('generated', here, `"${key}" must be { "name": "...", "elements": [...] } with at least one element.`);
+      continue;
+    }
+    part.elements.forEach((inner: unknown, j: number) => {
+      const path = `${here}.elements[${j}]`;
+      if (!isObject(inner)) return failing('element-object', path, 'An element must be an object.');
+      if (inner.type === 'generated') return failing('generated', path, 'A generated element can\'t hold another one.');
+      validateElementInto(translate(structuredClone(inner) as unknown as PageElement, 0, 1), path, failing, CLOSED_HEADER);
+    });
+  }
+  if (!sound) return;
+  const { w, h } = naturalSize(el);
+  if (el.w < w) fail('generated', `${at}.w`, `The box is ${el.w} wide; the widest part is ${w}.`);
+  else if (rowHeight(el) < partArea(el.day).h) fail('generated', `${at}.h`, `The box is ${el.h} tall; the goals, seven day rows and the outcomes need at least ${h}.`);
 }

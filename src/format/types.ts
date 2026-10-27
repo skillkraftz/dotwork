@@ -153,12 +153,37 @@ export interface Art extends Area {
   strokes?: Record<string, ArtStroke>;
 }
 
-/** Every element can belong to a group: elements with the same `group` are edited together. Printing ignores it. */
-export interface Grouped { group?: string }
+/** The days an element can be limited to: only on weekends (Saturday and Sunday) or only on weekdays. */
+export const DAY_FILTERS = ['weekends', 'weekdays'] as const;
+export type DayFilter = (typeof DAY_FILTERS)[number];
 
-export type PageElement = (Pattern | Shade | Box | Rule | Checkboxes | Text | Sequence | Art) & Grouped;
+/**
+ * Every element can belong to a group: elements with the same `group` are edited together. Printing ignores it.
+ * `days` limits it to the weekends or the weekdays of the day it reads (a week block's day row, or a day page); where no day is read it always shows.
+ */
+export interface Grouped { group?: string; days?: DayFilter }
+
+/** One of a generated element's three pieces: a widget's elements, relative to its top-left corner (so the first row is row 0 or 1 and the first column 0), with the widget's name. */
+export interface Part { name: string; elements: PageElement[] }
+
+export const GENERATED_KINDS = ['week'] as const;
+export type GeneratedKind = (typeof GENERATED_KINDS)[number];
+
+/**
+ * A piece drawn from the book when the page is printed. The `week` block stacks `goals`, a `day` for each day of the page's week that is
+ * inside the calendar, and `outcomes`, in the box (see format/week.ts): the box's height sets the height of a day row.
+ */
+export interface Generated extends Area {
+  type: 'generated';
+  kind: GeneratedKind;
+  goals: Part;
+  day: Part;
+  outcomes: Part;
+}
+
+export type PageElement = (Pattern | Shade | Box | Rule | Checkboxes | Text | Sequence | Art | Generated) & Grouped;
 export type ElementType = PageElement['type'];
-export const ELEMENT_TYPES: readonly ElementType[] = ['pattern', 'shade', 'box', 'rule', 'checkboxes', 'text', 'sequence', 'art'];
+export const ELEMENT_TYPES: readonly ElementType[] = ['pattern', 'shade', 'box', 'rule', 'checkboxes', 'text', 'sequence', 'art', 'generated'];
 
 export interface Page {
   format: 'dotwork-page';

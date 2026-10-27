@@ -2,6 +2,7 @@ import { emptyPage, type Page } from './format/types';
 import { membersOf } from './groups';
 import type { IconChoice } from './geometry';
 import type { Widget } from './widgets';
+import type { WeekPreview } from './format/week';
 
 export type Mode = 'edit' | 'preview';
 export type Tool = 'select' | 'pattern' | 'shade' | 'box' | 'rule' | 'checkboxes' | 'text' | 'sequence' | 'icon' | 'widget' | 'art';
@@ -32,6 +33,8 @@ export class Store {
   mode: Mode = 'edit';
   tool: Tool = 'select';
   halfCells = false;
+  /** Which sample week a week block shows while designing: editor view state, not part of the file. */
+  weekPreview: WeekPreview = 'full';
   hidden = new Set<number>();
   locked = new Set<number>();
 
@@ -272,6 +275,12 @@ export class Store {
     if (tool === this.tool) return;
     this.tool = tool;
     this.editingGroup = null;
+    this.emit();
+  }
+
+  setWeekPreview(preview: WeekPreview) {
+    if (preview === this.weekPreview) return;
+    this.weekPreview = preview;
     this.emit();
   }
 
