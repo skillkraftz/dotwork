@@ -10,6 +10,7 @@ import { builtinWidgets } from './widgets';
 import { builtinArt } from './art';
 import { pageFiles, skipped } from './examples';
 import type { Section } from '../book/sections';
+import type { LibraryKind } from '../library/library';
 
 // The pages, spreads and widgets that come with Dotwork: every page of the owner's books, as closely as the format allows.
 
@@ -82,7 +83,7 @@ export const BUILTIN_WIDGETS = builtinWidgets();
 export const BUILTIN_ART = builtinArt();
 
 /** Whether a built-in page or spread has this name (the built-in sections are checked by `isBuiltinSection`, which needs this file). */
-export const isBuiltinName = (kind: 'page' | 'spread' | 'book' | 'section', name: string): boolean =>
+export const isBuiltinName = (kind: LibraryKind, name: string): boolean =>
   (kind === 'page' ? BUILTIN_PAGES : kind === 'spread' ? BUILTIN_SPREADS : []).some((d) => d.name === name.trim());
 
 /** A built-in can't be changed, so opening or placing one gives an editable copy under its own name plus “copy”. */

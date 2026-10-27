@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { box, cellToClient, choose, draft, drag, hit, nameOpen, open, shot, start, stop, tap, tool, type App, type Env, openDoc} from './harness';
+import { box, cellToClient, choose, draft, drag, hit, nameOpen, open, shot, start, stop, tap, tool, type App, type Env, openDoc, reload, seedWidgets } from './harness';
 
 let env: Env;
 beforeAll(async () => { env = await start(); });
@@ -373,9 +373,8 @@ describe('the library', () => {
   it('puts a saved widget on the page from the Widgets tab', async () => {
     const app = await open(env, 'desktop');
     const { page } = app;
-    await page.evaluate(() => localStorage.setItem('dotwork.widgets', JSON.stringify([{ id: 'w1', name: 'Notes box', elements: [{ type: 'box', x: 0, y: 0, w: 5, h: 4 }, { type: 'rule', x1: 0, y1: 2, x2: 5, y2: 2 }] }])));
-    await page.reload();
-    await page.waitForSelector('#canvas');
+    await seedWidgets(app, [{ id: 'w1', name: 'Notes box', elements: [{ type: 'box', x: 0, y: 0, w: 5, h: 4 }, { type: 'rule', x1: 0, y1: 2, x2: 5, y2: 2 }] }]);
+    await reload(app);
     await choose(app, 'edit', '#library');
     await page.click('[data-tab="widgets"]');
     await page.waitForSelector('.lib-card[data-name="Notes box"]');

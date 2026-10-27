@@ -118,21 +118,21 @@ for (const device of ['phone', 'tablet', 'desktop'] as Device[]) {
       expect(app.errors).toEqual([]);
     });
 
-    it('a built-in book is read-only; editing it asks for a name and the copy has the edit; a reload brings it back Saved', async () => {
+    it('a built-in book that takes no options is read-only; editing it asks for a name and the copy has the edit; a reload brings it back Saved', async () => {
       const app = await open(env, device);
       const { page } = app;
-      // a template asks its questions, then opens what it builds, read-only
+      // a template with no questions opens what it builds, read-only
       await choose(app, 'edit', '#library');
       await hit(app, '[data-tab="books"]');
-      await page.waitForSelector('.lib-card[data-name="Year planner"]');
-      await hit(app, '.lib-card[data-name="Year planner"] .lib-open');
+      await page.waitForSelector('.lib-card[data-name="Blank journal"]');
+      await hit(app, '.lib-card[data-name="Blank journal"] .lib-open');
       await page.waitForSelector('dialog.template[open]');
       await hit(app, '[data-key="template-build"]');
       await page.waitForSelector('#builtin-bar:not([hidden])');
       await page.waitForSelector('.stage-page');
       expect(await page.innerText('#builtin-bar')).toContain('Built-in. Editing makes a copy.');
       const builtinName = await page.innerText('#doc-name'); // the template's own name
-      expect(builtinName).toMatch(/year planner/i);
+      expect(builtinName).toMatch(/blank journal/i);
       await shot(app, `books-${device}-builtin-bar`);
       const before = await bookNames(app);
 
@@ -160,6 +160,38 @@ for (const device of ['phone', 'tablet', 'desktop'] as Device[]) {
       await waitSaved(app);
       expect(await status(app)).toBe('Saved');
       expect(await page.locator('.design-name strong').innerText()).toBe('Lined page');
+      expect(app.errors).toEqual([]);
+    });
+
+    it('a book built from a template with options is a document at once: editable, saved, and there after a reload', async () => {
+      const app = await open(env, device);
+      const { page } = app;
+      await choose(app, 'edit', '#library');
+      await hit(app, '[data-tab="books"]');
+      await page.waitForSelector('.lib-card[data-name="Year planner"]');
+      await hit(app, '.lib-card[data-name="Year planner"] .lib-open');
+      await page.waitForSelector('dialog.template[open]');
+      await page.fill('[data-key="template-year"]', '2026');
+      await hit(app, '[data-key="template-build"]');
+      await page.waitForSelector('.stage-page');
+      await page.waitForFunction(() => document.querySelector('#doc-name')?.textContent === '2026 year planner');
+      expect(await page.locator('#builtin-bar').isVisible()).toBe(false);
+      await waitSaved(app);
+      expect((await libraryItems(app)).map((i) => i.name)).toContain('2026 year planner');
+
+      // editing needs no name and no copy: it is written as it is made
+      await pickDesign(app, 'Lined page');
+      await waitSaved(app);
+      expect(await page.innerText('#doc-name')).toBe('2026 year planner');
+      const edited = await openDoc(app, 'book');
+      expect(edited.pages[0].name).toBe('Lined page');
+      await shot(app, `books-${device}-template-document`);
+
+      await reload(app);
+      await page.waitForSelector('.stage-page');
+      await page.waitForFunction(() => document.querySelector('#doc-name')?.textContent === '2026 year planner');
+      await waitSaved(app);
+      expect((await openDoc(app, 'book')).pages[0].name).toBe('Lined page');
       expect(app.errors).toEqual([]);
     });
 

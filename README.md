@@ -35,8 +35,8 @@ previews of them). It runs entirely in the browser: no backend, nothing leaves t
 
 Work saves itself in the browser. The page, spread or book you are editing *is* a document in the Library (IndexedDB) and is written after each
 change (a "Saved" mark says so); there is no Save button. Opening another document writes the current one first and replaces nothing. A
-browser that can't keep documents (no IndexedDB, a private window) is told so at the top. Widgets, art, favorites and
-the printer profile are in `localStorage`. Exported files are the source of truth.
+browser that can't keep documents (no IndexedDB, a private window) is told so at the top. Widgets and art are Library documents too. Favorites and
+the printer profile are in `localStorage`. **Back up library** saves all of it in one file and **Restore backup** only ever adds. Exported files are the source of truth.
 [docs/product-map.md](docs/product-map.md) lists every screen, store and rule as the code has them.
 
 ## Run it

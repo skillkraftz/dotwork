@@ -118,8 +118,8 @@ describe('the library holds books', () => {
     const broken = JSON.parse(JSON.stringify(file));
     broken.items[0].data.page_count = 7;
     const r = readLibraryFile(broken);
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.issues[0].path).toBe('items[0].data.page_count');
+    expect(r.ok && r.items).toEqual([]); // the book is refused, with the reason
+    if (r.ok) expect(r.refused[0].reason).toContain('items[0].data.page_count');
   });
 });
 

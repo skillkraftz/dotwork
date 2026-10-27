@@ -7,6 +7,11 @@ import { emptyBook, setSlot, type Book } from '../src/book/book';
 import { readSection, type Section } from '../src/book/sections';
 import { CANT_KEEP, Keeper } from '../src/library/keeper';
 import { statusText } from '../src/documents';
+import { Favorites } from '../src/library/favorites';
+import { restoreBackup } from '../src/library/backup';
+import { DEFAULT_PRINT } from '../src/book/impose';
+
+const restore = (lib: Library, file: unknown) => restoreBackup(lib, new Favorites(null), file, DEFAULT_PRINT);
 
 /** A clock the tests move by hand, so the 400 ms pause can be stepped through. */
 function clock() {
@@ -109,7 +114,7 @@ describe('the Library keeps the name in the entry only', () => {
     const bare = structuredClone(file) as unknown as { items: { data: Record<string, unknown> }[] };
     delete bare.items[0].data.name;
     const other = new Library(new MemoryBackend());
-    expect((await other.importFile(bare)).ok).toBe(true);
+    expect((await restore(other, bare)).ok).toBe(true);
     expect((await other.list())[0].data.name).toBe('Daily');
   });
 });
@@ -438,7 +443,7 @@ describe('sections are documents', () => {
     await lib.remove(a.id);
     const file = await lib.exportAll();
     const restored = new Library(new MemoryBackend());
-    expect(await restored.importFile(file)).toMatchObject({ ok: true, added: 1 });
+    expect(await restore(restored, file)).toMatchObject({ ok: true, summary: { added: 1 } });
     expect((await restored.list())[0].name).toBe('Week copy');
   });
 });

@@ -19,9 +19,9 @@ export type Entry =
   | { kind: 'spread'; id: string; name: string; updated: string | null; example: boolean; data: Spread }
   | { kind: 'section'; id: string; name: string; updated: string | null; example: boolean; data: Section }
   | { kind: 'book'; id: string; name: string; updated: string | null; example: boolean; data: Book }
-  | { kind: 'widget'; id: string; name: string; updated: null; example: boolean; data: Widget }
-  /** Saved art is a widget of one art element (see art/widget.ts). */
-  | { kind: 'art'; id: string; name: string; updated: null; example: boolean; data: Widget }
+  | { kind: 'widget'; id: string; name: string; updated: string | null; example: boolean; data: Widget }
+  /** Saved art is a widget of one art element (see art/widget.ts). A saved one has the id of its Library document. */
+  | { kind: 'art'; id: string; name: string; updated: string | null; example: boolean; data: Widget }
   | { kind: 'template'; id: string; name: string; updated: null; example: true; data: BookTemplate };
 
 /** Which kind each tab lists (Favorites lists any). */

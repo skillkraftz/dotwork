@@ -66,7 +66,8 @@ describe('sections', () => {
     const file = { format: 'dotwork-library', version: 1, exported: '2026-10-21T00:00:00.000Z', items: [{ id: 'a', kind: 'section', name: 'Week', updated: '2026-10-21T00:00:00.000Z', data: week }] };
     const r = readLibraryFile(file);
     expect(r.ok && r.items[0].kind).toBe('section');
-    expect(readLibraryFile({ ...file, items: [{ ...file.items[0], data: { ...week, move: 'hour' } }] }).ok).toBe(false);
+    const bad = readLibraryFile({ ...file, items: [{ ...file.items[0], data: { ...week, move: 'hour' } }] });
+    expect(bad.ok && bad.refused).toHaveLength(1);
   });
 
   it('saves to the Library, and a built-in name is reserved', async () => {

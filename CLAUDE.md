@@ -69,7 +69,7 @@ Dotwork's print export follows the same physical rules as journal-system
 - Static web app: Vite + TypeScript, plain DOM and SVG, no backend. Deploys to
   GitHub Pages.
 - Pages render as SVG in millimeters so the screen, the PNG and the PDF match.
-- The open page and spread are Library documents that save themselves (IndexedDB); the book draft, widgets, art, favorites and the printer profile live in the browser's localStorage. Files
+- The open page, spread and book, and the saved widgets and art, are Library documents that save themselves (IndexedDB); favorites and the printer profile live in the browser's localStorage. Files
   people export are the source of truth.
 - Vitest for unit tests (`npm test`) and, for end-to-end tests, Vitest driving headless Chromium through Playwright
   (`npm run test:e2e`). Keep dependencies few.

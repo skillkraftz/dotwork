@@ -182,6 +182,22 @@ export async function seedDoc(app: App, kind: 'page' | 'spread' | 'book', data: 
   }, [kind, data, name] as const);
   await reload(app);
 }
+/** Put saved widgets in the Library store as documents (they are listed after the next reload). */
+export async function seedWidgets(app: App, widgets: { id: string; name: string; elements: object[] }[]) {
+  await app.page.evaluate(async (list) => {
+    await new Promise<void>((resolve, reject) => {
+      const req = indexedDB.open('dotwork', 1);
+      req.onupgradeneeded = () => req.result.createObjectStore('library', { keyPath: 'id' });
+      req.onerror = () => reject(req.error);
+      req.onsuccess = () => {
+        const tx = req.result.transaction('library', 'readwrite');
+        for (const w of list) tx.objectStore('library').put({ id: w.id, kind: 'widget', name: w.name, updated: new Date().toISOString(), data: { elements: w.elements } });
+        tx.oncomplete = () => { req.result.close(); resolve(); };
+        tx.onerror = () => reject(tx.error);
+      };
+    });
+  }, widgets);
+}
 export const seedPage = (app: App, page: object, name = 'Seed') => seedDoc(app, 'page', page, name);
 
 export const box = (app: App, selector: string) => app.page.locator(selector).boundingBox();

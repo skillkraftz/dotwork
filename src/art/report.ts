@@ -1,4 +1,4 @@
-import type { Problem } from '../problems';
+import { errorProblem, type Problem } from '../problems';
 import { importSvg } from './import';
 import { artElement } from './widget';
 import type { Widget, WidgetStore } from '../widgets';
@@ -27,7 +27,10 @@ export async function importArtFile(file: File, widgets: WidgetStore): Promise<A
     const title = `Not imported: ${file.name}`;
     return { ok: false, problem: { title, lines: [r.reason, ...left], details: [title, r.reason, ...left].join('\n') } };
   }
-  const widget = widgets.add(name, [artElement(r.art)]);
+  let widget: Widget;
+  try { widget = await widgets.add(name, [artElement(r.art)]); } catch (err) {
+    return { ok: false, problem: errorProblem(`Not imported: ${file.name} couldn’t be saved.`, err) };
+  }
   if (!r.dropped.length) return { ok: true, widget, name, problem: null };
   const title = `Imported “${name}”. Left out of the file:`;
   return { ok: true, widget, name, problem: { title, lines: r.dropped, details: [title, ...r.dropped.map((d) => `- ${d}`)].join('\n') } };
