@@ -44,7 +44,7 @@ export function validatePage(input: unknown): ValidationIssue[] {
     fail('format', 'format', `"format" must be "dotwork-page", got ${JSON.stringify(input.format)}.`);
   }
   if (input.version !== 2) {
-    fail('version', 'version', `Unknown version ${JSON.stringify(input.version)}; this reader understands version 2 (and converts version 1).`);
+    fail('version', 'version', `Unknown version ${JSON.stringify(input.version)}; this reader understands version 2.`);
   }
   if (typeof input.name !== 'string') {
     fail('name', 'name', '"name" is required and must be a string.');

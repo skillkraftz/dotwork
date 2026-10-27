@@ -48,7 +48,7 @@ async function restoreFile(app: App, name: string, content: string) {
   await app.page.waitForSelector('dialog.library.browser .lib-msg .problem');
 }
 
-for (const device of ['phone', 'tablet', 'desktop'] as Device[]) {
+for (const device of ['phone', 'desktop'] as Device[]) {
   describe(`backup and restore on a ${device}`, () => {
     it('backs up, loses a page and a widget, restores both; restoring twice adds nothing', async () => {
       const app = await open(env, device);

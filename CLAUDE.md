@@ -84,6 +84,14 @@ Dotwork's print export follows the same physical rules as journal-system
   now: designing a page and laying out a book on a phone should be easy enough that someone can turn an idea
   into a finished book in 30-60 minutes. Build what covers 80% of what people want, simply; polish and edge
   cases come later.
+- No back compatibility until the database. When the book, page or spread format changes, older files are not
+  converted or read; the Library lists them as "Old format" with Export and Delete. No conversion code, no tests
+  for old shapes. (Printer and calibration changes still never change the book format or stop a book from opening.)
+- Tests: unit tests for rules and math that must be exactly right (reading files, tokens and dates, imposition and
+  the print pipeline, calibration and creep math). One e2e test per feature for its main path, run at phone and
+  desktop; tablet only for tests about a layout at that size. No tests for old file shapes or replaced behaviour;
+  remove a feature's tests when the feature is removed. Don't add a test for every bug fixed unless the bug was in
+  rules or math.
 - The book file holds the design only. Printer and calibration settings live in the printer profile; changing them must never change the book format or stop a book from opening.
 - Don't add features beyond the task. When a choice is unclear, take the
   simplest version and list the question in the PR.

@@ -1,0 +1,27 @@
+{
+  "format": "dotwork-spread",
+  "version": 2,
+  "name": "Lined spread",
+  "left": {
+    "format": "dotwork-page",
+    "version": 2,
+    "name": "Lined page",
+    "identity": "{weekday} {month} {day}",
+    "side": "left",
+    "grid": {"cols": 27, "rows": 44, "pitch_mm": 3},
+    "elements": [
+      {"type": "pattern", "pattern": "lines", "x": 0, "y": 1, "w": 27, "h": 43}
+    ]
+  },
+  "right": {
+    "format": "dotwork-page",
+    "version": 2,
+    "name": "Lined page",
+    "identity": "{weekday} {month} {day}",
+    "side": "right",
+    "grid": {"cols": 27, "rows": 44, "pitch_mm": 3},
+    "elements": [
+      {"type": "pattern", "pattern": "lines", "x": 0, "y": 1, "w": 27, "h": 43}
+    ]
+  }
+}

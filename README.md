@@ -57,9 +57,9 @@ Settings > Pages > Source: GitHub Actions). The build uses relative paths, so it
 | | |
 |---|---|
 | `src/` | The app (TypeScript, plain DOM and SVG). `format/` the page format, `book/` books and imposition, `print/` the PDFs, `library/`, `builtin/` pages, sections, templates in code, `help.ts` all help text |
-| `examples/` | Page files, widgets and art that ship in the Library; drop a file in and it appears ([examples/README.md](examples/README.md)) |
+| `examples/` | Page and spread files, widgets and art that ship in the Library; drop a file in and it appears ([examples/README.md](examples/README.md)) |
 | `reference/` | Preview images of the owner's existing journal-system pages; `docs/screenshots/compare-*.png` set them beside Dotwork's export |
-| `tests/` | Unit tests; `tests/e2e/` browser tests; `tests/fixtures/` the owner's example books |
+| `tests/` | Unit tests for rules and math; `tests/e2e/` one browser test per feature, at phone and desktop sizes; `tests/fixtures/` the owner's example books |
 | `CLAUDE.md` | The project brief and working rules |
 
 ## Docs

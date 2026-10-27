@@ -145,10 +145,4 @@ describe('Library backup', () => {
     expect(refused({ ...file, items: [{ ...item, kind: 'spread' }] })).toBe(1); // a page where a spread belongs
     expect(refused({ ...file, items: ['x'] })).toBe(1);
   });
-
-  it('converts version 1 pages found in a backup', () => {
-    const v1 = { format: 'dotwork-page', version: 1, name: 'Old', grid: { cols: 27, rows: 44, pitch_mm: 3 }, regions: [] };
-    const r = readLibraryFile({ format: 'dotwork-library', version: 1, exported: '', items: [{ id: 'a', kind: 'page', name: 'Old', updated: '2026-10-18T00:00:00Z', data: v1 }] });
-    expect(r.ok && (r.items[0].data as Page).version).toBe(2);
-  });
 });

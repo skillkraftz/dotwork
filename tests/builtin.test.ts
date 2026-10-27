@@ -7,10 +7,10 @@ import { TEMPLATES } from '../src/builtin/templates';
 import { monthStarts, monthOfWeek } from '../src/builtin/calendar';
 import { monthlyLayout } from '../src/builtin/layout';
 import { readBook, bookPage, getSlot } from '../src/book/book';
-import { readPage } from '../src/format/read';
 import { readSpread } from '../src/format/spread';
 import { formatIssue, validatePage, validateElement } from '../src/format/validate';
 import { placeWidget } from '../src/widgets';
+import { pageKind } from '../src/format/tokens';
 import { exportBookFiles } from '../src/print/export';
 import { Library, MemoryBackend } from '../src/library/library';
 
@@ -20,32 +20,28 @@ const problems = (issues: Parameters<typeof formatIssue>[0][]) => issues.map(for
 describe('the built-in pages, spreads and widgets', () => {
   it('has every page of the owner’s books', () => {
     const names = BUILTIN_PAGES.map((p) => p.name);
-    for (const want of ['Monthly tracker', 'Daily Good Time Journal', 'Weekly reflection', 'Patterns & takeaways', 'Questions', 'Idea page', 'Lined page', 'Dot grid page',
+    for (const want of ['Monthly tracker', 'Daily Log', 'Weekly reflection', 'Patterns & takeaways', 'Questions', 'Idea page', 'Lined page', 'Dot grid page',
       'Blank', 'Notes', 'Year journal weekly page', 'Year journal weekly page (dated)', 'Year goals cover', 'Year index', 'Monthly page index',
-      'Plain-book purpose cover', 'Plain-book index', 'Book notes setup', 'Book notes']) expect(names).toContain(want);
+      'Plain-book purpose cover', 'Plain-book index', 'Book notes setup', 'Book notes', 'idea requirements', 'Idea variation', 'week tracker checklist']) expect(names).toContain(want);
     expect(new Set(names).size).toBe(names.length);
   });
 
-  it.each(BUILTIN_PAGES.map((p) => [p.name, p] as const))('page “%s” validates', (_name, page) => {
-    expect(problems(validatePage(page))).toEqual([]);
-    expect(readPage(page).ok).toBe(true);
-  });
-
-  it.each(BUILTIN_SPREADS.map((s) => [s.name, s] as const))('spread “%s” validates', (_name, spread) => {
-    const r = readSpread(spread);
-    expect(r.ok ? [] : problems(r.issues)).toEqual([]);
+  it('validates every page and spread', () => {
+    expect(BUILTIN_PAGES.flatMap((p) => problems(validatePage(p)).map((m) => `${p.name}: ${m}`))).toEqual([]);
+    expect(BUILTIN_SPREADS.flatMap((s) => { const r = readSpread(s); return r.ok ? [] : problems(r.issues).map((m) => `${s.name}: ${m}`); })).toEqual([]);
   });
 
   it('pairs the spreads the way the books use them', () => {
     const names = (s: string) => { const sp = BUILTIN_SPREADS.find((x) => x.name === s)!; return [sp.left.name, sp.right.name]; };
     expect(names('Ideas spread')).toEqual(['Idea page', 'Dot grid page']);
-    expect(names('Book notes spread')).toEqual(['Book notes setup', 'Book notes']);
+    expect(names('Book notes')).toEqual(['Book notes setup', 'Book notes']);
+    expect(names('Daily Log Spread')).toEqual(['Daily Log', 'Daily Log']);
+    expect(names('Idea variations')).toEqual(['idea requirements', 'Idea variation']);
     expect(names('Lined spread')).toEqual(['Lined page', 'Lined page']);
     expect(names('Dot grid spread')).toEqual(['Dot grid page', 'Dot grid page']);
     expect(names('Notes spread')).toEqual(['Notes', 'Notes']);
     expect(names('Weekly spread')).toEqual(['Year journal weekly page (dated)', 'Year journal weekly page (dated)']);
     expect(names('Weekly spread (undated)')).toEqual(['Year journal weekly page', 'Year journal weekly page']);
-    expect(names('Book notes spread')).toEqual(['Book notes setup', 'Book notes']); // left as it was
     for (const covers of ['Year planner covers', 'Monthly journal covers', 'Plain-book covers']) expect(names(covers)).toHaveLength(2);
   });
 
@@ -77,9 +73,24 @@ describe('the built-in pages, spreads and widgets', () => {
     }
   });
 
-  it.each(BUILTIN_WIDGETS.map((w) => [w.name, w] as const))('widget “%s” validates wherever it is placed', (_name, widget) => {
-    for (const at of [{ x: 0, y: 1 }, { x: 26, y: 43 }]) {
-      for (const el of placeWidget(widget, at)) expect(problems(validateElement(el)), JSON.stringify(el)).toEqual([]);
+  it('prints the week on the week tracker checklist, and has the two gauge widgets in place of the dial placeholder', () => {
+    const page = BUILTIN_PAGES.find((p) => p.name === 'week tracker checklist')!;
+    const texts = page.elements.flatMap((e) => (e.type === 'text' ? [e.text] : []));
+    expect(texts.filter((t) => t.startsWith('{weekday'))).toEqual(['{weekday}', ...[1, 2, 3, 4, 5, 6].map((n) => `{weekday+${n}}`)]);
+    expect(texts.filter((t) => t.startsWith('{day'))).toEqual(['{day}', ...[1, 2, 3, 4, 5, 6].map((n) => `{day+${n}}`)]);
+    expect(texts.some((t) => /^(SUN|MON|TUE|WED|THU|FRI|SAT)$/.test(t))).toBe(false);
+    expect(pageKind(page)).toBe('week');
+    const names = BUILTIN_WIDGETS.map((w) => w.name);
+    expect(names).toContain('Engagement gauge');
+    expect(names).toContain('Energy gauge');
+    expect(names).not.toContain('Dial placeholder');
+    const energy = BUILTIN_WIDGETS.find((w) => w.name === 'Energy gauge')!;
+    expect(energy.elements.flatMap((e) => (e.type === 'text' ? [e.text] : []))).toEqual(['0', 'NEG', 'POS', 'Energy']);
+  });
+
+  it('validates every widget wherever it is placed', () => {
+    for (const widget of BUILTIN_WIDGETS) for (const at of [{ x: 0, y: 1 }, { x: 26, y: 43 }]) {
+      for (const el of placeWidget(widget, at)) expect(problems(validateElement(el)), `${widget.name} ${JSON.stringify(el)}`).toEqual([]);
     }
   });
 });

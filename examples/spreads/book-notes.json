@@ -1,0 +1,45 @@
+{
+  "format": "dotwork-spread",
+  "version": 2,
+  "name": "Book notes",
+  "left": {
+    "format": "dotwork-page",
+    "version": 2,
+    "name": "Book notes setup",
+    "identity": "BOOK NOTES",
+    "side": "left",
+    "grid": {"cols": 27, "rows": 44, "pitch_mm": 3},
+    "elements": [
+      {"type": "pattern", "pattern": "lines", "x": 0, "y": 1, "w": 27, "h": 43},
+      {"type": "text", "x": 0, "y": 1, "text": "Title:"},
+      {"type": "text", "x": 0, "y": 3, "text": "Questions:"},
+      {"type": "text", "x": 0, "y": 9, "text": "Answering this will:"},
+      {"type": "rule", "x1": 0, "y1": 19, "x2": 27, "y2": 19, "weight": "thin"},
+      {"type": "text", "x": 0, "y": 29, "text": "After reading, I think:"},
+      {"type": "text", "x": 0, "y": 2, "text": "Author:"},
+      {"type": "rule", "x1": 0, "y1": 1, "x2": 27, "y2": 1, "weight": "thin"},
+      {"type": "rule", "x1": 0, "y1": 9, "x2": 27, "y2": 9, "weight": "thin"},
+      {"type": "text", "x": 0, "y": 19, "text": "If I can't answer this:"},
+      {"type": "rule", "x1": 0, "y1": 29, "x2": 27, "y2": 29, "weight": "thin"},
+      {"type": "rule", "x1": 0, "y1": 44, "x2": 27, "y2": 44, "weight": "thin"},
+      {"type": "rule", "x1": 0, "y1": 3, "x2": 27, "y2": 3, "weight": "thin"}
+    ]
+  },
+  "right": {
+    "format": "dotwork-page",
+    "version": 2,
+    "name": "Book notes",
+    "identity": "BOOK NOTES",
+    "side": "right",
+    "grid": {"cols": 27, "rows": 44, "pitch_mm": 3},
+    "elements": [
+      {"type": "shade", "x": 0, "y": 1, "w": 2, "h": 43, "tones": "L"},
+      {"type": "rule", "x1": 0, "y1": 1, "x2": 27, "y2": 1, "weight": "thin"},
+      {"type": "pattern", "pattern": "lines", "x": 2, "y": 1, "w": 25, "h": 43},
+      {"type": "rule", "x1": 2, "y1": 2, "x2": 2, "y2": 44, "weight": "hair"},
+      {"type": "text", "x": 0, "y": 1, "text": "P."},
+      {"type": "rule", "x1": 0, "y1": 44, "x2": 27, "y2": 44, "weight": "thin"},
+      {"type": "rule", "x1": 0, "y1": 2, "x2": 2, "y2": 2}
+    ]
+  }
+}

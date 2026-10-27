@@ -59,29 +59,6 @@ export const questionsPage = (identity = '{monthname} QUESTIONS'): Page => makeP
   { type: 'checkboxes', x: 0, y: 2, count: 21, every: 2 },
 ]);
 
-// ---- book notes --------------------------------------------------------------------------
-
-/** Set up a book-notes journal: what the book is, why read it and what to look for. */
-export const bookNotesSetup = (): Page => makePage('Book notes setup', 'either', 'BOOK NOTES', [
-  ...section(1, 3, 'Title:'), ...section(3, 5, 'Author:'), ...section(5, 7, 'Started:'), label(14, 5, 'Finished:'),
-  ...section(7, 13, 'Why this book / question it answers'),
-  ...section(13, 21, 'What I already think'),
-  ...section(21, 29, 'What I hope to learn'),
-  ...section(29, 44, 'Where to start'),
-  hrule(44),
-]);
-
-/** A page of notes on a book: the page it came from in a margin column, and a line at the bottom for the takeaway. */
-export const bookNotesPage = (): Page => makePage('Book notes', 'either', 'BOOK NOTES', [
-  ...section(1, 3, 'Chapter:'),
-  { type: 'shade', x: 0, y: 3, w: 3, h: 35, tones: 'L' },
-  lines(3, 3, 24, 35),
-  vrule(3, 3, 38, 'hair'),
-  label(0, 3, 'page'),
-  ...section(38, 44, 'so what? my takeaway'),
-  hrule(44),
-]);
-
 // ---- the year planner's weekly pages ----------------------------------------------------------
 
 /**

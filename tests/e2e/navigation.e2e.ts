@@ -24,7 +24,7 @@ async function smallControls(app: App, scope: string) {
   }, scope);
 }
 
-for (const device of ['phone', 'tablet', 'desktop'] as const) {
+for (const device of ['phone', 'desktop'] as const) {
   describe(`the three menus (${device})`, () => {
     it('Page switches views and shows the current one; Settings opens the settings', async () => {
       const app = await open(env, device);
@@ -341,8 +341,8 @@ describe('the library', () => {
     await choose(app, 'page', '#view-spread');
     await page.locator('#canvas-right').click({ position: { x: 5, y: 5 } }); // make the right page the active one
     await choose(app, 'edit', '#library');
-    await page.waitForSelector('.lib-card[data-name="Daily Good Time Journal"]');
-    await page.click('.lib-card[data-name="Daily Good Time Journal"] .lib-open');
+    await page.waitForSelector('.lib-card[data-name="Daily Log"]');
+    await page.click('.lib-card[data-name="Daily Log"] .lib-open');
     const right = (await openDoc(app, 'spread')).right;
     expect(right).toMatchObject({ side: 'right' });
     expect(right.elements.length).toBeGreaterThan(0);

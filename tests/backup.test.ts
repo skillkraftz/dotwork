@@ -49,7 +49,7 @@ describe('what a backup holds', () => {
     expect(read.ok && read.favorites).toEqual(['a', 'b']);
   });
 
-  it('a backup from before (no favorites, no printer) still reads', async () => {
+  it('reads a backup with no favorites and no printer (both are optional)', async () => {
     const file = roundTrip(await (await full()).exportAll());
     const read = readLibraryFile(file);
     expect(read.ok && read.favorites).toEqual([]);

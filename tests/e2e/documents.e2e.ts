@@ -50,7 +50,7 @@ async function exportTab(app: App, tab: 'import' | 'export' | 'png') {
 
 const pageFile = (name: string, x: number) => JSON.stringify({ ...emptyPage(), name, elements: [{ type: 'box', x, y: 3, w: 4, h: 3 }] });
 
-for (const device of ['phone', 'tablet', 'desktop'] as Device[]) {
+for (const device of ['phone', 'desktop'] as Device[]) {
   describe(`documents on a ${device}`, () => {
     it('keeps what is drawn: reload and it is there, under its name, Saved', async () => {
       const app = await open(env, device);
@@ -98,7 +98,7 @@ for (const device of ['phone', 'tablet', 'desktop'] as Device[]) {
       expect(app.errors).toEqual([]);
     });
 
-    it('a built-in opens read-only; editing it asks for a name and the copy has the edit', async () => {
+    it('a built-in opens read-only, also after a reload; editing it or Edit a copy asks for a name and the copy has the edit', async () => {
       const app = await open(env, device);
       const { page } = app;
       await openFromLibrary(app, 'Questions');
@@ -106,6 +106,9 @@ for (const device of ['phone', 'tablet', 'desktop'] as Device[]) {
       expect(await page.innerText('#builtin-bar')).toContain('Built-in. Editing makes a copy.');
       expect(await page.innerText('#doc-name')).toBe('Questions');
       await shot(app, `documents-${device}-builtin-bar`);
+      await reload(app); // still the built-in, still read-only
+      expect(await page.innerText('#doc-name')).toBe('Questions');
+      expect(await page.locator('#builtin-bar').isVisible()).toBe(true);
       const before = await libraryItems(app);
       const builtinCount = (await page.evaluate(() => document.querySelectorAll('#canvas *').length));
       expect(builtinCount).toBeGreaterThan(0);
@@ -131,12 +134,8 @@ for (const device of ['phone', 'tablet', 'desktop'] as Device[]) {
       expect(copy.elements).toHaveLength(original.elements.length + 1);
       expect(copy.elements[copy.elements.length - 1]).toMatchObject({ type: 'box' });
       expect((await libraryItems(app)).length).toBe(before.length + 1);
-      expect(app.errors).toEqual([]);
-    });
 
-    it('Edit a copy asks for a name too, and carries on in the copy', async () => {
-      const app = await open(env, device);
-      const { page } = app;
+      // Edit a copy asks for a name too, and carries on in the copy
       await openFromLibrary(app, 'Weekly reflection');
       await hit(app, '#doc-copy');
       await nameDialog(app).waitFor({ state: 'visible' });
@@ -147,18 +146,10 @@ for (const device of ['phone', 'tablet', 'desktop'] as Device[]) {
       expect((await openDoc(app, 'page')).name).toBe('My reflection');
       await reload(app);
       expect(await page.innerText('#doc-name')).toBe('My reflection');
+      expect(app.errors).toEqual([]);
     });
 
-    it('reopens a built-in after a reload, still read-only', async () => {
-      const app = await open(env, device);
-      await openFromLibrary(app, 'Questions');
-      await app.page.waitForSelector('#builtin-bar:not([hidden])');
-      await reload(app);
-      expect(await app.page.innerText('#doc-name')).toBe('Questions');
-      expect(await app.page.locator('#builtin-bar').isVisible()).toBe(true);
-    });
-
-    it('asks for a name before the first export of an Untitled page', async () => {
+    it('asks for a name before the first export of an Untitled page; the export is the page as it is now, and the PNG tab says it prints the sample date', async () => {
       const app = await open(env, device);
       const { page } = app;
       await drawBox(app);
@@ -173,6 +164,7 @@ for (const device of ['phone', 'tablet', 'desktop'] as Device[]) {
       expect(file.suggestedFilename()).toBe('sketch.json');
       const exported = JSON.parse(await (await import('node:fs/promises')).readFile((await file.path())!, 'utf8'));
       expect(exported).toMatchObject({ format: 'dotwork-page', name: 'Sketch' });
+      expect(exported.elements).toMatchObject([{ type: 'box' }]); // the page as it is now, before the save pause is over
       await waitSaved(app);
       expect(await openDoc(app, 'page')).toEqual(exported);
       // named now, so the next export does not ask
@@ -180,6 +172,8 @@ for (const device of ['phone', 'tablet', 'desktop'] as Device[]) {
       await hit(app, '[data-key="export-json"]');
       await again;
       expect(await nameDialog(app).isVisible()).toBe(false);
+      await hit(app, 'dialog.export [data-tab="png"]');
+      expect(await app.page.innerText('dialog.export .export-body')).toContain('sample date (Mon 26 Oct 2026) and page number (47)');
     });
 
     it('imports the same page twice as two documents, named from the file', async () => {
@@ -220,28 +214,6 @@ for (const device of ['phone', 'tablet', 'desktop'] as Device[]) {
       expect(app.errors).toEqual([]);
     });
 
-    it('Export JSON is the page as it is now, before the pause is over', async () => {
-      const app = await open(env, device);
-      const { page } = app;
-      await renameTo(app, 'Now');
-      await drawBox(app);
-      await exportTab(app, 'export');
-      const download = page.waitForEvent('download');
-      await hit(app, '[data-key="export-json"]');
-      const exported = JSON.parse(await (await import('node:fs/promises')).readFile((await (await download).path())!, 'utf8'));
-      expect(exported.elements).toMatchObject([{ type: 'box' }]);
-      expect(exported.name).toBe('Now');
-      await page.keyboard.press('Escape');
-      await waitSaved(app);
-      expect(await openDoc(app, 'page')).toEqual(exported); // what was exported is what was kept
-    });
-
-    it('the PNG tab says in one line that a page prints the sample date and number', async () => {
-      const app = await open(env, device);
-      await exportTab(app, 'png');
-      expect(await app.page.innerText('dialog.export .export-body')).toContain('sample date (Mon 26 Oct 2026) and page number (47)');
-    });
-
     it('saves a spread as one document, and switches views without losing either', async () => {
       const app = await open(env, device);
       const { page } = app;
@@ -263,7 +235,7 @@ for (const device of ['phone', 'tablet', 'desktop'] as Device[]) {
   });
 }
 
-for (const device of ['phone', 'tablet', 'desktop'] as Device[]) {
+for (const device of ['phone', 'desktop'] as Device[]) {
   describe(`saving, honestly (${device})`, () => {
   it('a write the browser refuses shows Not saved with the real reason and Retry, never Saved', async () => {
     const app = await open(env, device);

@@ -4,7 +4,7 @@ This describes what the code does now (commit `25cf010`, the head of `main`, wit
 spreads and books are Library documents that save themselves, and sections are documents too), read from `src/`, not from the other docs or from comments. Where the code and a doc disagree, the code wins and the disagreement is listed in **Things that disagree** at the end.
 Anything I could not confirm from the code is marked **(unsure)**.
 
-The owner's example, `tests/fixtures/monthly-log-book.json`, was checked against the code; see **The owner's monthly log book**.
+The owner's example, `tests/fixtures/monthly-log-book.json` (the fixture stays; its test was removed), was checked against the code; see **The owner's monthly log book**.
 
 ## 1. The parts, in one picture
 
@@ -117,10 +117,10 @@ Page/Spread views also have the bottom tool bar (Select, Draw, Advanced) and the
 | **Save pages as a section…** | A page range of the book and its dates | Library section | On **Save section**. |
 | **Flip through** | The book (read-only). Speed from `dotwork.book.flip-ms` | Speed | On slider input. |
 | **Import and export** window (**Export** button) | See below | See below | See below. Opens on Export; opens on PDF in the Book view. |
-| ↳ **Import** | A chosen `.json` | A page, spread or book is added as a new document named from the file (` 2` if taken) and opened, after the open one is written; a section is added to the Library (nothing opens). Nothing is replaced. A library backup is refused with a pointer to Restore backup. Version-1 pages are converted. | Immediately. |
+| ↳ **Import** | A chosen `.json` | A page, spread or book is added as a new document named from the file (` 2` if taken) and opened, after the open one is written; a section is added to the Library (nothing opens). Nothing is replaced. A library backup is refused with a pointer to Restore backup. | Immediately. |
 | ↳ **Export** | The open page / spread / book **at the moment Download is pressed** (`jsonToExport()` in `main.ts` runs again on click), whether or not the 400 ms write has happened | A `.json` download. Before the first export (JSON, or the print zip on the PDF tab) of a page, spread or book that is still `Untitled…`, a small window asks for a name (leaving the field empty keeps it; cancelling cancels the export). | On Download. |
 | ↳ **PNG** | The page (or the spread being edited) | A `.png` (150 / 300 / 600 dpi), with the same name question. Not in the Book view. Prints with sample values: the sample date (Mon Oct 26 2026) for tokens and a sample page number "47" (`SAMPLE_DATE`, `SAMPLE_PAGE_NUMBER`); the tab says so in one line | On Download. |
-| ↳ **PDF** | The book, printer profile, Library books (Bottom book) | A zip. Its fields write the printer profile (`dotwork.printer`) and the book's signatures (the open book) as they are changed | Fields: on change. Files: on Download. |
+| ↳ **PDF** (with **Reset this layout to defaults**: shows the layout's values beside the defaults, then confirms) | The book, printer profile, Library books (Bottom book) | A zip. Its fields write the printer profile (`dotwork.printer`) and the book's signatures (the open book) as they are changed | Fields: on change. Files: on Download. |
 | **Calibrate** (from the PDF tab) | Book (name, page count; included as `book.json` in downloads), printer profile | The printer profile only, each time a field or a "Use" button changes it. Never the book. | Immediately; typed readings are memory only. Closing returns to the PDF tab. |
 | **Help mode** | `src/help.ts` (one entry per `data-help` key, touch and desktop text) | Nothing | n/a |
 | **Notices** | Problems (can't export, a page, spread or book that is not saved, a printer profile that can't be read) | Nothing | n/a |
@@ -162,7 +162,7 @@ Keyboard shortcuts (page and spread views only; the Book view has none except �
 
 What the file holds: a 52-page book with `dates`, and a `recipe` of **one step**: `{ repeat: fill, no start }` of a section "Week Log"
 (11 pages, `days` = `[null, 0, null, 14, 21, 28, 35, 42, 49, null, null]`, `weekday` 1, `move` `none`, starts on a right page), `recipe.month`
-`2027-11`, no gap page. `tests/monthly-log-book.test.ts` pins the findings below.
+`2027-11`, no gap page. The findings below were read from the file and the code; no test pins them any more.
 
 1. **Why the month is 2027-11.** The recipe's month and the section's dates both start at 2027-11-01, a Monday (the section's `weekday` is 1), and every dated page in the book is in 2027-11 or 2027-12. So the book was dated from 2027-11-01 before the section was saved from it, and the builder then offered, and kept, 2027-11 as `recipe.month` (a book with dates opens the builder on its first dated page's month, `arranger.ts:662`; one with a recipe keeps the recipe's). The file cannot say *how* 2027 was chosen in the first place. A Monday start means the Dates window's *one day* mode, with a start date typed or picked, or a builder date field; its *week* mode only produces Sundays. Which year was typed or picked is **(unsure)**: nothing in the code supplies 2027 (the defaults are the clock, and 2026 in the window's unused initial state).
 2. **Why the daily pages are a week apart.** The section was saved from pages dated 14, 21, 28, 35, 42 and 49 days after the first dated page: seven days apart, one daily page per week. That is what the Dates window's *Each page is one week* mode gives a run of daily pages (it is the mode the window opens in, §4 above), and the book's own pages show the same thing (pages 4–9: Nov 15, 22, 29, Dec 6, 13, 20). Page 2 is dated 0 and page 3 is not dated at all, so the run was dated in pieces (why page 3 has no date is **(unsure)**).
@@ -213,12 +213,11 @@ The book has four cover pages: **inside front** (left page, `cover.front`), **in
 - `findBuiltinSection` (`builtin/sections.ts:48`), `monthSpan` (`builtin/calendar.ts:34`): unused, not tested.
 - Exported but used only by tests: `markZone` (`book/alignment.ts`), `backPoint`, `backRegion` (`print/sheets.ts`), `calibrationPages` (`print/calibrate.ts`), `moveElement` (`geometry.ts`), `itemValue` (`format/sequence.ts`), `TRIM_ZONE_MM` (`book/impose.ts`), `SAMPLE_DATE` outside `tokens.ts`.
 - `fresh` in `LibraryHost.openBook(book, fresh?)` (`library/dialog.ts:40–41`, passed at `:272`): `main.ts openBook(next)` ignores it. Its doc ("takes the printer's saved print settings") is from before the printer profile.
-- Version-1 page support: `format/v1.ts`, `validate-v1.ts`, `convert.ts`, and the `converted` flags through `readBook` / `readSpread` / the notices in `main.ts:540–557`. `CLAUDE.md` says not to add conversions; these predate it and are still wired in.
-- Old-book tolerance: `readBook` ignores everything but `signatures` inside `print` (`book.ts:216`) so books from before the printer profile still open; `readPrinter` fills in `back_rotation_deg` and `line_weight_x_pct` for older profiles (`printer.ts:41–49`). Both are migrations under another name.
+- Book tolerance: `readBook` ignores everything but `signatures` inside `print` (`book.ts`), so a printer setting can never stop a book from opening (the rule in `CLAUDE.md`). There is no other reader of an old file: version-1 pages, the page converter and the `readPrinter` fill-ins for older profiles are gone.
 
 **Duplication**
 
-- `isObject` is defined in seven files (`book/book.ts`, `book/sections.ts`, `library/library.ts`, `format/spread.ts`, `format/validate.ts`, `format/validate-v1.ts`, `format/art.ts`).
+- `isObject` is defined in six files (`book/book.ts`, `book/sections.ts`, `library/library.ts`, `format/spread.ts`, `format/validate.ts`, `format/art.ts`).
 - `daysBetween`: `build.ts:15` and `plan.ts:136`, identical.
 - "Today as a local `YYYY-MM-DD`": `dates.ts` `todayIso` and `print/settingstext.ts` `isoDay`.
 - Month and weekday name tables: `dates.ts` (`MONTHS`, `MONTH_NAMES`, `WEEKDAYS`) and `builtin/calendar.ts` (`MONTH_ABBR`, `MONTH_NAMES`, `WEEKDAY_ABBR`).
@@ -232,7 +231,7 @@ The book has four cover pages: **inside front** (left page, `cover.front`), **in
 - `docs/book-format.md:20–22` shows `"recipe": { "month", "weekday", "section" }`, the shape before steps; the **Recipe** section below it is right.
 - `docs/book-format.md` lists the two-up defaults as front -0.75 / -1.6 and back 0 / 1.1; `DEFAULT_PRINT` (`book/impose.ts`) is front -0.25 / -1.55 and back -0.4 / 1, scale y 101.01, rotation -0.183.
 - `docs/book-format.md` says dates "travel with their page: moving or swapping pages moves their dates": no UI moves pages.
-- `docs/library-format.md:3–4` says **Export library** / **Import library**; the buttons are **Back up library** / **Restore backup**. It also says version-1 pages are converted.
+- `docs/library-format.md:3–4` says **Export library** / **Import library**; the buttons are **Back up library** / **Restore backup**.
 - `help.ts` entries `book-export` and `book-cover-shift` say `cover.pdf`; the files are `cover-outside.pdf` and `cover-inside.pdf`. `impose.ts:75` comment says the same.
 - `CLAUDE.md` roadmap item 15 still names **Build by week**, which is now only a preset (`builtin/sections.ts:34`).
 - No doc lists the `localStorage` keys; §2 here is the only list.

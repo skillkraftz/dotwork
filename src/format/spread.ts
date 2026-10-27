@@ -14,7 +14,7 @@ export interface Spread {
 export type SpreadSide = 'left' | 'right';
 
 export type ReadSpreadResult =
-  | { ok: true; spread: Spread; converted: boolean }
+  | { ok: true; spread: Spread }
   | { ok: false; issues: ValidationIssue[] };
 
 /** A copy of the page that belongs on the given side of a spread. */
@@ -45,19 +45,17 @@ export function readSpread(input: unknown): ReadSpreadResult {
   if (typeof input.name !== 'string') fail('name', 'name', '"name" is required and must be a string.');
 
   const pages: Partial<Record<SpreadSide, Page>> = {};
-  let converted = false;
   for (const side of ['left', 'right'] as const) {
     const r = readPage(input[side]);
     if (!r.ok) {
       for (const i of r.issues) issues.push({ ...i, path: i.path === '(file)' ? side : `${side}.${i.path}` });
       continue;
     }
-    converted ||= r.converted;
     if (r.page.side !== side) {
       fail('spread-side', `${side}.side`, `The ${side} page must have "side": "${side}" (got ${JSON.stringify(r.page.side)}).`);
     }
     pages[side] = r.page;
   }
   if (issues.length || !pages.left || !pages.right) return { ok: false, issues };
-  return { ok: true, converted, spread: { format: 'dotwork-spread', version: 2, name: input.name as string, left: pages.left, right: pages.right } };
+  return { ok: true, spread: { format: 'dotwork-spread', version: 2, name: input.name as string, left: pages.left, right: pages.right } };
 }

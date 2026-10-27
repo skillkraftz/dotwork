@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { DEFAULT_PRINT } from '../../src/book/impose';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PDFDocument } from 'pdf-lib';
 import { bookMore, hit, missingHelp, open, openDoc, shot, start, stop, type App, type Env } from './harness';
@@ -13,7 +14,11 @@ const type = async (app: App, selector: string, value: string) => {
   await input.dispatchEvent('input');
   await input.dispatchEvent('change');
 };
-const profile = (app: App) => app.page.evaluate(() => JSON.parse(localStorage.getItem('dotwork.printer') ?? 'null'));
+/** The saved printer profile as the app reads it: a layout left at the defaults is not stored, so it is filled in from them. */
+const profile = async (app: App) => {
+  const stored = await app.page.evaluate(() => JSON.parse(localStorage.getItem('dotwork.printer') ?? 'null'));
+  return stored && { ...stored, layouts: { ...DEFAULT_PRINT.layouts, ...stored.layouts } };
+};
 const savedBook = (app: App) => openDoc(app, 'book');
 const bookPrint = async (app: App) => (await savedBook(app))?.print;
 const noOverflow = (app: App) => app.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
@@ -43,7 +48,7 @@ const openPdfTab = async (app: App) => {
   await app.page.waitForSelector('dialog.export [data-key="book-sheet-layout"]');
 };
 
-for (const device of ['phone', 'tablet', 'desktop'] as const) {
+for (const device of ['phone', 'desktop'] as const) {
   describe(`letter two-up (${device})`, () => {
     it('picks the layout on the PDF tab: the fields show that layout’s values, two-up asks for the bottom book, and the zip has print-duplex.pdf', async () => {
       const app = await open(env, device);
@@ -92,6 +97,24 @@ for (const device of ['phone', 'tablet', 'desktop'] as const) {
       expect(zipped.name).toBe('untitled-book-print.zip');
       const text = zipped.bytes.toString('latin1');
       for (const f of ['print-duplex.pdf', 'print-first.pdf', 'print-second.pdf', 'cover-outside.pdf', 'cover-inside.pdf', 'summary.txt']) expect(text, f).toContain(f);
+
+      // Reset this layout to defaults: it shows the values first, Cancel changes nothing, Yes brings back the calibrated defaults
+      await page.locator('dialog.export [data-key="reset-layout"]').scrollIntoViewIfNeeded();
+      await hit(app, 'dialog.export [data-key="reset-layout"]');
+      const question = page.locator('dialog.export [data-key="reset-layout-question"]');
+      await question.waitFor();
+      expect(await question.innerText()).toContain('-0.25'); // the default's front offset x, beside the 0 it has now
+      await shot(app, `${device}-reset-layout`);
+      await hit(app, 'dialog.export [data-key="reset-layout-cancel"]');
+      expect(await question.count()).toBe(0);
+      expect(await value('book-front-offset-x')).toBe('0');
+      await hit(app, 'dialog.export [data-key="reset-layout"]');
+      await hit(app, 'dialog.export [data-key="reset-layout-yes"]');
+      expect(await value('book-front-offset-x')).toBe('-0.25');
+      expect(await value('book-scale-y')).toBe('101.01');
+      expect(await value('book-back-rotation')).toBe('-0.183');
+      await pickLayout(app, 'export', 'half_letter');
+      expect(await value('book-front-offset-x')).toBe('1.7'); // the other layout is left alone
       expect(app.errors).toEqual([]);
     });
 

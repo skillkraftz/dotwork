@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { emptyBook, readBook } from '../src/book/book';
+import { readFileSync } from 'node:fs';
+import { emptyBook, readBook, setSlot } from '../src/book/book';
+import { emptyPage } from '../src/format/types';
+import { exportBookFiles } from '../src/print/export';
+import { FLAT } from './flat';
 import { DEFAULT_PRINT, clonePrint, type LayoutProfile, type PrintSettings } from '../src/book/impose';
 import { PRINTER_KEY, PRINTER_KEYS, loadPrinter, readPrinter, savePrinter, type PrinterStorage } from '../src/printer';
 
@@ -24,7 +28,6 @@ describe('the printer profile', () => {
   it('is saved and loaded back', () => {
     const storage = memory();
     expect(savePrinter(storage, calibrated)).toBeNull();
-    expect(JSON.parse(storage.data[PRINTER_KEY])).toEqual(calibrated);
     expect(loadPrinter(storage)).toEqual({ status: 'ok', value: calibrated });
   });
 
@@ -46,24 +49,30 @@ describe('the printer profile', () => {
     expect(JSON.parse(storage.data[PRINTER_KEY]).layouts.half_letter.front_offset_x_mm).toBe(-1.5);
   });
 
-  it('reads a profile saved before the back rotation existed, as no rotation', () => {
-    const old = clonePrint(DEFAULT_PRINT) as unknown as { layouts: Record<string, Record<string, unknown>> };
-    for (const l of Object.values(old.layouts)) delete l.back_rotation_deg;
-    const r = readPrinter(old);
-    expect(r.ok).toBe(true);
-    if (r.ok) expect(r.value.layouts.half_letter.back_rotation_deg).toBe(0);
+  it('takes a layout, or a setting of one, that a saved profile lacks from the defaults, never zeros', () => {
+    const { layouts: _all, ...shared } = clonePrint(calibrated);
+    const noLayouts = readPrinter(shared);
+    expect(noLayouts.ok && noLayouts.value.layouts).toEqual(DEFAULT_PRINT.layouts);
+    const noTwoUp = readPrinter({ ...shared, layouts: { half_letter: calibrated.layouts.half_letter } });
+    expect(noTwoUp.ok && noTwoUp.value.layouts.letter_two_up).toEqual(DEFAULT_PRINT.layouts.letter_two_up);
+    expect(noTwoUp.ok && noTwoUp.value.layouts.half_letter).toEqual(calibrated.layouts.half_letter);
+    const { back_rotation_deg: _r, ...noRotation } = calibrated.layouts.letter_two_up;
+    const partial = readPrinter({ ...shared, layouts: { ...calibrated.layouts, letter_two_up: noRotation } });
+    expect(partial.ok && partial.value.layouts.letter_two_up.back_rotation_deg).toBe(DEFAULT_PRINT.layouts.letter_two_up.back_rotation_deg);
   });
 
-  it('reads a profile saved before the line weight existed, as 100 % (nothing changes), and keeps the rest of it', () => {
-    const old = clonePrint(calibrated) as unknown as { layouts: Record<string, Record<string, unknown>> };
-    for (const l of Object.values(old.layouts)) delete l.line_weight_x_pct;
-    const r = readPrinter(old);
-    expect(r.ok).toBe(true);
-    if (r.ok) {
-      expect(r.value.layouts.half_letter.line_weight_x_pct).toBe(100);
-      expect(r.value.layouts.letter_two_up.line_weight_x_pct).toBe(100);
-      expect(r.value.layouts.half_letter.front_offset_x_mm).toBe(-1.5);
-    }
+  it('keeps only the layouts that were changed, so a layout at the defaults follows them when they change', () => {
+    const storage = memory();
+    savePrinter(storage, calibrated);
+    expect(Object.keys(JSON.parse(storage.data[PRINTER_KEY]).layouts)).toEqual(['half_letter']);
+    const stale = memory({ [PRINTER_KEY]: JSON.stringify({ ...JSON.parse(storage.data[PRINTER_KEY]) }) });
+    const loaded = loadPrinter(stale);
+    expect(loaded.status === 'ok' && loaded.value.layouts.letter_two_up).toEqual(DEFAULT_PRINT.layouts.letter_two_up);
+    // a layout the person set to something else is kept as they set it, even all zeros
+    const zeros = clonePrint(calibrated);
+    Object.assign(zeros.layouts.letter_two_up, { front_offset_x_mm: 0, front_offset_y_mm: 0, back_offset_x_mm: 0, back_offset_y_mm: 0, back_rotation_deg: 0, scale_y_pct: 100 });
+    savePrinter(storage, zeros);
+    expect(loadPrinter(storage)).toEqual({ status: 'ok', value: zeros });
   });
 
   it('reports a storage that refuses, with the browser’s own reason', () => {
@@ -110,5 +119,34 @@ describe('the layouts in the printer profile', () => {
         if (!r.ok) expect(r.issues.map((i) => i.path)).toEqual([`layouts.${layout}.${key}`]);
       }
     }
+  });
+});
+
+describe('settings never touch the book', () => {
+  it('changing the printer profile leaves the book, and whether it opens, unchanged', () => {
+    const storage = memory();
+    const book = emptyBook(8);
+    const before = JSON.stringify(book);
+    const profile = clonePrint(DEFAULT_PRINT);
+    // wild values: the printer profile's own limits are for the printer's fields, the book never sees them
+    Object.assign(profile, { creep_per_sheet_mm: 0.9, fore_edge_shift_mm: -9, shade_dark_pct: 3 });
+    Object.assign(profile.layouts.letter_two_up, { back_rotation_deg: 1.5, back_offset_x_mm: 9, scale_x_pct: 104 });
+    profile.sheet_layout = 'letter_two_up';
+    expect(savePrinter(storage, profile)).toBeNull();
+    expect(loadPrinter(storage).status).toBe('ok');
+    expect(JSON.stringify(book)).toBe(before);
+    expect(readBook(JSON.parse(before)).ok).toBe(true);
+  });
+
+  it('prints with the printer profile it is given, not anything in the book', async () => {
+    const fontBytes = { regular: readFileSync('src/fonts/CourierPrime-Regular.ttf'), bold: readFileSync('src/fonts/CourierPrime-Bold.ttf') };
+    const book = emptyBook(8);
+    setSlot(book, 1, { ...emptyPage(), identity: '', elements: [{ type: 'text', x: 1, y: 3, text: 'HELLO', tone: 'black' }] });
+    const a = await exportBookFiles(book, DEFAULT_PRINT, fontBytes, { pages: false, cover: false });
+    const twoUp = clonePrint(DEFAULT_PRINT); twoUp.sheet_layout = 'letter_two_up';
+    twoUp.layouts.letter_two_up = { ...FLAT.layouts.letter_two_up }; // the owner’s calibrated two-up offsets put the last row inside the 3 mm edge check
+    const b = await exportBookFiles(book, twoUp, fontBytes, { pages: false, cover: false });
+    expect(a.map((f) => f.name)).toContain('print-first.pdf');
+    expect(b.map((f) => f.name)).toContain('print-duplex.pdf');
   });
 });

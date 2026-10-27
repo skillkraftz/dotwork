@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { DEFAULT_PRINT } from '../../src/book/impose';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PDFDocument } from 'pdf-lib';
 import { hit, missingHelp, open, openDoc, seedDoc, shot, start, stop, type App, type Env } from './harness';
@@ -39,7 +40,11 @@ const small = (app: App) => app.page.evaluate(() => {
 });
 
 const progress = (app: App) => app.page.locator('dialog.calibrate .cal-progress').innerText();
-const profile = (app: App) => app.page.evaluate(() => JSON.parse(localStorage.getItem('dotwork.printer') ?? 'null'));
+/** The saved printer profile as the app reads it: a layout left at the defaults is not stored, so it is filled in from them. */
+const profile = async (app: App) => {
+  const stored = await app.page.evaluate(() => JSON.parse(localStorage.getItem('dotwork.printer') ?? 'null'));
+  return stored && { ...stored, layouts: { ...DEFAULT_PRINT.layouts, ...stored.layouts } };
+};
 /** The open book exactly as the Library holds it: no setting of the printer may ever change a byte of it. */
 const bookDraft = (app: App) => openDoc(app, 'book');
 const BOOK = JSON.stringify({ format: 'dotwork-book', version: 1, name: 'Untitled book', page_count: 52, page_numbers: true, print: { signatures: 1 }, pages: Array(52).fill(null), cover: { front: null, back: null } });
@@ -63,7 +68,7 @@ const openCalibrate = async (app: App) => {
   await app.page.waitForSelector('dialog.calibrate[open]');
 };
 
-for (const device of ['phone', 'tablet', 'desktop'] as const) {
+for (const device of ['phone', 'desktop'] as const) {
   describe(`the Calibrate wizard (${device})`, () => {
     it('walks the three steps: print then measure, creep and shifts, check; everything is kept as the printer’s settings and never in the book', async () => {
       const app = await open(env, device);
@@ -282,21 +287,16 @@ for (const device of ['phone', 'tablet', 'desktop'] as const) {
       expect(app.errors).toEqual([]);
     });
 
-    it('uses the printer profile for every book, old books included: nothing is compared or copied into the book', async () => {
+    it('uses the printer profile for every book: nothing is compared or copied into the book', async () => {
       const app = await open(env, device);
       const { page } = app;
-      // A book saved by an earlier version, with the full print settings of the time (they are ignored), and a different printer profile.
-      const old = {
-        format: 'dotwork-book', version: 1, page_count: 52, page_numbers: true,
-        print: { creep_per_sheet_mm: 0.14, fore_edge_shift_mm: 0, cover_fore_edge_shift_mm: 0, target_fore_edge_margin_mm: 3.5, sheet_layout: 'half_letter', layouts: { half_letter: NONE, letter_two_up: NONE }, signatures: 3, shade_light_pct: 6.3, shade_medium_pct: 13.7, shade_dark_pct: 25.9, gray_text_pct: 49.8 },
-        pages: Array(52).fill(null), cover: { front: null, back: null },
-      };
+      const book = { format: 'dotwork-book', version: 1, page_count: 52, page_numbers: true, print: { signatures: 3 }, pages: Array(52).fill(null), cover: { front: null, back: null } };
       await page.evaluate((flat) => localStorage.setItem('dotwork.printer', JSON.stringify({ ...(flat as object), creep_per_sheet_mm: 0.1, shade_light_pct: 8 })), FLAT);
-      await seedDoc(app, 'book', old, 'Older book');
+      await seedDoc(app, 'book', book, 'Book');
       await hit(app, '#menu-page');
       await hit(app, '#view-book');
       await page.waitForSelector('.stage-page');
-      expect(await page.locator('#notice').isVisible()).toBe(false); // the old book opened
+      expect(await page.locator('#notice').isVisible()).toBe(false); // the book opened
       await hit(app, '#export');
       await hit(app, 'dialog.export [data-tab="pdf"]');
       expect(await page.locator('dialog.export [data-key="book-creep"]').inputValue()).toBe('0.1'); // the printer's, not the book's
@@ -308,7 +308,7 @@ for (const device of ['phone', 'tablet', 'desktop'] as const) {
   });
 }
 
-for (const device of ['phone', 'tablet', 'desktop'] as const) {
+for (const device of ['phone', 'desktop'] as const) {
   describe(`the Calibrate wizard: fold twist and line weight (${device})`, () => {
     it('shows the twist against the paper once both readings of a fold pair are typed, and changes no setting', async () => {
       const app = await open(env, device);

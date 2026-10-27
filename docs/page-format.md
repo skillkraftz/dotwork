@@ -2,9 +2,9 @@
 
 A page file describes one page as a stack of elements drawn on the 3 mm grid.
 Dotwork writes these files; journal-system will read them. Both projects
-follow this document. Version 2 replaces version 1's non-overlapping regions
-with layered elements, so designs can overlap, use half-cell positions, and
-place labels anywhere.
+follow this document. Elements are layered, so designs can overlap, use
+half-cell positions, and place labels anywhere. Only version 2 is read; there is
+no back compatibility, so a file of any other version is refused.
 
 ## The page and its grid
 
@@ -278,9 +278,3 @@ unknown element type or field value, a coordinate that is not a multiple of
 `checkboxes` or `sequence` element whose items leave the grid, a `shade` whose `tones` are not the letters L, M, D and B, an `art` whose `view_box`, `paths`, path data, tones or line widths break the rules above (or whose points leave the view box), an empty `group`, a `sequence`
 with a text item of more than two characters or an unknown icon name, or an unknown token, and say
 which rule failed. Overlap is allowed.
-
-## Version 1 files
-
-Dotwork still converts version 1 files when it reads them (`src/format/convert.ts`), though it no longer writes them. Readers should convert version 1 files: each region becomes a `pattern` (or
-`checkboxes` plus `lines`), a `box` for its borders, and `text` elements for
-its labels, in that order.

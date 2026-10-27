@@ -195,7 +195,7 @@ export const bookExpand = (book: Book, slot: number) => expandFor(dateOf(book, s
 // ---- reading ---------------------------------------------------------------
 
 export type ReadBookResult =
-  | { ok: true; book: Book; converted: boolean }
+  | { ok: true; book: Book }
   | { ok: false; issues: ValidationIssue[] };
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -213,11 +213,10 @@ export function readBook(input: unknown): ReadBookResult {
   if (!countOk) fail('page-count', 'page_count', `"page_count" must be a multiple of 4 from ${MIN_PAGES} to ${MAX_PAGES}, got ${JSON.stringify(count)}.`);
   if (typeof input.page_numbers !== 'boolean') fail('page-numbers', 'page_numbers', '"page_numbers" is required and must be true or false.');
 
-  // Only the signatures count, and only when they make sense. Whatever else an older version saved under "print" (printer settings, in any shape) is ignored, so every old book opens.
+  // Only the signatures count, and only when they make sense. Whatever else is under "print" is ignored: printer settings never decide whether a book opens.
   const saved = isObject(input.print) ? input.print.signatures : undefined;
   const signatures = typeof saved === 'number' && Number.isInteger(saved) && saved >= PRINT_LIMITS.signatures.min && saved <= PRINT_LIMITS.signatures.max ? saved : 1;
 
-  let converted = false;
   // The inside covers print no page number, so the page-number corner is not reserved on them.
   const readSlot = (raw: unknown, path: string, side: SpreadSide, cover = false): Page | null => {
     if (raw === null) return null;
@@ -226,7 +225,6 @@ export function readBook(input: unknown): ReadBookResult {
       for (const i of r.issues) issues.push({ ...i, path: i.path === '(file)' ? path : `${path}.${i.path}` });
       return null;
     }
-    converted ||= r.converted;
     if (cover && isObject(raw)) r.page.page_number = raw.page_number === false ? false : undefined;
     if (r.page.side !== side) fail('book-side', `${path}.side`, `This page sits on a ${side}-hand page, so it must have "side": "${side}" (got ${JSON.stringify(r.page.side)}).`);
     return r.page;
@@ -264,7 +262,6 @@ export function readBook(input: unknown): ReadBookResult {
   if (issues.length) return { ok: false, issues };
   return {
     ok: true,
-    converted,
     book: { format: 'dotwork-book', version: 1, name: input.name as string, page_count: count as number, page_numbers: input.page_numbers as boolean, print: { signatures }, pages, ...(dates ? { dates } : {}), cover, ...(recipe ? { recipe } : {}) },
   };
 }

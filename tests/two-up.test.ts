@@ -2,7 +2,6 @@ import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { PDFDocument } from 'pdf-lib';
 import { emptyBook, getSlot, lastSlot, readBook, setSlot, slotSide, type Book } from '../src/book/book';
-import { scaleFromReading } from '../src/book/alignment';
 import { opening, slotLabel } from '../src/book/plan';
 import {
   DEFAULT_PRINT, FOLD_X_MM, LAYOUT_NAMES, SHEET_H_MM, SHEET_W_MM, TRIM_ZONE_MM, clonePrint, creepFor, duplexOrder, offsetOf, pageOrigin, profileOf,
@@ -69,12 +68,6 @@ describe('the sheet layouts', () => {
     expect(p.layouts.half_letter).toEqual(DEFAULT_PRINT.layouts.half_letter);
     expect(Object.keys(p)).not.toContain('front_offset_x_mm');
     expect(Object.keys(p)).not.toContain('signatures');
-  });
-
-  it('ignores a layout in a book file: the layout is the printer’s, not the book’s', () => {
-    const b = JSON.parse(JSON.stringify(emptyBook(8)));
-    b.print.sheet_layout = 'a3';
-    expect(readBook(b).ok).toBe(true);
   });
 });
 
@@ -329,24 +322,6 @@ describe('the 3 mm edge check', () => {
 });
 
 describe('size correction', () => {
-  it('turns a measured 100 mm line into a scale: a printer that makes it 98.8 mm needs 101.21 %', () => {
-    expect(scaleFromReading(100, 100, 98.8)).toBeCloseTo(101.21, 2);
-    expect(scaleFromReading(100, 100, 100)).toBe(100);
-    expect(scaleFromReading(100, 100, 102.3)).toBeCloseTo(97.75, 2);
-  });
-  it('is relative to the scale the sheet was printed at, so measuring a corrected sheet changes nothing more', () => {
-    // 101.21 % was printed and the line measured 100.0 mm: right already.
-    expect(scaleFromReading(101.21, 101.21, 100)).toBeCloseTo(101.21, 2);
-    // Printed at 101 % and read 99.5 mm: the printer shrinks by 99.5 / 101, so ask for 101 / 99.5 × 100.
-    expect(scaleFromReading(101, 101, 99.5)).toBeCloseTo(101.51, 2);
-  });
-  it('stays within 95 to 105, and keeps the old scale when nothing was measured', () => {
-    expect(scaleFromReading(100, 100, 80)).toBe(105);
-    expect(scaleFromReading(100, 100, 120)).toBe(95);
-    expect(scaleFromReading(101.2, 100, null)).toBe(101.2);
-    expect(scaleFromReading(101.2, 100, 0)).toBe(101.2);
-  });
-
   it('scales a sheet about its centre and then moves it by the offset', () => {
     const t = { sx: 1.01, sy: 0.99, rot: 0, dx: 0.5, dy: -0.25 };
     const mid = mapPoint(t, 215.9, 279.4, { x: 107.95, y: 139.7 });

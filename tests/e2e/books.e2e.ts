@@ -73,7 +73,7 @@ const bookFile = (name: string) => {
   return JSON.stringify(b);
 };
 
-for (const device of ['phone', 'tablet', 'desktop'] as Device[]) {
+for (const device of ['phone', 'desktop'] as Device[]) {
   describe(`books are documents on a ${device}`, () => {
     it('opens two books and switches between them without losing either', async () => {
       const app = await open(env, device);
@@ -195,13 +195,18 @@ for (const device of ['phone', 'tablet', 'desktop'] as Device[]) {
       expect(app.errors).toEqual([]);
     });
 
-    it('asks for a name before the first export of an Untitled book, as it does for a page', async () => {
+    it('asks for a name before the first export of an Untitled book (the print zip and the JSON), as it does for a page', async () => {
       const app = await open(env, device);
       const { page } = app;
       await goBook(app);
       await pickDesign(app, 'Lined page');
       await hit(app, '#export');
       await page.waitForSelector('dialog.export[open]');
+      await hit(app, 'dialog.export [data-tab="pdf"]');
+      await hit(app, '[data-key="export-pdf"]');
+      await answerName(app, null, true);
+      expect(await page.locator('dialog.export [data-key="export-pdf"]').isEnabled()).toBe(true); // nothing is running
+      expect(await page.innerText('#doc-name')).toBe('Untitled: name it');
       await hit(app, 'dialog.export [data-tab="export"]');
       const [file] = await Promise.all([
         page.waitForEvent('download'),
@@ -211,19 +216,6 @@ for (const device of ['phone', 'tablet', 'desktop'] as Device[]) {
       await waitSaved(app);
       expect(await page.innerText('#doc-name')).toBe('Trip log');
       expect(app.errors).toEqual([]);
-    });
-
-    it('asks for a name before the print zip of an Untitled book', async () => {
-      const app = await open(env, device);
-      const { page } = app;
-      await goBook(app);
-      await hit(app, '#export');
-      await page.waitForSelector('dialog.export[open]');
-      await hit(app, 'dialog.export [data-tab="pdf"]');
-      await hit(app, '[data-key="export-pdf"]');
-      await answerName(app, null, true);
-      expect(await page.locator('dialog.export [data-key="export-pdf"]').isEnabled()).toBe(true); // nothing is running
-      expect(await page.innerText('#doc-name')).toBe('Untitled: name it');
     });
 
     it('New, then switching away without drawing, leaves no empty Untitled behind', async () => {
@@ -300,7 +292,9 @@ for (const device of ['phone', 'tablet', 'desktop'] as Device[]) {
       await shot(app, `books-${device}-cant-keep`);
 
       // it still works: rename, and the book view
-      await renameTo(app, 'Scratch').catch(() => {});
+      await hit(app, '#doc-name'); // nothing can be saved, so there is no Saved to wait for
+      await page.fill('#doc-name-field', 'Scratch');
+      await page.press('#doc-name-field', 'Enter');
       await page.waitForTimeout(700);
       expect(await status(app)).not.toBe('Saved');
       await choose(app, 'page', '#view-book');
