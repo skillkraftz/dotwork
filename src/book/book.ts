@@ -190,7 +190,7 @@ export function movePage(book: Book, from: number, to: number): number[] {
 }
 
 /** How the tokens on a slot's page become text: filled from its date, or left blank. */
-export const bookExpand = (book: Book, slot: number) => expandFor(dateOf(book, slot));
+export const bookExpand = (book: Book, slot: number) => expandFor(dateOf(book, slot), bookPage(book, slot));
 
 // ---- reading ---------------------------------------------------------------
 

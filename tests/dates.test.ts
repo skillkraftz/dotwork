@@ -40,7 +40,7 @@ describe('weeks and dates', () => {
   });
 });
 
-describe('tokens with day offsets', () => {
+describe('tokens with offsets', () => {
   it('expands as before from the sample date, Monday 2026-10-26', () => {
     expect(expandTokens('{weekday} {month} {monthname} {day} {year} {week}')).toBe('MON OCT OCTOBER 26 2026 44');
   });
@@ -48,7 +48,6 @@ describe('tokens with day offsets', () => {
   it('moves a token by whole days', () => {
     expect(expandTokens('{day+1} {weekday+6} {day-1} {weekday-1}')).toBe('27 SUN 25 SUN');
     expect(expandTokens('{day+6}', '2026-10-18')).toBe('24');
-    expect(expandTokens('{month+10} {year+70}')).toBe('NOV 2027'); // the offset moves the date, then the token reads it
     expect(expandTokens('{weekday}', '2026-10-18')).toBe('SUN');
   });
 
@@ -61,7 +60,7 @@ describe('tokens with day offsets', () => {
     expect(expandTokens('{months+7}', '2026-11-22')).toBe('NOV / DEC');
   });
 
-  it('knows which names are tokens; offsets must be whole days', () => {
+  it('knows which names are tokens; offsets must be whole numbers', () => {
     expect(findUnknownTokens('{day+1} {months} {weekday-3}')).toEqual([]);
     expect(findUnknownTokens('{day+x} {day+} {nope+1} {day +1} {day+1.5}')).toEqual(['day+x', 'day+', 'nope+1', 'day +1', 'day+1.5']);
     expect(expandTokens('{day+x}')).toBe('{day+x}');

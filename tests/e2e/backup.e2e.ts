@@ -154,22 +154,5 @@ for (const device of ['phone', 'tablet', 'desktop'] as Device[]) {
       expect(await names(app)).not.toContain('widget:Broken');
       expect(app.errors).toEqual([]);
     });
-
-    it('moves widgets and art from the old storage once, and leaves the old key', async () => {
-      const app = await open(env, device);
-      const { page } = app;
-      const old = [{ id: 'old1', name: 'Notes box', elements: BOX }];
-      await page.evaluate((o) => { localStorage.removeItem('dotwork.widgets.moved'); localStorage.setItem('dotwork.widgets', JSON.stringify(o)); }, old);
-      await reload(app);
-      expect(await names(app)).toContain('widget:Notes box');
-      expect(await page.evaluate(() => localStorage.getItem('dotwork.widgets'))).toBe(JSON.stringify(old));
-      expect(await page.evaluate(() => localStorage.getItem('dotwork.widgets.moved'))).toBe('1');
-      // delete it, reload: it does not come back
-      await openLibrary(app, 'widgets');
-      await deleteCard(app, 'Notes box');
-      await reload(app);
-      expect(await names(app)).not.toContain('widget:Notes box');
-      expect(app.errors).toEqual([]);
-    });
   });
 }

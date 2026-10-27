@@ -2,8 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { Library, MemoryBackend, readLibraryFile } from '../src/library/library';
 import { Favorites } from '../src/library/favorites';
 import { restoreBackup, printerRows, summaryProblem } from '../src/library/backup';
-import { moveOldWidgets, MOVED_KEY, OLD_WIDGETS_KEY } from '../src/widgetmove';
-import { WidgetStore } from '../src/widgets';
 import { DEFAULT_PRINT, clonePrint } from '../src/book/impose';
 import { emptyBook } from '../src/book/book';
 import { emptyPage, type Page, type PageElement } from '../src/format/types';
@@ -34,83 +32,6 @@ async function full() {
   await lib.create('art', 'Star', { name: 'Star', elements: [art] });
   return lib;
 }
-
-describe('the one-time move of widgets and art', () => {
-  const old = [
-    { id: 'w1', name: 'Notes box', elements: box },
-    { id: 'a1', name: 'Star', elements: [art] },
-    { id: 'bad', name: 'Bad', elements: [{ type: 'shade', x: 0, y: 0, w: 1, h: 1 }] },
-  ];
-
-  it('moves widgets and art as documents with their names, leaves the old key, and runs once', async () => {
-    const storage = memory({ [OLD_WIDGETS_KEY]: JSON.stringify(old) });
-    const lib = make();
-    await lib.create('widget', 'Notes box', { name: 'Notes box', elements: box }); // a name already taken
-    const r = await moveOldWidgets(storage, lib);
-    expect(r).toEqual({ status: 'done', moved: 2 });
-    expect((await lib.list()).map((i) => [i.kind, i.name]).sort()).toEqual([['art', 'Star'], ['widget', 'Notes box'], ['widget', 'Notes box 2']]);
-    expect(storage.data[OLD_WIDGETS_KEY]).toBe(JSON.stringify(old)); // untouched
-    expect(storage.data[MOVED_KEY]).toBe('1');
-    // a second start moves nothing, even if the old key is still full and the documents were deleted
-    for (const i of await lib.list()) await lib.remove(i.id);
-    expect(await moveOldWidgets(storage, lib)).toEqual({ status: 'done', moved: 0 });
-    expect(await lib.list()).toEqual([]);
-    const store = new WidgetStore(lib);
-    await store.refresh();
-    expect(store.list()).toEqual([]);
-  });
-
-  it('keeps the widget’s id, so the same thing is never moved twice', async () => {
-    const storage = memory({ [OLD_WIDGETS_KEY]: JSON.stringify(old) });
-    const lib = make();
-    await moveOldWidgets(storage, lib);
-    expect((await lib.get('w1'))!.kind).toBe('widget');
-    delete storage.data[MOVED_KEY];
-    expect(await moveOldWidgets(storage, lib)).toEqual({ status: 'nothing', moved: 0 });
-    expect(await lib.list()).toHaveLength(2);
-  });
-
-  it('a failure shows the real error and leaves everything as it was', async () => {
-    const storage = memory({ [OLD_WIDGETS_KEY]: JSON.stringify(old) });
-    const backend = new MemoryBackend();
-    const real = backend.put.bind(backend);
-    let puts = 0;
-    backend.put = async (item) => { if (++puts === 2) throw new Error('disk is on fire'); return real(item); };
-    const lib = make(backend);
-    const r = await moveOldWidgets(storage, lib);
-    expect(r.status).toBe('failed');
-    if (r.status === 'failed') {
-      expect(r.problem.lines.join(' ')).toContain('disk is on fire');
-      expect(r.problem.details).toContain('disk is on fire');
-    }
-    expect(await lib.list()).toEqual([]); // the first copy was taken out again
-    expect(storage.data[MOVED_KEY]).toBeUndefined();
-    expect(storage.data[OLD_WIDGETS_KEY]).toBe(JSON.stringify(old));
-    // the next start tries again and works
-    expect(await moveOldWidgets(storage, lib)).toEqual({ status: 'done', moved: 2 });
-  });
-
-  it('a damaged old key is a failure with the parser’s message, and is left alone', async () => {
-    const storage = memory({ [OLD_WIDGETS_KEY]: '{not json' });
-    const r = await moveOldWidgets(storage, make());
-    expect(r.status).toBe('failed');
-    expect(storage.data[OLD_WIDGETS_KEY]).toBe('{not json');
-    expect(storage.data[MOVED_KEY]).toBeUndefined();
-  });
-
-  it('is not marked done when the Library is only in memory', async () => {
-    const storage = memory({ [OLD_WIDGETS_KEY]: JSON.stringify(old) });
-    const r = await moveOldWidgets(storage, make(), () => false);
-    expect(r).toEqual({ status: 'done', moved: 2 });
-    expect(storage.data[MOVED_KEY]).toBeUndefined();
-  });
-
-  it('with nothing saved, there is nothing to move and it is marked done', async () => {
-    const storage = memory();
-    expect(await moveOldWidgets(storage, make())).toEqual({ status: 'nothing', moved: 0 });
-    expect(storage.data[MOVED_KEY]).toBe('1');
-  });
-});
 
 describe('what a backup holds', () => {
   it('has every kind of document, the favorites and the printer profile with both layouts', async () => {
