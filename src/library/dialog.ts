@@ -1,6 +1,7 @@
 import { GRID_X_MM, GRID_Y_MM, PITCH_MM, emptyPage, type Page } from '../format/types';
 import type { Spread, SpreadSide } from '../format/spread';
 import { bookPage, type Book } from '../book/book';
+import type { Block } from '../book/outline';
 import { h, tabBar } from '../panel';
 import { errorProblem, issuesProblem, problemView, type Problem } from '../problems';
 import { slug } from '../slug';
@@ -9,7 +10,7 @@ import { placeWidget, widgetSize, type Widget, type WidgetStore } from '../widge
 import type { PrintSettings } from '../book/impose';
 import oflUrl from '../fonts/OFL.txt?url';
 import type { BookTemplate } from '../builtin/templates';
-import type { Library, LibraryItem } from './library';
+import { isOldFormat, type Library, type LibraryItem } from './library';
 import { printerRows, restoreBackup, summaryProblem } from './backup';
 import type { Favorites } from './favorites';
 import { TABS, TAB_LABEL, artId, exampleId, sectionId, spreadId, templateId, visibleEntries, widgetId, type Entry, type LibraryTab } from './browse';
@@ -17,7 +18,7 @@ import { TemplateDialog } from './templatedialog';
 import { TEMPLATES } from '../builtin/templates';
 import { BUILTIN_ART, BUILTIN_NOTICES, BUILTIN_SPREADS, BUILTIN_WIDGETS } from '../builtin/library';
 import { BUILTIN_SECTIONS } from '../builtin/sections';
-import { MOVE_LABEL, type Section } from '../book/sections';
+import type { Section } from '../book/sections';
 import { importArtFile } from '../art/report';
 
 /** What the dialog needs from the editor around it. */
@@ -53,10 +54,14 @@ export interface LibraryHost {
   closed?(): void;
 }
 
+/** A block's first page, for a thumbnail: a spread shows its two pages. */
+const blockPages = (b: Block | undefined): Page[] => (!b || b.type === 'free' ? [{ ...emptyPage(), name: 'Blank' }] : b.type === 'spread' ? [b.left, b.right] : b.type === 'group' ? blockPages(b.children[0]) : [b.page ?? { ...emptyPage(), name: 'Blank' }]);
+
 const itemThumb = (e: Entry): string =>
-  e.kind === 'page' ? thumbnailSvg([e.data])
+  (e.kind === 'book' || e.kind === 'section') && e.old ? thumbnailSvg([{ ...emptyPage(), name: 'Old format' }])
+  : e.kind === 'page' ? thumbnailSvg([e.data])
     : e.kind === 'spread' ? thumbnailSvg([e.data.left, e.data.right])
-      : e.kind === 'section' ? thumbnailSvg(e.data.pages.slice(0, 2).map((p) => p ?? { ...emptyPage(), name: 'Blank' }))
+      : e.kind === 'section' ? thumbnailSvg(blockPages(e.data.children[0]))
       : e.kind === 'book' ? thumbnailSvg([bookPage(e.data, 0), bookPage(e.data, 1)]) // a book shows as its first spread
         : e.kind === 'template' ? templateThumb(e.data)
           : widgetThumbnail(e.data);
@@ -81,8 +86,8 @@ export function widgetThumbnail(widget: Widget): string {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${x} ${y} ${w * PITCH_MM + 2 * pad} ${hh * PITCH_MM + 2 * pad}" role="img">${pageContent(page, { mode: 'export', pageNumber: null })}</svg>`;
 }
 
-/** "10 pages · dates a week later". */
-const sectionMeta = (s: Section) => `${s.pages.length} page${s.pages.length === 1 ? '' : 's'} · dates ${s.move === 'none' ? 'stay the same' : MOVE_LABEL[s.move].toLowerCase()}`;
+/** "4 blocks". */
+const sectionMeta = (s: Section) => `${s.children.length} block${s.children.length === 1 ? '' : 's'}`;
 const when = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 const KIND_LABEL = { page: 'Page', spread: 'Spread', section: 'Section', book: 'Book', widget: 'Widget', art: 'Art', template: 'Book template' } as const;
 /** Where the library opens: on pages (in a spread they are what you place), or on books when arranging one. */
@@ -194,7 +199,7 @@ export class LibraryDialog {
     const saved = (await this.library.list()).map((i): Entry => {
       if (i.kind === 'widget') return { kind: 'widget', id: i.id, name: i.name, updated: i.updated, example: false, data: { id: i.id, name: i.name, elements: i.data.elements } };
       if (i.kind === 'art') return { kind: 'art', id: i.id, name: i.name, updated: i.updated, example: false, data: { id: i.id, name: i.name, elements: i.data.elements } };
-      return { ...i, example: false } as Entry;
+      return { ...i, example: false, ...(isOldFormat(i) ? { old: true } : {}) } as Entry;
     });
     const examples = this.host.examples.map((data): Entry => ({ kind: 'page', id: exampleId(data), name: data.name, updated: null, example: true, data }));
     const spreads = BUILTIN_SPREADS.map((data): Entry => ({ kind: 'spread', id: spreadId(data), name: data.name, updated: null, example: true, data }));
@@ -244,7 +249,12 @@ export class LibraryDialog {
       return;
     }
     if (e.kind === 'section') {
-      this.say(`“${e.name}” is a run of pages for the book builder. In the Book view, tap Build book, then Add a step, and pick it there.`);
+      if (e.old) this.say(`“${e.name}” is in the old format and can’t be opened. Export keeps a copy of the file; Delete removes it.`);
+      else this.say(`“${e.name}” is a group of blocks. In the Book view, tap Add…, then Other, and pick it there.`);
+      return;
+    }
+    if (e.kind === 'book' && e.old) {
+      this.say(`“${e.name}” is in the old format and can’t be opened. Export keeps a copy of the file; Delete removes it.`);
       return;
     }
     // A built-in opens read-only; editing it asks for a name and makes a copy.
@@ -263,7 +273,8 @@ export class LibraryDialog {
     thumb.innerHTML = itemThumb(e);
     const starred = this.host.favorites.has(e.id);
     const title = this.renaming === e.id ? this.renameField(e) : h('strong', { class: 'lib-name', title: e.name }, e.name);
-    const meta = [KIND_LABEL[e.kind], e.kind === 'section' ? sectionMeta(e.data) : '', e.example && e.kind !== 'template' ? 'example' : e.updated ? when(e.updated) : ''].filter(Boolean).join(' · ');
+    const old = (e.kind === 'book' || e.kind === 'section') && e.old;
+    const meta = [KIND_LABEL[e.kind], old ? 'Old format' : e.kind === 'section' ? sectionMeta(e.data) : '', e.example && e.kind !== 'template' ? 'example' : e.updated ? when(e.updated) : ''].filter(Boolean).join(' · ');
     const open = h('button', {
       type: 'button', class: 'lib-open', 'data-key': 'library-item', 'data-help': 'library-item', 'data-kind': e.kind, 'aria-label': `${this.openVerb(e)} ${e.name}`,
       onclick: () => this.use(e),
@@ -284,7 +295,7 @@ export class LibraryDialog {
   }
 
   private openVerb(e: Entry) {
-    return e.kind === 'section' ? 'About' : e.kind === 'widget' ? 'Use widget' : e.kind === 'art' ? 'Place art' : e.kind === 'template' ? 'Build a book from' : e.kind === 'page' && this.host.pageTarget() ? `Place on the ${this.host.pageTarget()} page:` : 'Open';
+    return e.kind === 'section' || ((e.kind === 'book') && e.old) ? 'About' : e.kind === 'widget' ? 'Use widget' : e.kind === 'art' ? 'Place art' : e.kind === 'template' ? 'Build a book from' : e.kind === 'page' && this.host.pageTarget() ? `Place on the ${this.host.pageTarget()} page:` : 'Open';
   }
 
   /** Rename, duplicate and delete; the built-in examples can only be copied. A section can also be exported. */
@@ -292,17 +303,14 @@ export class LibraryDialog {
     const item = (help: string, label: string, fn: () => void | Promise<void>) =>
       h('button', { type: 'button', role: 'menuitem', 'data-key': `library-${help}`, 'data-help': `library-${help}`, onclick: () => { this.menuFor = null; void fn(); } }, label);
     const items: HTMLElement[] = [];
+    if ((e.kind === 'book' || e.kind === 'section') && e.old) {
+      items.push(item('export-file', 'Export', () => this.exportFile(e.name, e.kind, e.data)), item('delete', 'Delete', () => this.remove(e)));
+      return h('div', { class: 'menu-list lib-menu', role: 'menu', 'aria-label': `${e.name} menu` }, ...items);
+    }
     if (!e.example) items.push(item('rename', 'Rename', () => { this.renaming = e.id; return this.renderList(); }));
     items.push(item('duplicate', 'Duplicate', () => this.duplicate(e)));
-    if (e.kind === 'section') items.push(item('export-section', 'Export', () => this.exportSection(e.data)));
-    if (!e.example) {
-      items.push(item('delete', 'Delete', async () => {
-        if (!confirm(`Delete the saved ${e.kind} “${e.name}”? This can’t be undone.`)) { await this.renderList(); return; }
-        try { await this.library.remove(e.id); } catch (err) { this.say(errorProblem('Not deleted.', err)); return; }
-        if (isWidgetKind(e)) await this.host.widgets.refresh(); else this.host.removed(e.id);
-        await this.renderList();
-      }));
-    }
+    if (e.kind === 'section') items.push(item('export-file', 'Export', () => this.exportFile(e.name, 'section', e.data)));
+    if (!e.example) items.push(item('delete', 'Delete', () => this.remove(e)));
     return h('div', { class: 'menu-list lib-menu', role: 'menu', 'aria-label': `${e.name} menu` }, ...items);
   }
 
@@ -311,9 +319,16 @@ export class LibraryDialog {
     await this.renderList();
   }
 
-  /** Download a section as its own file (Import adds it back). */
-  private exportSection(section: Section) {
-    this.host.download(new Blob([JSON.stringify(section, null, 2) + '\n'], { type: 'application/json' }), `${slug(section.name, 'section')}.json`);
+  /** Download a section, or a book in the old format, as its own file. */
+  private exportFile(name: string, kind: string, data: unknown) {
+    this.host.download(new Blob([JSON.stringify(data, null, 2) + '\n'], { type: 'application/json' }), `${slug(name, kind)}.json`);
+  }
+
+  private async remove(e: Entry) {
+    if (!confirm(`Delete the saved ${e.kind} “${e.name}”? This can’t be undone.`)) { await this.renderList(); return; }
+    try { await this.library.remove(e.id); } catch (err) { this.say(errorProblem('Not deleted.', err)); return; }
+    if (isWidgetKind(e)) await this.host.widgets.refresh(); else this.host.removed(e.id);
+    await this.renderList();
   }
 
   private async copy(e: Entry) {

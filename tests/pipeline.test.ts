@@ -2,7 +2,8 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { PDFDict, PDFDocument, PDFName, PDFRawStream, decodePDFRawStream } from 'pdf-lib';
-import { emptyBook, setSlot } from '../src/book/book';
+import { emptyBook } from '../src/book/book';
+import { onPages } from './books';
 import { DEFAULT_PRINT, clonePrint, type SheetLayout } from '../src/book/impose';
 import { emptyPage, type Page } from '../src/format/types';
 import { newDocument, exportBookFiles } from '../src/print/export';
@@ -264,7 +265,7 @@ describe('the layout stage', () => {
 
   it('draws the same thing as before at 100 % and no rotation: the book’s PDF is the display list drawn as it is', async () => {
     const book = emptyBook(8);
-    setSlot(book, 1, page([{ type: 'rule', x1: 0, y1: 1, x2: 27, y2: 1 }, { type: 'text', x: 1, y: 5, text: 'Hi' }]));
+    onPages(book, { 1: page([{ type: 'rule', x1: 0, y1: 1, x2: 27, y2: 1 }, { type: 'text', x: 1, y: 5, text: 'Hi' }]) });
     const files = await exportBookFiles(book, { ...clonePrint(FLAT), fore_edge_shift_mm: 0, creep_per_sheet_mm: 0 }, fontBytes);
     const sheets = await readPdf(files.find((f) => f.name === 'print-first.pdf')!.bytes);
     const pages = await readPdf(files.find((f) => f.name === 'pages.pdf')!.bytes);

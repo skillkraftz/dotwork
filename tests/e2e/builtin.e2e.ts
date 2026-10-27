@@ -57,7 +57,7 @@ for (const device of ['phone', 'desktop'] as Device[]) {
       const app = await open(env, device);
       const { page } = app;
       await openLibrary(app);
-      const tabs: [string, string[]][] = [['pages', ['Weekly reflection', 'Daily Log', 'week tracker checklist']], ['spreads', ['Book notes', 'Daily Log Spread', 'Idea variations']], ['books', ['Monthly journal']], ['widgets', ['Mood scale', 'Engagement gauge', 'Energy gauge']]];
+      const tabs: [string, string[]][] = [['pages', ['Weekly reflection', 'Daily Log', 'week tracker checklist']], ['spreads', ['Book notes spread', 'Daily Log Spread', 'Idea variations']], ['books', ['Monthly journal']], ['widgets', ['Mood scale', 'Engagement gauge', 'Energy gauge']]];
       for (const [tab, names] of tabs) {
         await hit(app, `[data-tab="${tab}"]`);
         for (const name of names) await page.waitForSelector(`.lib-card[data-name="${name}"]`);
@@ -89,7 +89,7 @@ for (const device of ['phone', 'desktop'] as Device[]) {
       noErrors(app);
     });
 
-    it('builds a dated year planner from its questions', async () => {
+    it('builds a year planner from its questions', async () => {
       const app = await open(env, device);
       const dialog = await build(app, 'Year planner', { year: '2026', first: '43', last: '52' });
       expect(await dialog.locator('input').count()).toBe(3);
@@ -107,7 +107,9 @@ for (const device of ['phone', 'desktop'] as Device[]) {
       const book = await savedBook(app);
       expect(book.name).toBe('2026 year planner');
       expect(book.page_count).toBe(52);
-      expect(book.dates.slice(0, 2)).toEqual(['2026-10-18', '2026-10-25']);
+      expect(book.outline.map((b: { type: string }) => b.type)).toEqual(['group', 'spread']); // weekly pages in pairs, then idea spreads to fill
+      expect(book.outline[0]).toMatchObject({ repeat: { times: 5 } }); // weeks 43 to 52
+      expect(book.outline[1].repeat).toEqual({ fill: true });
       await shot(app, `book-${device}-year-planner`);
       noErrors(app);
     });
@@ -123,7 +125,8 @@ for (const device of ['phone', 'desktop'] as Device[]) {
       const book = await savedBook(app);
       expect(book.name).toBe(name);
       expect(book.page_count).toBe(52);
-      expect(book.pages.filter(Boolean)).toHaveLength(52);
+      expect(book.outline.length).toBeGreaterThan(0);
+      expect(book.outline.every((b: { type: string }) => ['page', 'spread', 'group', 'free'].includes(b.type))).toBe(true);
       expect(book.cover.front && book.cover.back).toBeTruthy();
       await shot(app, `book-${device}-${template.toLowerCase().replace(/ /g, '-')}`);
       noErrors(app);

@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { PDFDocument } from 'pdf-lib';
-import { emptyBook, setSlot, PRINT_LIMITS, type Book } from '../src/book/book';
+import { emptyBook, PRINT_LIMITS, type Book } from '../src/book/book';
+import { onPages } from './books';
 import { DEFAULT_PRINT, SHEET_H_MM, SHEET_W_MM, clonePrint, creepFor, impose, pageOrigin, type PrintSettings } from '../src/book/impose';
 import { FOLD_FROM_CENTRE_MM, FOLD_HOW, LINE_MM, MARK_CLEAR_MM, markZone, crosshairs, foldScales, scaleCaptions, sheetHeight, type MarkName } from '../src/book/alignment';
 import { PRINTER_KEYS, readPrinter } from '../src/printer';
@@ -43,7 +44,7 @@ const toned = (): Page => ({
 const tonedBook = (tweak: (b: Book) => void = () => {}) => {
   const b = emptyBook(8);
   b.page_numbers = false;
-  setSlot(b, 1, toned());
+  onPages(b, { 1: toned() });
   tweak(b);
   return b;
 };
@@ -425,7 +426,7 @@ describe('the back rotation', () => {
     p.layouts[layout].back_rotation_deg = deg;
     return p;
   };
-  const book = () => { const b = emptyBook(8); setSlot(b, 1, toned()); return b; };
+  const book = () => { const b = emptyBook(8); onPages(b, { 1: toned() }); return b; };
 
   it('places the back pass of the print files, the covers and the calibration PDFs by the rotation, and never turns a stroke or a glyph; the front is never rotated', async () => {
     for (const layout of ['half_letter', 'letter_two_up'] as const) {

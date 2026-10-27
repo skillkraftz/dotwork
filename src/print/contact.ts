@@ -1,6 +1,6 @@
 import { PAGE_H_MM, PAGE_W_MM } from '../format/types';
 import { pageContent } from '../render';
-import { FIRST_SLOT, bookExpand, bookPage, isCover, lastSlot, slotCount, type Book } from '../book/book';
+import { FIRST_SLOT, bookExpand, bookLayout, bookPage, isCover, lastSlot, type Book } from '../book/book';
 
 const COLUMNS = 4;
 const GAP = 6, MARGIN = 10, TITLE = 14, CAPTION = 6;
@@ -11,9 +11,9 @@ export interface ContactSheet { svg: string; width: number; height: number }
 /** A preview of the whole book: every spread as it opens, in order, with the inside covers beside the first and last pages. Sizes in mm. */
 export function contactSheet(book: Book, fontCss = ''): ContactSheet {
   // Each cell is a left and a right slot. The outside covers, if either is designed, are the last cell, laid out as cover-outside.pdf prints them (back | front).
-  const cells: { slots: [number, number]; caption: string }[] = Array.from({ length: slotCount(book) / 2 }, (_, s) => ({
+  const cells: { slots: [number, number]; caption: string }[] = Array.from({ length: (book.page_count + 2) / 2 }, (_, s) => ({
     slots: [s * 2, s * 2 + 1] as [number, number],
-    caption: s === 0 ? 'Inside front cover · 1' : s === slotCount(book) / 2 - 1 ? `${book.page_count} · Inside back cover` : `${s * 2} · ${s * 2 + 1}`,
+    caption: s === 0 ? 'Inside front cover · 1' : s === (book.page_count + 2) / 2 - 1 ? `${book.page_count} · Inside back cover` : `${s * 2} · ${s * 2 + 1}`,
   }));
   if (book.cover.outside_front || book.cover.outside_back) cells.push({ slots: [lastSlot(book), FIRST_SLOT], caption: 'Outside back cover · Outside front cover' });
   const cols = Math.min(COLUMNS, cells.length);
@@ -35,7 +35,7 @@ export function contactSheet(book: Book, fontCss = ''): ContactSheet {
     body += `<g transform="translate(${x} ${y})">${cell}</g>`;
   });
   const title = `<text x="${MARGIN}" y="${MARGIN + 6}" font-size="5" font-weight="700" fill="#000">${esc(book.name)}</text>` +
-    `<text x="${width - MARGIN}" y="${MARGIN + 6}" font-size="3.4" text-anchor="end" fill="#666">${book.page_count} pages · ${book.pages.filter(Boolean).length} designed</text>`;
+    `<text x="${width - MARGIN}" y="${MARGIN + 6}" font-size="3.4" text-anchor="end" fill="#666">${book.page_count} pages · ${bookLayout(book).used} used</text>`;
   const svg =
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}mm" height="${height}mm" viewBox="0 0 ${width} ${height}">` +
     `<style>${fontCss}</style><g font-family="'Courier Prime', 'Courier New', monospace">` +

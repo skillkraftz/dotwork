@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
-  bar, box, cellToClient, choose, doubleTap, draft, drag, open, pinch, press, shot, stagger, start, stop, tap, twoFingerDrag, viewBoxOf, type App, type Env, tool, openDoc, nameOpen,} from './harness';
+  bar, box, cellToClient, choose, doubleTap, draft, drag, open, pinch, press, shot, stagger, start, stop, tap, twoFingerDrag, viewBoxOf, waitSaved, type App, type Env, tool, openDoc, nameOpen,} from './harness';
 
 let env: Env;
 beforeAll(async () => { env = await start(); });
@@ -152,17 +152,21 @@ describe('phone layout (390 x 844, touch)', () => {
     await tool(app, 'rule');
     await drag(app, await cellToClient(app, 3, 12), await cellToClient(app, 12, 12));
     expect(await page.locator('#sheet').getAttribute('data-state')).toBe('closed'); // nothing slid up unasked
+    // The drawing is still being kept (and the page redrawn around it) for a moment, and a tap that lands then can be lost, under load about
+    // one time in ten. The app is ready for the next tap when the document says Saved. And a tap is over when the page has acted on it,
+    // not when the finger is lifted: the click comes a moment after the touch ends.
+    await waitSaved(app);
     await page.tap('#layers-button');
-    expect(await page.locator('#sheet').getAttribute('data-state')).toBe('open');
+    await page.waitForSelector('#sheet[data-state="open"]');
     expect(await page.locator('#panel .layer').count()).toBe(2);
     await shot(app, 'phone-layers');
     // the rule is on top; send it down with its arrow
     await page.locator('#panel .layer').first().locator('button[aria-label^="Move down"]').tap();
-    expect((await elements(app)).map((e) => e.type)).toEqual(['rule', 'box']);
+    await expect.poll(async () => (await elements(app)).map((e) => e.type)).toEqual(['rule', 'box']);
     expect(await smallControls(app)).toEqual([]);
     expect((await page.locator('#sheet .sheet-close').innerText()).trim()).toBe('Close');
     await page.tap('#sheet .sheet-close');
-    expect(await page.locator('#sheet').getAttribute('data-state')).toBe('closed');
+    await page.waitForSelector('#sheet[data-state="closed"]');
     noErrors(app);
   });
 });

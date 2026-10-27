@@ -1,14 +1,12 @@
 import { DEFAULT_PRINT } from '../src/book/impose';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { bookExpand, dateOf, emptyBook, readBook, resizeBook, setDates, setSlot, type Book } from '../src/book/book';
-import { datesSummary, endOfRun, planDates } from '../src/book/plan';
 import { addDays, formatDate, isDate, sundayOf, weekNumber, weekStart } from '../src/format/dates';
 import { blankTokens, expandFor, expandTokens, findUnknownTokens } from '../src/format/tokens';
 import { emptyPage, type Page, type Sequence } from '../src/format/types';
 import { validatePage } from '../src/format/validate';
-import { Library, MemoryBackend, readLibraryFile } from '../src/library/library';
-import { contactSheet } from '../src/print/contact';
+import { emptyBook } from '../src/book/book';
+import { onPages } from './books';
 import { exportBookFiles } from '../src/print/export';
 import { pageContent } from '../src/render';
 import { readPdf } from './pdf-text';
@@ -73,142 +71,12 @@ describe('tokens with offsets', () => {
   });
 });
 
-const dated = (): Page => ({ ...weekly, side: 'right' });
-const digits = (strings: string[]) => strings.filter((s) => /\d/.test(s));
-
-describe('book dates', () => {
-  it('sets and clears dates on pages; a book with none has no list', () => {
-    const b = emptyBook(8);
-    expect(b.dates).toBeUndefined();
-    setDates(b, 2, ['2026-10-18', '2026-10-25']);
-    expect(b.dates).toEqual([null, '2026-10-18', '2026-10-25', null, null, null, null, null]);
-    expect([0, 1, 2, 3, 9].map((n) => dateOf(b, n))).toEqual([null, null, '2026-10-18', '2026-10-25', null]);
-    setDates(b, 2, [null, null]);
-    expect(b.dates).toBeUndefined();
-    setDates(b, 7, ['2026-01-01', '2026-01-08', '2026-01-15']); // past the end is ignored
-    expect(b.dates?.slice(6)).toEqual(['2026-01-01', '2026-01-08']);
-  });
-
-  it('keeps dates through resize', () => {
-    const b = emptyBook(8);
-    setDates(b, 1, planDates({ mode: 'day', start: '2026-10-18' }, 8)!);
-    resizeBook(b, 12);
-    expect(b.dates).toHaveLength(12);
-    expect(b.dates?.[7]).toBe('2026-10-25');
-    expect(b.dates?.[8]).toBeNull();
-    resizeBook(b, 4);
-    expect(b.dates).toEqual(['2026-10-18', '2026-10-19', '2026-10-20', '2026-10-21']);
-  });
-
-  it('keeps dates through save and load, and a book without them still loads', async () => {
-    const b = emptyBook(8);
-    setDates(b, 3, ['2026-10-18']);
-    const r = readBook(JSON.parse(JSON.stringify(b)));
-    expect(r.ok && r.book.dates).toEqual(b.dates);
-    const plain = JSON.parse(JSON.stringify(emptyBook(8)));
-    expect('dates' in plain).toBe(false);
-    const p = readBook(plain);
-    expect(p.ok && p.book.dates).toBeUndefined();
-
-    const lib = new Library(new MemoryBackend());
-    const item = await lib.save('book', 'Dated', b);
-    expect((item.data as Book).dates).toEqual(b.dates);
-    const back = readLibraryFile(JSON.parse(JSON.stringify(await lib.exportAll())));
-    expect(back.ok).toBe(true);
-  });
-
-  it('rejects bad dates, saying where', () => {
-    const base = (): Record<string, unknown> => JSON.parse(JSON.stringify(emptyBook(8)));
-    const issues = (dates: unknown) => { const r = readBook({ ...base(), dates }); return r.ok ? [] : r.issues.map((i) => `${i.rule}:${i.path}`); };
-    expect(issues(['2026-02-30', ...Array(7).fill(null)])).toEqual(['dates:dates[0]']);
-    expect(issues([...Array(7).fill(null), 'tomorrow'])).toEqual(['dates:dates[7]']);
-    expect(issues([...Array(7).fill(null), 20261018])).toEqual(['dates:dates[7]']);
-    expect(issues(Array(7).fill(null))).toEqual(['dates:dates']); // wrong length
-    expect(issues('2026-10-18')).toEqual(['dates:dates']);
-    expect(issues(Array(8).fill(null))).toEqual([]);
-  });
-
-  it('plans a week or a day for each page, and says so', () => {
-    expect(planDates({ mode: 'week', year: 2026, week: 43 }, 3)).toEqual(['2026-10-18', '2026-10-25', '2026-11-01']);
-    expect(planDates({ mode: 'day', start: '2026-12-30' }, 4)).toEqual(['2026-12-30', '2026-12-31', '2027-01-01', '2027-01-02']);
-    expect(planDates({ mode: 'day', start: '2026-02-30' }, 2)).toBeNull();
-    expect(planDates({ mode: 'week', year: 2026, week: 0 }, 2)).toBeNull();
-    expect(datesSummary({ mode: 'week', year: 2026, week: 43 }, 1, 10)).toBe('Pages 1–10 become weeks 43–52: Oct 18 – Dec 26');
-    expect(datesSummary({ mode: 'week', year: 2026, week: 43 }, 5, 5)).toBe('Page 5 becomes week 43: Oct 18 – Oct 24');
-    expect(datesSummary({ mode: 'day', start: '2026-10-18' }, 1, 7)).toBe('Pages 1–7 become days: Oct 18 – Oct 24');
-    expect(datesSummary({ mode: 'day', start: '2026-12-30' }, 1, 4)).toBe('Pages 1–4 become days: Dec 30, 2026 – Jan 2, 2027');
-  });
-
-  it('finds the end of the run of pages sharing a design', () => {
-    const b = emptyBook(12);
-    const week = dated();
-    for (let n = 1; n <= 10; n++) setSlot(b, n, week);
-    expect(endOfRun(b, 1)).toBe(10);
-    expect(endOfRun(b, 4)).toBe(10);
-    expect(endOfRun(b, 11)).toBe(12); // two blank pages
-  });
-
-  it('gives each slot its own date for tokens, and covers none', () => {
-    const b = emptyBook(8);
-    setDates(b, 1, ['2026-10-18']);
-    expect(bookExpand(b, 1)('{day}')).toBe('18');
-    expect(bookExpand(b, 2)('{day}')).toBe('');
-    expect(bookExpand(b, 0)('{day}')).toBe('');
-  });
-});
-
 describe('the dated weekly example', () => {
   it('is a valid page whose labels run from the week’s Sunday', () => {
     expect(validatePage(weekly)).toEqual([]);
     const text = weekly.elements.flatMap((e) => (e.type === 'text' ? [e.text] : []));
     expect(text).toEqual(expect.arrayContaining(['{weekday}', '{weekday+6}', '{day}', '{day+6}']));
     expect(weekly.identity).toBe('{months}');
-  });
-});
-
-describe('an exported dated book', () => {
-  const book = (): Book => {
-    const b = emptyBook(52);
-    for (let n = 1; n <= 10; n++) setSlot(b, n, dated());
-    setDates(b, 1, planDates({ mode: 'week', year: 2026, week: 43 }, 10)!);
-    return b;
-  };
-
-  it('fills each page’s tokens from its own date; undated pages have no digits', async () => {
-    const files = await exportBookFiles(book(), DEFAULT_PRINT, fonts);
-    const pages = await readPdf(files.find((f) => f.name === 'pages.pdf')!.bytes);
-    expect(pages).toHaveLength(52);
-    const first = pages[0].strings;
-    expect(first).toEqual(expect.arrayContaining(['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'OCT']));
-    expect(first.filter((s) => /^\d+$/.test(s))).toEqual(['18', '19', '20', '21', '22', '23', '24', '1']); // days, then page number 1
-    // week 7 starts Nov 29 and runs into December
-    expect(pages[6].strings).toContain('NOV / DEC');
-    expect(pages[6].strings.filter((s) => /^\d+$/.test(s))).toEqual(['29', '30', '1', '2', '3', '4', '5', '7']);
-    // pages 11 on are blank designs with no dates: nothing but their page numbers
-    for (let n = 11; n <= 52; n++) expect(digits(pages[n - 1].strings), `page ${n}`).toEqual([String(n)]);
-    // a dated page printed in the books’ print files says the same
-    const sheets = (await Promise.all(['print-first.pdf', 'print-second.pdf'].map(async (f) => readPdf(files.find((x) => x.name === f)!.bytes)))).flat();
-    const strings = sheets.flatMap((s) => s.strings);
-    expect(strings.filter((s) => s === 'NOV / DEC')).toHaveLength(1);
-    expect(strings.filter((s) => s === 'SUN')).toHaveLength(10);
-  });
-
-  it('prints a dated design blank when the page has no date', async () => {
-    const b = book();
-    setDates(b, 1, Array(10).fill(null));
-    const files = await exportBookFiles(b, DEFAULT_PRINT, fonts, { pages: true, cover: false, signatures: false });
-    const pages = await readPdf(files[0].bytes);
-    expect(pages[0].strings).not.toContain('SUN');
-    expect(pages[0].strings).toEqual(['GOAL', 'OUTCOME', '1']); // only the page's own words
-  });
-
-  it('draws thumbnails and the contact sheet from the dates', () => {
-    const b = book();
-    expect(pageContent(dated(), { mode: 'export', expand: bookExpand(b, 1) })).toContain('>18<');
-    const sheet = contactSheet(b);
-    expect(sheet.svg).toContain('>NOV / DEC<');
-    expect(sheet.svg).toContain('>SAT<');
-    expect(contactSheet(emptyBook(8)).svg).not.toContain('>SUN<');
   });
 });
 
@@ -244,7 +112,7 @@ describe('rotated sequences', () => {
 
   it('prints rotated text rotated, and keeps the same text', async () => {
     const out = async (r: 0 | 90 | 270) => {
-      const b = emptyBook(8); b.page_numbers = false; setSlot(b, 1, row(r));
+      const b = emptyBook(8); b.page_numbers = false; onPages(b, { 1: row(r) });
       const files = await exportBookFiles(b, DEFAULT_PRINT, fonts, { pages: true, cover: false, signatures: false });
       return (await readPdf(files[0].bytes))[0];
     };
@@ -261,7 +129,7 @@ describe('rotated sequences', () => {
 
   it('puts rotated PDF text on the baseline of its own cell, centered on the cell', async () => {
     const b = emptyBook(8); b.page_numbers = false;
-    for (const r of [90, 270] as const) setSlot(b, r === 90 ? 1 : 3, row(r));
+    onPages(b, { 1: row(90), 3: row(270) });
     const [file] = await exportBookFiles(b, DEFAULT_PRINT, fonts, { pages: true, cover: false, signatures: false });
     const pages = await readPdf(file.bytes);
     const mm = (v: number) => v * 72 / 25.4;

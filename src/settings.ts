@@ -2,7 +2,7 @@ import { h } from './panel';
 import { TOKEN_LIST, tokenProblem } from './format/tokens';
 import { PAGE_SIDES, type Page } from './format/types';
 import { validatePage } from './format/validate';
-import { LAYOUT_LIMITS, MAX_PAGES, MIN_PAGES, PRINT_LIMITS, pagesLostByResize, resizeBook, roundPageCount, type Book } from './book/book';
+import { LAYOUT_LIMITS, MAX_PAGES, MIN_PAGES, PRINT_LIMITS, resizeBook, roundPageCount, type Book } from './book/book';
 import { DEFAULT_PRINT, EDGE_NAMES, LAYOUT_NAMES, SHEET_LAYOUTS, profileOf, type LayoutProfile, type PrintSettings, type SheetLayout } from './book/impose';
 import type { Store } from './store';
 import type { SpreadSide } from './format/spread';
@@ -170,10 +170,7 @@ export class SettingsDialog {
     });
     const pages = h('input', { type: 'number', value: book.page_count, min: MIN_PAGES, max: MAX_PAGES, step: 4, inputmode: 'numeric', 'data-key': 'settings-book-pages', 'data-help': 'book-pages', 'aria-label': 'Pages' });
     pages.onchange = () => {
-      const b = this.host.book();
       const count = roundPageCount(Number(pages.value));
-      const lost = pagesLostByResize(b, count);
-      if (lost && !confirm(`Shortening the book to ${count} pages drops ${lost} designed page${lost > 1 ? 's' : ''}. Continue?`)) { pages.value = String(b.page_count); return; }
       this.host.editBook((x) => resizeBook(x, count));
       pages.value = String(count);
     };

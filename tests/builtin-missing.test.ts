@@ -17,6 +17,6 @@ describe('built-ins that depend on a page that was removed', () => {
     expect(lines.some((l) => l.includes('Blank journal'))).toBe(false);
     expect(lines.every((l) => !l.includes('\n'))).toBe(true);
     // the books still build
-    for (const t of TEMPLATES) expect(t.build().pages.length).toBeGreaterThan(0);
+    for (const t of TEMPLATES) expect(t.build().outline.length).toBeGreaterThan(0);
   });
 });

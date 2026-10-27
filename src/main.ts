@@ -12,7 +12,7 @@ import { closeContextMenu, showContextMenu } from './ctxmenu';
 import { isCompact, Sheet } from './sheet';
 import { Toolbar, modeOfTool, type BarMode } from './toolbar';
 import { Store, type Tool } from './store';
-import { Library } from './library/library';
+import { Library, isOldFormat } from './library/library';
 import { CANT_KEEP, Keeper } from './library/keeper';
 import { Favorites } from './library/favorites';
 import { idbBackend } from './library/idb';
@@ -22,7 +22,6 @@ import { emptyBook, readBook, type Book } from './book/book';
 import { readSection } from './book/sections';
 import { DEFAULT_PRINT, clonePrint, type PrintSettings } from './book/impose';
 import { loadPrinter, savePrinter } from './printer';
-import { changedTokensProblem, findChangedTokens } from './library/tokennotice'; // removed in phase 5
 import { ExportDialog } from './exporter';
 import { SettingsDialog } from './settings';
 import { checkItem, setupMenus } from './menus';
@@ -498,7 +497,7 @@ async function ensureOpen(kind: View) {
       if (found) { await (kind === 'page' ? sessions.page.openBuiltin(found as Page) : sessions.spread.openBuiltin(found as Spread)); return; }
     } else if (id) {
       const item = await library.get(id);
-      if (item?.kind === kind) { await session.open(item as never); return; }
+      if (item?.kind === kind && !isOldFormat(item)) { await session.open(item as never); return; }
     }
   } catch (err) { notifyProblems([errorProblem('Your saved documents couldn’t be read.', err)]); }
   await session.startNew();
@@ -617,7 +616,7 @@ const exportDialog = new ExportDialog({
       : { page: cur().page, spread: { left: stores.left.page, right: stores.right.page, name: sessions.spread.name } }),
   beforeExport: nameBeforeExport,
   book: currentBook,
-  savedBooks: async () => (await library.list()).filter((i) => i.kind === 'book').map((i) => ({ id: i.id, name: i.name, book: i.data as Book })),
+  savedBooks: async () => (await library.list()).filter((i) => i.kind === 'book' && !isOldFormat(i)).map((i) => ({ id: i.id, name: i.name, book: i.data as Book })),
   editBook: (change) => { ensureArranger(); arranger!.edit(() => change(arranger!.current)); },
   printer: {
     get: () => printerSettings,
@@ -814,10 +813,6 @@ applyGuards();
 void (async () => {
   await keeper.start(); // does the browser keep documents? If not, the notice says so before anything is opened
   widgets.onError = (problem) => notifyProblems([problem]);
-  try { // removed in phase 5 (docs/product-model.md): once per start, the documents whose tokens changed meaning in phase 4
-    const changed = changedTokensProblem(findChangedTokens(await library.list()));
-    if (changed) notifyProblems([changed], true);
-  } catch { /* the notice is a courtesy; reading the Library failing is reported below */ }
   try { await widgets.refresh(); } catch (err) { notifyProblems([errorProblem('Your saved widgets and art couldn’t be read.', err)]); }
   await ensureOpen(view);
   started = true;

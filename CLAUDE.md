@@ -161,6 +161,6 @@ same PR. Where the code and a doc disagree, the code is right and the doc is a b
 18. Books hold the design only (every printer and calibration setting is in the printer profile, so old books always open), one double-sided calibration sheet per layout with a back rotation and a scale per paper edge, and the outside covers in preview.png and Flip through (done).
 19. Print pipeline in stages (layout, then the printer's positions-only correction, then the PDF), so a stretched sheet never stretches lines, dots or glyphs; line weight by direction with a pairs-and-ladder block on the calibration sheet; the 3 mm edge check as a warning; fold twist readout (done; see `docs/print-pipeline.md`).
 20. The product model (`docs/product-model.md`): documents that save themselves, a book as an outline of repeated blocks with a
-    calendar, links to designs and book versions, the Design / Plan / Print areas, then a database (planned, in ten phases; phase 1,
-    pages and spreads as self-saving documents, is done).
+    calendar, links to designs and book versions, the Design / Plan / Print areas, then a database (planned, in ten phases; phases 1 to 4
+    and 5a are done: self-saving documents, the full backup, token units, and the undated outline).
 21. Later: dials and other components, color, sharing, a page gallery.

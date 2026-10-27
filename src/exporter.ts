@@ -5,7 +5,7 @@ import { zip } from './print/zip';
 import { withBookJson } from './print/bundle';
 import type { ExportedFile, Include } from './print/export';
 import type { Page } from './format/types';
-import { readBook, type Book } from './book/book';
+import { bookLayout, readBook, type Book } from './book/book';
 import { svgToPng, pageToPng, spreadToPng, FONT_CSS, PNG_DPI, PNG_DPIS } from './png';
 import { layoutPicker, printFields, resetLayout } from './settings';
 import { slug } from './slug';
@@ -237,6 +237,8 @@ export class ExportDialog {
   private async buildPdf() {
     if (!(await this.host.beforeExport('book'))) return; // the print zip is the book, whichever view is showing
     const book = this.host.book(), print = this.host.printer.get();
+    const over = bookLayout(book).over;
+    if (over > 0) { this.say(`Can’t print yet: the book is over by ${over} page${over === 1 ? '' : 's'}. In the Book view, Make the book longer, or take blocks out of the outline.`); return; }
     const include: Include = { ...this.pdf };
     this.say('Building the PDFs…');
     let files: ExportedFile[] = [];

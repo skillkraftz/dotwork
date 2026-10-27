@@ -6,7 +6,7 @@ import { BUILTIN_PAGES, BUILTIN_SPREADS, BUILTIN_WIDGETS, asCopy, isBuiltinName 
 import { TEMPLATES } from '../src/builtin/templates';
 import { monthStarts, monthOfWeek } from '../src/builtin/calendar';
 import { monthlyLayout } from '../src/builtin/layout';
-import { readBook, bookPage, getSlot } from '../src/book/book';
+import { readBook, bookLayout, bookPage, getSlot } from '../src/book/book';
 import { readSpread } from '../src/format/spread';
 import { formatIssue, validatePage, validateElement } from '../src/format/validate';
 import { placeWidget } from '../src/widgets';
@@ -34,7 +34,7 @@ describe('the built-in pages, spreads and widgets', () => {
   it('pairs the spreads the way the books use them', () => {
     const names = (s: string) => { const sp = BUILTIN_SPREADS.find((x) => x.name === s)!; return [sp.left.name, sp.right.name]; };
     expect(names('Ideas spread')).toEqual(['Idea page', 'Dot grid page']);
-    expect(names('Book notes')).toEqual(['Book notes setup', 'Book notes']);
+    expect(names('Book notes spread')).toEqual(['Book notes setup', 'Book notes']);
     expect(names('Daily Log Spread')).toEqual(['Daily Log', 'Daily Log']);
     expect(names('Idea variations')).toEqual(['idea requirements', 'Idea variation']);
     expect(names('Lined spread')).toEqual(['Lined page', 'Lined page']);
@@ -146,7 +146,7 @@ describe('the book templates', () => {
       it(`${t.name} ${JSON.stringify(a)} builds a valid 52-page book`, async () => {
         const book = t.build(a);
         expect(book.page_count).toBe(52);
-        expect(book.pages).toHaveLength(52);
+        expect(bookLayout(book).over).toBe(0); // the outline fits the book
         const r = readBook(JSON.parse(JSON.stringify(book)));
         expect(r.ok ? [] : problems(r.issues)).toEqual([]);
         expect(getSlot(book, 0)).not.toBeNull();
@@ -171,11 +171,11 @@ describe('the book templates', () => {
     expect(files.filter((f) => f.name.endsWith('.pdf')).reduce((n, f) => n + f.bytes.length, 0)).toBeLessThan(500_000);
   });
 
-  it('fills the year planner with dated weeks and the rest with ideas', () => {
+  it('fills the year planner with weekly pages and the rest with idea spreads', () => {
     const book = TEMPLATES.find((t) => t.id === 'year-planner')!.build({ year: 2026, first: 43, last: 52 });
-    expect(book.dates!.slice(0, 10)).toEqual(['2026-10-18', '2026-10-25', '2026-11-01', '2026-11-08', '2026-11-15', '2026-11-22', '2026-11-29', '2026-12-06', '2026-12-13', '2026-12-20']);
-    expect(book.dates!.slice(10).every((d) => d === null)).toBe(true);
-    expect(bookPage(book, 1).name).toBe('Year journal weekly page (dated)');
+    expect([1, 10].map((n) => bookPage(book, n).name)).toEqual(['Year journal weekly page (dated)', 'Year journal weekly page (dated)']);
+    expect(bookPage(book, 11).name).toBe('Notes'); // a gap page: the idea spreads start on a left page
+    expect([12, 13, 50, 51].map((n) => bookPage(book, n).name)).toEqual(['Idea page', 'Dot grid page', 'Idea page', 'Dot grid page']);
     expect(getSlot(book, 53)!.name).toBe('Year index');
     expect(getSlot(book, 0)!.name).toBe('Year goals cover');
     // the day column is on the outer edge: right on right pages, left on left pages
@@ -203,6 +203,17 @@ describe('the book templates', () => {
     const days = tracker.elements.find((e) => e.type === 'sequence' && e.values === 'numbers');
     expect(days).toMatchObject({ count: 28 });
     expect(tracker.identity).toBe('FEBRUARY 2027');
-    expect(book.dates!.filter(Boolean)).toHaveLength(28);
+    const dailies = Array.from({ length: 52 }, (_, i) => bookPage(book, i + 1).name).filter((n) => n === 'Daily Log');
+    expect(dailies).toHaveLength(28); // a daily page for each day
+  });
+
+  it('builds the monthly journal’s outline into the pages of the October 2026 reference', () => {
+    const book = TEMPLATES.find((t) => t.id === 'monthly-journal')!.build({ year: 2026, month: 10 });
+    const layout = monthlyLayout(2026, 10);
+    const name: Record<string, string> = { daily: 'Daily Log', reflection: 'Weekly reflection', patterns: 'Patterns & takeaways', questions: 'Questions', idea: 'Idea page', dots: 'Dot grid page', notes: 'Notes' };
+    const built = Array.from({ length: 52 }, (_, i) => bookPage(book, i + 1).name);
+    // every page the reference layout names is where the outline puts it, except that the notes pages after the ideas are the free-standing 3 at the end
+    expect(built.slice(0, 49)).toEqual(layout.slice(0, 49).map((s) => name[s.kind] ?? s.kind));
+    expect(built.slice(49)).toEqual(['Notes', 'Notes', 'Notes']);
   });
 });

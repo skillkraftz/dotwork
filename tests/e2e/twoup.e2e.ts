@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { DEFAULT_PRINT } from '../../src/book/impose';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PDFDocument } from 'pdf-lib';
-import { bookMore, hit, missingHelp, open, openDoc, shot, start, stop, type App, type Env } from './harness';
+import { hit, missingHelp, open, openDoc, shot, start, stop, type App, type Env } from './harness';
 
 let env: Env;
 beforeAll(async () => { env = await start(); });
@@ -196,13 +196,13 @@ for (const device of ['phone', 'desktop'] as const) {
       await shot(app, `${device}-book-outside-front`);
 
       // the other end: the outside back cover is a left page that stands alone (no spreads there)
-      if (app.touch) await hit(app, '[data-help="book-contents"]');
-      const rows = page.locator('.book-contents .crow');
+      if (app.touch) await hit(app, '[data-help="book-outline"]');
+      const rows = page.locator('.book-contents .orow');
       expect(await rows.first().innerText()).toContain('Outside front cover');
       expect(await rows.first().innerText()).toContain('Lined page');
       expect(await rows.last().innerText()).toContain('Outside back cover');
       await shot(app, `${device}-book-contents-covers`);
-      await hit(app, '.book-contents .crow >> nth=-1');
+      await hit(app, '.book-contents .orow .orow-main >> nth=-1');
       expect(await where()).toBe('Outside back cover');
       expect(await page.locator('[data-help="nav-next"]').isDisabled()).toBe(true);
       expect(await page.locator('.where .hint').innerText()).toBe('Left-hand page');
@@ -213,13 +213,13 @@ for (const device of ['phone', 'desktop'] as const) {
       const book = await savedBook(app);
       expect(book.cover.outside_back.name).toBe('Dot grid page');
       expect(book.cover.outside_back.side).toBe('left');
-      expect(book.pages).toHaveLength(52);
+      expect(book.outline).toEqual([]); // the outline makes the pages; the covers are designed on their own
       // Undo takes it back
       await hit(app, '.book-bar button:has-text("Undo")');
       expect((await savedBook(app)).cover.outside_back ?? null).toBeNull();
 
       // Flip through starts at the outside front cover, alone on the right, and the next opening is the inside front cover facing page 1.
-      await bookMore(app, 'Flip through');
+      await hit(app, '[data-key="book-flip"]');
       await page.waitForSelector('dialog.flip[open]');
       expect(await page.locator('dialog.flip .flip-bar .where').innerText()).toBe('Outside front cover');
       expect(await page.locator('dialog.flip .stage-page').count()).toBe(2);

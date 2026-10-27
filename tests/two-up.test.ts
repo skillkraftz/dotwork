@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { PDFDocument } from 'pdf-lib';
-import { emptyBook, getSlot, lastSlot, readBook, setSlot, slotSide, type Book } from '../src/book/book';
-import { opening, slotLabel } from '../src/book/plan';
+import { emptyBook, getSlot, lastSlot, readBook, setCover, slotSide, type Book } from '../src/book/book';
+import { opening, slotLabel } from '../src/book/labels';
+import { withPages } from './books';
 import {
   DEFAULT_PRINT, FOLD_X_MM, LAYOUT_NAMES, SHEET_H_MM, SHEET_W_MM, TRIM_ZONE_MM, clonePrint, creepFor, duplexOrder, offsetOf, pageOrigin, profileOf,
 } from '../src/book/impose';
@@ -30,7 +31,7 @@ function book(pages: number, prefix: string, _layout: 'half_letter' | 'letter_tw
   const b = emptyBook(pages);
   b.name = name;
   b.page_numbers = false;
-  for (let n = 1; n <= pages; n++) setSlot(b, n, labelled(`${prefix}${n}`));
+  withPages(b, Array.from({ length: pages }, (_, i) => labelled(`${prefix}${i + 1}`)));
   return b;
 }
 const at = (page: PageInfo, text: string) => textPositions(page).find((t) => t.text === text)!;
@@ -246,9 +247,7 @@ describe('the 3 mm edge check', () => {
   /** A book whose pages have a band of shade in the first row (the header row) and in the last, so there is content at both edges. */
   const edgy = (prefix: string, name?: string): Book => {
     const b = book(8, prefix, 'letter_two_up', name);
-    for (let n = 1; n <= 8; n++) {
-      setSlot(b, n, { ...emptyPage(), identity: '', name: `${prefix}${n}`, elements: [{ type: 'shade', tones: 'L', x: 0, y: 0, w: 27, h: 1 }, { type: 'shade', tones: 'L', x: 0, y: 43, w: 27, h: 1 }] });
-    }
+    withPages(b, Array.from({ length: 8 }, (_, i) => ({ ...emptyPage(), identity: '', name: `${prefix}${i + 1}`, elements: [{ type: 'shade', tones: 'L', x: 0, y: 0, w: 27, h: 1 }, { type: 'shade', tones: 'L', x: 0, y: 43, w: 27, h: 1 }] })));
     return b;
   };
 
@@ -405,7 +404,7 @@ describe('size correction', () => {
 describe('the outside covers', () => {
   const covered = (layout: 'half_letter' | 'letter_two_up') => {
     const b = book(8, 'A', layout);
-    setSlot(b, 0, labelled('INFRONT')); setSlot(b, 9, labelled('INBACK')); setSlot(b, -1, labelled('OUTFRONT')); setSlot(b, lastSlot(b), labelled('OUTBACK'));
+    setCover(b, 0, labelled('INFRONT')); setCover(b, 9, labelled('INBACK')); setCover(b, -1, labelled('OUTFRONT')); setCover(b, lastSlot(b), labelled('OUTBACK'));
     return b;
   };
 
@@ -414,14 +413,14 @@ describe('the outside covers', () => {
     expect(slotSide(-1)).toBe('right');
     expect(slotSide(lastSlot(b))).toBe('left');
     expect(lastSlot(b)).toBe(10);
-    setSlot(b, -1, labelled('F'));
-    setSlot(b, 10, { ...labelled('B'), side: 'right' });
+    setCover(b, -1, labelled('F'));
+    setCover(b, 10, { ...labelled('B'), side: 'right' });
     expect(getSlot(b, -1)!.side).toBe('right');
     expect(getSlot(b, 10)!.side).toBe('left'); // turned to face the way its slot faces
     expect(b.cover.outside_front!.name).toBe('F');
     expect(b.cover.outside_back!.name).toBe('B');
     expect(getSlot(b, 0)).toBeNull();
-    setSlot(b, -1, null);
+    setCover(b, -1, null);
     expect(getSlot(b, -1)).toBeNull();
   });
 
@@ -495,7 +494,7 @@ describe('the outside covers', () => {
 
   it('print two to a sheet on letter two-up: the top book’s covers above the bottom book’s', async () => {
     const bottom = covered('letter_two_up');
-    for (const slot of [-1, 0, 9, 10]) setSlot(bottom, slot, labelled(`B${slot}`));
+    for (const slot of [-1, 0, 9, 10]) setCover(bottom, slot, labelled(`B${slot}`));
     const files = await exportBookFiles(covered('letter_two_up'), TWO, fonts, {}, bottom);
     const [outside] = await readPdf(file(files, 'cover-outside.pdf'));
     expect(at(outside, 'OUTFRONT').y).toBeLessThan(SHEET_H_MM);

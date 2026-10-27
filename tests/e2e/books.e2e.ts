@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { choose, hit, libraryItems, missingHelp, open, openDoc, reload, shot, start, stop, waitSaved, type App, type Device, type Env } from './harness';
-import { emptyBook, setSlot } from '../../src/book/book';
+import { emptyBook } from '../../src/book/book';
+import { pageBlock } from '../../src/book/outline';
 import { BUILTIN_PAGES } from '../../src/builtin/library';
 
 let env: Env;
@@ -19,9 +20,9 @@ async function goBook(app: App) {
   await waitSaved(app);
 }
 
-/** Put a design on the page being looked at, from the picker. */
+/** Add a page to the end of the outline, from the picker. */
 async function pickDesign(app: App, name: string) {
-  await hit(app, '[data-help="book-choose"]');
+  await hit(app, '[data-key="book-add"]');
   await app.page.waitForSelector('dialog.picker[open] .design');
   await hit(app, `dialog.picker .design:has-text("${name}")`);
   await app.page.waitForSelector('dialog.picker', { state: 'hidden' });
@@ -69,7 +70,7 @@ async function importFile(app: App, name: string, text: string) {
 const bookFile = (name: string) => {
   const b = emptyBook();
   b.name = name;
-  setSlot(b, 1, BUILTIN_PAGES.find((p) => p.name === 'Lined page')!);
+  b.outline = [pageBlock(BUILTIN_PAGES.find((p) => p.name === 'Lined page')!)];
   return JSON.stringify(b);
 };
 
@@ -114,7 +115,7 @@ for (const device of ['phone', 'desktop'] as Device[]) {
       await page.waitForFunction(() => document.querySelector('#doc-name')?.textContent === 'Field notes 2');
       await waitSaved(app);
       expect(await bookNames(app)).toEqual(['Field notes', 'Field notes 2']);
-      expect((await openDoc(app, 'book')).pages[0].name).toBe('Lined page');
+      expect((await openDoc(app, 'book')).outline[0].page.name).toBe('Lined page');
       expect(app.errors).toEqual([]);
     });
 
@@ -152,14 +153,14 @@ for (const device of ['phone', 'desktop'] as Device[]) {
       expect(await page.innerText('#doc-name')).toBe(`${builtinName} copy`);
       const copy = await openDoc(app, 'book');
       expect(copy.name).toBe(`${builtinName} copy`);
-      expect(copy.pages[0].name).toBe('Lined page');
+      expect(copy.outline.at(-1).page.name).toBe('Lined page'); // added after the template's own block
 
       await reload(app);
       await page.waitForSelector('.stage-page');
       await page.waitForFunction((n) => document.querySelector('#doc-name')?.textContent === n, `${builtinName} copy`);
       await waitSaved(app);
       expect(await status(app)).toBe('Saved');
-      expect(await page.locator('.design-name strong').innerText()).toBe('Lined page');
+      expect((await openDoc(app, 'book')).outline.at(-1).page.name).toBe('Lined page');
       expect(app.errors).toEqual([]);
     });
 
@@ -184,14 +185,14 @@ for (const device of ['phone', 'desktop'] as Device[]) {
       await waitSaved(app);
       expect(await page.innerText('#doc-name')).toBe('2026 year planner');
       const edited = await openDoc(app, 'book');
-      expect(edited.pages[0].name).toBe('Lined page');
+      expect(edited.outline.at(-1).page.name).toBe('Lined page');
       await shot(app, `books-${device}-template-document`);
 
       await reload(app);
       await page.waitForSelector('.stage-page');
       await page.waitForFunction(() => document.querySelector('#doc-name')?.textContent === '2026 year planner');
       await waitSaved(app);
-      expect((await openDoc(app, 'book')).pages[0].name).toBe('Lined page');
+      expect((await openDoc(app, 'book')).outline.at(-1).page.name).toBe('Lined page');
       expect(app.errors).toEqual([]);
     });
 
@@ -249,7 +250,7 @@ for (const device of ['phone', 'desktop'] as Device[]) {
     it('sections are listed with Rename, Duplicate, Delete and Export, and Import adds them', async () => {
       const app = await open(env, device);
       const { page } = app;
-      const section = JSON.stringify({ format: 'dotwork-section', version: 1, name: 'Week', pages: [null, null], days: [0, 1], weekday: 1, move: 'week', left: false });
+      const section = JSON.stringify({ format: 'dotwork-section', version: 1, name: 'Week', children: [{ type: 'page', page: null, repeat: { times: 2 } }] });
       await importFile(app, 'week.json', section);
       await importFile(app, 'week.json', section);
       await waitSaved(app);
@@ -263,7 +264,7 @@ for (const device of ['phone', 'desktop'] as Device[]) {
       expect(await page.locator('.lib-menu button').allInnerTexts()).toEqual(['Rename', 'Duplicate', 'Export', 'Delete']);
       expect(await missingHelp(app)).toEqual([]);
 
-      const [file] = await Promise.all([page.waitForEvent('download'), hit(app, '.lib-menu [data-key="library-export-section"]')]);
+      const [file] = await Promise.all([page.waitForEvent('download'), hit(app, '.lib-menu [data-key="library-export-file"]')]);
       expect(file.suggestedFilename()).toBe('week.json');
 
       await hit(app, '.lib-card[data-name="Week"] .lib-more');

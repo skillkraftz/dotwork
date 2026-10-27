@@ -1,255 +1,299 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { bookMore, box, open, openDoc, shot, start, stop, touch, settle, type App, type Env } from './harness';
+import { readFileSync } from 'node:fs';
+import { PDFDocument } from 'pdf-lib';
+import { hit, libraryItems, missingHelp, nameOpen, open, openDoc, reload, seedDoc, seedLibrary, shot, start, stop, type App, type Device, type Env } from './harness';
 
 let env: Env;
 beforeAll(async () => { env = await start(); });
 afterAll(async () => { await stop(env); });
 
-const noErrors = (app: App) => expect(app.errors).toEqual([]);
-const click = async (app: App, target: ReturnType<App['page']['locator']>) => { if (app.touch) { await target.tap(); await settle(app); } else await target.click(); };
-const saved = (app: App) => openDoc(app, 'book'); // the open book as the Library holds it
-const names = async (app: App) => (await saved(app)).pages.map((p: { name: string } | null) => p?.name ?? null);
+const noOverflow = (app: App) => app.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
 
-async function smallControls(app: App) {
-  return app.page.evaluate(() => {
-    const out: string[] = [];
-    for (const el of document.querySelectorAll<HTMLElement>('#book button, #book summary, #book input, dialog[open] button, dialog[open] input')) {
-      const r = el.getBoundingClientRect();
-      if (r.width === 0 && r.height === 0) continue;
-      if (getComputedStyle(el).visibility === 'hidden' || (el as HTMLInputElement).type === 'checkbox' || (el as HTMLInputElement).type === 'radio') continue;
-      if (r.width < 43.5 || r.height < 43.5) out.push(`${el.tagName.toLowerCase()} ${el.textContent?.trim().slice(0, 14)} ${Math.round(r.width)}x${Math.round(r.height)}`);
-    }
-    return out;
-  });
+/** Controls under 44 px in the book view and its windows, other than checkboxes and radios. */
+const smallControls = (app: App) => app.page.evaluate(() => {
+  const out: string[] = [];
+  for (const el of document.querySelectorAll<HTMLElement>('#book button, #book select, #book input, dialog[open] button, dialog[open] input')) {
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 && r.height === 0) continue;
+    if (getComputedStyle(el).visibility === 'hidden' || (el as HTMLInputElement).type === 'checkbox' || (el as HTMLInputElement).type === 'radio') continue;
+    if (r.width < 43.5 || r.height < 43.5) out.push(`${el.tagName.toLowerCase()} ${(el.getAttribute('aria-label') || el.textContent || '').trim().slice(0, 20)} ${Math.round(r.width)}x${Math.round(r.height)}`);
+  }
+  return out;
+});
+
+/** The entries of a zip whose files are stored without compression, as Dotwork writes them. */
+function unzip(bytes: Buffer): Map<string, Buffer> {
+  const out = new Map<string, Buffer>();
+  for (let at = 0; bytes.readUInt32LE(at) === 0x04034b50;) {
+    const size = bytes.readUInt32LE(at + 18), name = bytes.readUInt16LE(at + 26), extra = bytes.readUInt16LE(at + 28);
+    const start = at + 30 + name + extra;
+    out.set(bytes.subarray(at + 30, at + 30 + name).toString('utf8'), bytes.subarray(start, start + size));
+    at = start + size;
+  }
+  return out;
 }
 
 async function openBook(app: App) {
-  await click(app, app.page.locator('#menu-page'));
-  await click(app, app.page.locator('#view-book'));
+  await hit(app, '#menu-page');
+  await hit(app, '#view-book');
   await app.page.waitForSelector('.stage-page');
 }
 
-/** The whole flow, on one device: choose, step, apply, contents, spreads, undo. */
-async function flow(app: App, device: string) {
+/** The outline sheet is closed on a phone until the Outline button opens it; beside the page on a desktop it is always there. */
+async function showOutline(app: App) {
+  if (app.touch && !(await app.page.locator('.book-contents').isVisible())) await hit(app, '.contents-toggle');
+  await app.page.waitForSelector('.book-contents', { state: 'visible' });
+}
+
+/** Add a block: Add…, the tab it is on, and its card. */
+async function add(app: App, tab: 'pages' | 'spreads' | 'blocks', name: string, from = '[data-key="book-add"]') {
+  if (app.touch && (await app.page.locator('.book-contents').isVisible())) await hit(app, '.contents-close');
+  await hit(app, from);
+  await app.page.waitForSelector('dialog.picker[open] .design');
+  await hit(app, `dialog.picker [data-tab="${tab}"]`);
+  await hit(app, `dialog.picker .design[data-name="${name}"]`);
+  await app.page.waitForSelector('dialog.picker', { state: 'hidden' });
+}
+
+const row = (app: App, key: string) => app.page.locator(`[data-block-row="${key}"]`);
+/** Open a row's settings, if they are not open. */
+async function settings(app: App, key: string) {
+  await showOutline(app);
+  if ((await row(app, key).locator('.orow-settings').count()) === 0) await hit(app, `[data-block-row="${key}"] > .orow-line [data-key="outline-more"]`);
+  await app.page.waitForSelector(`[data-block-row="${key}"] .orow-settings`);
+}
+/** Type a number into a row's stepper, as a person does, and leave the field. */
+async function setNumber(app: App, key: string, field: string, value: string) {
+  await settings(app, key);
+  const input = row(app, key).locator(`[data-key="${field}"]`);
+  await input.fill(value);
+  await input.dispatchEvent('change');
+}
+const used = (app: App) => app.page.locator('.book-total [data-key="book-used"]').innerText();
+const outlineTypes = async (app: App) => (await openDoc(app, 'book')).outline.map((b: { type: string }) => b.type);
+
+/** The main path: a 52-page book as an outline, a row moved, and the print files. */
+async function buildFiftyTwo(app: App, device: Device) {
   const { page } = app;
   await openBook(app);
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect(await noOverflow(app)).toBe(true);
+  expect(await used(app)).toBe('0 of 52 pages');
   expect(await page.locator('.where strong').innerText()).toBe('Page 1');
-  const stage = (await box(app, '.book-stage'))!, pg = (await box(app, '.stage-page svg'))!;
-  expect(pg.height).toBeGreaterThan(stage.height - 30); // the page fills its space
-  await shot(app, `${device}-book-empty`);
+  const stage = (await page.locator('.book-stage').boundingBox())!, pg = (await page.locator('.stage-page svg').boundingBox())!;
+  expect(pg.height).toBeGreaterThan(stage.height - 30); // the page gets the room
+  await showOutline(app);
+  expect(await page.locator('[data-key="outline-empty"]').count()).toBe(1);
+  await shot(app, `${device}-outline-empty`);
 
-  // Choose a design from the picker
-  await click(app, page.getByRole('button', { name: 'Choose design…' }));
+  // blank ×10
+  await add(app, 'blocks', 'Blank page');
+  expect(await used(app)).toBe('1 of 52 pages');
+  await setNumber(app, '0', 'outline-repeat', '10');
+  expect(await used(app)).toBe('10 of 52 pages');
+
+  // a group of an idea spread and a lined page, ×6
+  await add(app, 'blocks', 'New group');
+  await settings(app, '1');
+  await hit(app, '[data-block-row="1"] [data-key="outline-add-to-group"]');
   await page.waitForSelector('dialog.picker[open] .design');
-  expect(await page.locator('dialog.picker .design').count()).toBeGreaterThan(6);
-  expect((await page.locator('dialog.picker .design .thumb svg').nth(1).boundingBox())!.height).toBeGreaterThan(150);
+  await hit(app, 'dialog.picker [data-tab="spreads"]');
+  await hit(app, 'dialog.picker .design[data-name="Ideas spread"]');
+  await page.waitForSelector('dialog.picker', { state: 'hidden' });
+  await settings(app, '1');
+  await hit(app, '[data-block-row="1"] [data-key="outline-add-to-group"]');
+  await page.waitForSelector('dialog.picker[open] .design');
+  await hit(app, 'dialog.picker [data-tab="pages"]');
+  await hit(app, 'dialog.picker .design[data-name="Lined page"]');
+  await page.waitForSelector('dialog.picker', { state: 'hidden' });
+  expect(await row(app, '1.0').count()).toBe(1);
+  expect(await row(app, '1.1').count()).toBe(1);
+  await setNumber(app, '1', 'outline-repeat', '6');
+  // 6 × (a gap page, 2 for the spread, 1 for the lined page), after the 10 blank pages
+  expect(await used(app)).toBe('34 of 52 pages');
+  expect(await page.locator('.orow.gap').count()).toBe(1); // the first one, before the group; the others are inside it
+  expect(await page.locator('.orow.gap').first().innerText()).toContain('1 gap page');
+  await shot(app, `${device}-outline-group`);
+
+  // free pages for the rest, and a closing page pinned to the last page
+  await add(app, 'blocks', 'Free pages');
+  expect(await used(app)).toBe('52 of 52 pages'); // they take the 18 pages left
+  await add(app, 'pages', 'Notes');
+  await settings(app, '3');
+  await hit(app, '[data-block-row="3"] [data-key="outline-pin-last"]');
+  expect(await used(app)).toBe('52 of 52 pages');
+  expect(await page.locator('.book-total .over-by').count()).toBe(0);
+  await showOutline(app);
+  expect(await row(app, '3').locator('.crow-name').innerText()).toContain('pinned: last page');
+  expect(await row(app, '3').locator('.crow-name').innerText()).toContain('p.52');
+  expect(await row(app, '2').locator('.crow-name').innerText()).toContain('17 pages');
+  expect(await noOverflow(app)).toBe(true);
   if (app.touch) expect(await smallControls(app)).toEqual([]);
-  await shot(app, `${device}-book-picker`);
-  await click(app, page.locator('dialog.picker .design', { hasText: 'Lined page' }).first());
-  expect(await page.locator('dialog.picker').evaluate((d: HTMLDialogElement) => d.open)).toBe(false);
-  expect((await names(app))[0]).toBe('Lined page');
-  expect(await page.locator('.design-name strong').innerText()).toBe('Lined page');
+  expect(await missingHelp(app)).toEqual([]);
+  await shot(app, `${device}-outline`);
 
-  // Previous / next, and swipe on touch
-  await click(app, page.getByRole('button', { name: 'Next page' }));
-  expect(await page.locator('.where strong').innerText()).toBe('Page 2');
-  await click(app, page.getByRole('button', { name: 'Previous page' }));
-  await click(app, page.getByRole('button', { name: 'Previous page' }));
-  expect(await page.locator('.where strong').innerText()).toBe('Inside front cover');
-  await click(app, page.getByRole('button', { name: 'Previous page' }));
-  expect(await page.locator('.where strong').innerText()).toBe('Outside front cover');
-  expect(await page.getByRole('button', { name: 'Previous page' }).isDisabled()).toBe(true);
-  await click(app, page.getByRole('button', { name: 'Next page' }));
-  expect(await page.locator('.where strong').innerText()).toBe('Inside front cover');
-  if (app.touch) {
-    const s = (await box(app, '.book-stage'))!, y = s.y + s.height / 2;
-    await touch(app, 'touchStart', [{ x: s.x + s.width * 0.8, y }]);
-    for (let i = 1; i <= 6; i++) await touch(app, 'touchMove', [{ x: s.x + s.width * (0.8 - 0.1 * i), y }]);
-    await touch(app, 'touchEnd', []);
-    await page.waitForTimeout(1500); // Chromium ignores a tap soon after a fast synthetic swipe
-    expect(await page.locator('.where strong').innerText()).toBe('Page 1');
-  } else await click(app, page.getByRole('button', { name: 'Next page' }));
+  const book = await openDoc(app, 'book');
+  expect(book.page_count).toBe(52);
+  expect(book.outline.map((b: { type: string }) => b.type)).toEqual(['page', 'group', 'free', 'page']);
+  expect(book.outline[0]).toMatchObject({ page: null, repeat: { times: 10 } });
+  expect(book.outline[1]).toMatchObject({ repeat: { times: 6 } });
+  expect(book.outline[1].children.map((c: { type: string }) => c.type)).toEqual(['spread', 'page']);
+  expect(book.outline[1].children[0].from.id).toMatch(/^example:spread:/); // the link to the design it came from, kept
+  expect(book.outline[3]).toMatchObject({ pin: 'last' });
+  expect('pages' in book || 'dates' in book || 'recipe' in book).toBe(false);
 
-  // Apply to more pages, with the pages shown first
-  await click(app, page.getByRole('button', { name: 'Apply to more pages…' }));
-  // On a tablet the first tap after the synthetic swipe is swallowed (Chromium's touch sequence is still closing): tap again if nothing opened.
-  if (!(await page.locator('dialog.apply').first().evaluate((d: HTMLDialogElement) => d.open))) await click(app, page.getByRole('button', { name: 'Apply to more pages…' }));
-  await page.waitForSelector('dialog.apply[open]');
-  await click(app, page.getByLabel('Every right page, from … to …'));
-  await page.getByLabel('From page').fill('1');
-  await page.getByLabel('To page').fill('9');
-  await page.getByLabel('To page').dispatchEvent('change');
-  const summary = await page.locator('.apply-summary').innerText();
-  expect(summary).toContain('pages 3, 5, 7 and 9'); // page 1 already has it
-  await shot(app, `${device}-book-apply`);
-  await click(app, page.getByRole('button', { name: 'Apply to 4 pages' }));
-  expect((await names(app)).slice(0, 10)).toEqual(['Lined page', null, 'Lined page', null, 'Lined page', null, 'Lined page', null, 'Lined page', null]);
-
-  // Undo takes it back
-  await click(app, page.getByRole('button', { name: 'Undo' }));
-  expect((await names(app)).filter(Boolean)).toEqual(['Lined page']);
-
-  // Redo it as a run and look at the contents
-  await click(app, page.getByRole('button', { name: 'Apply to more pages…' }));
-  await click(app, page.getByLabel('Pages … to …'));
-  await page.getByLabel('To page').fill('30');
-  await page.getByLabel('To page').dispatchEvent('change');
-  await click(app, page.getByRole('button', { name: /^Apply to \d+ pages$/ }));
-  if (app.touch) { await click(app, page.getByRole('button', { name: 'Contents', exact: true })); }
-  const rows = page.locator('.book-contents .crow');
-  expect(await rows.first().innerText()).toContain('Outside front cover');
-  expect(await rows.nth(1).innerText()).toContain('Inside front cover');
-  expect(await rows.last().innerText()).toContain('Outside back cover');
-  const run = page.locator('.book-contents .crow', { hasText: 'Pages 1–30' });
-  expect(await run.innerText()).toContain('Lined page');
-  expect(await page.locator('.book-contents .crow', { hasText: 'Pages 31–52' }).innerText()).toContain('Blank');
-  await shot(app, `${device}-book-contents`);
-  await click(app, run); // tap expands
-  expect(await page.locator('.crow-kids .crow').count()).toBe(30);
-  await click(app, page.locator('.crow-kids .crow', { hasText: 'Page 12' }));
+  // tapping a row goes to its first page: the idea spread's left page, after the gap page
+  await showOutline(app);
+  await hit(app, '[data-block-row="1"] .orow-main');
   expect(await page.locator('.where strong').innerText()).toBe('Page 12');
-  if (app.touch) expect(await page.locator('.book-contents').isVisible()).toBe(false);
+  expect(await page.locator('.design-name strong').innerText()).toBe('Idea page');
+  expect(await page.locator('.design-name .page-origin').innerText()).toContain('From block 2');
 
-  // View as spreads
-  await click(app, page.getByRole('button', { name: 'Spreads', exact: true }));
-  expect(await page.locator('.stage-page').count()).toBe(2);
-  expect(await page.locator('.where strong').innerText()).toBe('Page 12 and page 13');
-  const pages = await page.locator('.stage-page svg').evaluateAll((els) => els.map((e) => e.getBoundingClientRect().width));
-  if (app.touch) expect(pages[0] + pages[1]).toBeGreaterThan(300); // phones use the full width
-  await shot(app, `${device}-book-spreads`);
-  await click(app, page.getByRole('button', { name: 'Next spread' }));
-  expect(await page.locator('.where strong').innerText()).toBe('Page 14 and page 15');
-  await click(app, page.locator('.stage-page[data-slot="15"]'));
-  expect(await page.locator('.design-name').innerText()).toContain('Page 15');
-  await click(app, page.getByRole('button', { name: 'Spreads', exact: true })); // back to one page
-  expect(await page.locator('.stage-page').count()).toBe(1);
-  expect(await page.locator('.where strong').innerText()).toBe('Page 15');
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  noErrors(app);
+  // move the group down: the free pages now come before it, and the book still fits
+  await showOutline(app);
+  await hit(app, '[data-block-row="1"] > .orow-line [data-key="outline-down"]');
+  expect(await outlineTypes(app)).toEqual(['page', 'free', 'group', 'page']);
+  expect(await used(app)).toBe('51 of 52 pages'); // the group no longer needs a gap page before it
+  await hit(app, '[data-block-row="2"] > .orow-line [data-key="outline-up"]');
+  expect(await outlineTypes(app)).toEqual(['page', 'group', 'free', 'page']);
+  expect(await used(app)).toBe('52 of 52 pages');
+  await hit(app, '[data-block-row="1"] > .orow-line [data-key="outline-down"]'); // and Undo takes a move back
+  if (app.touch) await hit(app, '.contents-close');
+  await hit(app, '.book-bar [data-key="book-undo"]');
+  expect(await outlineTypes(app)).toEqual(['page', 'group', 'free', 'page']);
+
+  // print: the PDFs follow the outline
+  await nameOpen(app, 'Outline book');
+  await hit(app, '.book-bar [data-key="book-export"]');
+  await page.waitForSelector('dialog.export[open] [data-key="export-pdf"]');
+  const [download] = await Promise.all([page.waitForEvent('download', { timeout: 50_000 }), hit(app, '[data-key="export-pdf"]')]);
+  expect(download.suggestedFilename()).toBe('outline-book-print.zip');
+  const files = unzip(readFileSync((await download.path())!));
+  expect([...files.keys()]).toEqual(expect.arrayContaining(['pages.pdf', 'print-first.pdf', 'print-second.pdf', 'cover-outside.pdf', 'cover-inside.pdf', 'book.json']));
+  expect((await PDFDocument.load(files.get('pages.pdf')!)).getPageCount()).toBe(52);
+  expect((await PDFDocument.load(files.get('print-first.pdf')!)).getPageCount()).toBe(13);
+  expect((await PDFDocument.load(files.get('print-second.pdf')!)).getPageCount()).toBe(13);
+  expect(JSON.parse(files.get('book.json')!.toString('utf8')).outline).toHaveLength(4);
+  expect(app.errors).toEqual([]);
 }
 
-describe('book builder', () => {
-  it('works on a phone', async () => {
-    const app = await open(env, 'phone');
-    await flow(app, 'phone');
-    expect(await smallControls(app)).toEqual([]);
+for (const device of ['phone', 'desktop'] as Device[]) {
+  describe(`the outline on a ${device}`, () => {
+    it('builds a 52-page book from blocks, moves a row, and prints it', async () => {
+      await buildFiftyTwo(await open(env, device), device);
+    });
+
+    it('says when the book is over, in red, and Make the book longer fixes it', async () => {
+      const app = await open(env, device);
+      const { page } = app;
+      await openBook(app);
+      await add(app, 'blocks', 'Blank page');
+      await setNumber(app, '0', 'outline-repeat', '56');
+      if (app.touch) await hit(app, '.contents-close');
+      expect(await used(app)).toBe('56 of 52 pages');
+      expect(await page.locator('.book-total .over-by').innerText()).toBe('over by 4 pages');
+      expect(await page.locator('.book-total .over-by').evaluate((el) => getComputedStyle(el).color)).toBe('rgb(204, 0, 0)');
+      expect(await page.locator('.book-bar [data-key="book-export"]').isDisabled()).toBe(true);
+      expect(await missingHelp(app)).toEqual([]);
+      expect(await noOverflow(app)).toBe(true);
+      if (app.touch) expect(await smallControls(app)).toEqual([]);
+      await shot(app, `${device}-outline-over`);
+      await hit(app, '.book-total [data-key="book-make-longer"]');
+      expect(await used(app)).toBe('56 of 56 pages');
+      expect(await page.locator('.book-total .over-by').count()).toBe(0);
+      expect(await page.locator('.book-bar [data-key="book-export"]').isDisabled()).toBe(false);
+      expect((await openDoc(app, 'book')).page_count).toBe(56);
+      expect(app.errors).toEqual([]);
+    });
+
+    it('commits a typed number or name with Enter, or by tapping elsewhere, without an error', async () => {
+      const app = await open(env, device);
+      const { page } = app;
+      await openBook(app);
+      // Some browsers throw when the outline is redrawn inside a field's own change or blur event; this browser doesn't, so look for the cause:
+      // the outline must never be redrawn while one of those events is being handled.
+      await page.evaluate(() => {
+        const w = window as unknown as { redrawnIn: string[] };
+        w.redrawnIn = [];
+        const outline = document.querySelector('.book-contents')!;
+        const real = outline.replaceChildren.bind(outline);
+        outline.replaceChildren = (...nodes: (Node | string)[]) => {
+          const type = (window.event as Event | undefined)?.type ?? '';
+          if (['change', 'blur', 'focusout', 'focus', 'focusin'].includes(type)) w.redrawnIn.push(type);
+          real(...nodes);
+        };
+      });
+      await add(app, 'blocks', 'Blank page');
+      await settings(app, '0');
+      const repeat = () => row(app, '0').locator('[data-key="outline-repeat"]');
+      await repeat().click();
+      await repeat().fill('7');
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(() => document.querySelector('[data-key="book-used"]')?.textContent === '7 of 52 pages');
+      await repeat().click();
+      await repeat().fill('9');
+      await page.locator('.book-contents header h2').click(); // leaving the field commits it
+      await page.waitForFunction(() => document.querySelector('[data-key="book-used"]')?.textContent === '9 of 52 pages');
+      await add(app, 'blocks', 'New group');
+      await settings(app, '1');
+      const name = row(app, '1').locator('[data-key="outline-group-name"]');
+      await name.click();
+      await name.fill('Ideas');
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(() => document.body.textContent?.includes('Ideas'));
+      expect((await openDoc(app, 'book')).outline[1].name).toBe('Ideas');
+      expect((await openDoc(app, 'book')).outline[0].repeat.times).toBe(9);
+      expect(await page.evaluate(() => (window as unknown as { redrawnIn: string[] }).redrawnIn)).toEqual([]);
+      expect(app.errors).toEqual([]);
+    });
+
+    it('lists a book and a section from before the outline as Old format, with Export and Delete, and does not open them', async () => {
+      const app = await open(env, device);
+      const { page } = app;
+      const oldBook = JSON.parse(readFileSync('tests/fixtures/november-2026-journal.json', 'utf8'));
+      const oldSection = { format: 'dotwork-section', version: 1, name: 'Old week', pages: [null, null], days: [0, 1], weekday: 1, move: 'week', left: false };
+      await seedLibrary(app, [{ id: 'old-section', kind: 'section', name: 'Old week', data: oldSection }]);
+      await seedDoc(app, 'book', oldBook, 'November 2026 journal'); // it was the book open at the last visit
+      await openBook(app); // the app starts a new book instead of opening it
+      await page.waitForFunction(() => document.querySelector('#doc-name')?.textContent === 'Untitled: name it');
+      expect(app.errors).toEqual([]);
+
+      await hit(app, '#menu-edit');
+      await hit(app, '#library');
+      await hit(app, '[data-tab="books"]');
+      const card = page.locator('.lib-card[data-name="November 2026 journal"]');
+      await card.waitFor();
+      expect(await card.locator('.lib-meta .hint').innerText()).toContain('Old format');
+      await shot(app, `${device}-old-format`);
+      await hit(app, '.lib-card[data-name="November 2026 journal"] .lib-open');
+      expect(await page.locator('dialog.library.browser .lib-msg').innerText()).toContain('old format');
+      expect(await page.locator('dialog.library.browser').evaluate((d: HTMLDialogElement) => d.open)).toBe(true); // nothing was opened
+      expect(await page.innerText('#doc-name')).toBe('Untitled: name it');
+      await hit(app, '.lib-card[data-name="November 2026 journal"] .lib-more');
+      await page.waitForSelector('.lib-menu');
+      expect(await page.locator('.lib-menu button').allInnerTexts()).toEqual(['Export', 'Delete']);
+      expect(await missingHelp(app)).toEqual([]);
+      const [file] = await Promise.all([page.waitForEvent('download'), hit(app, '.lib-menu [data-key="library-export-file"]')]);
+      expect(file.suggestedFilename()).toBe('november-2026-journal.json');
+      expect(JSON.parse(readFileSync((await file.path())!, 'utf8')).pages).toHaveLength(52); // the file as it was kept
+
+      await hit(app, '[data-tab="sections"]');
+      const section = page.locator('.lib-card[data-name="Old week"]');
+      await section.waitFor();
+      expect(await section.locator('.lib-meta .hint').innerText()).toContain('Old format');
+      await hit(app, '.lib-card[data-name="Old week"] .lib-more');
+      await page.waitForSelector('.lib-menu');
+      expect(await page.locator('.lib-menu button').allInnerTexts()).toEqual(['Export', 'Delete']);
+      page.once('dialog', (d) => void d.accept());
+      await hit(app, '.lib-menu [data-key="library-delete"]');
+      await page.waitForSelector('.lib-card[data-name="Old week"]', { state: 'detached' });
+      await hit(app, '[data-tab="books"]');
+      await hit(app, '.lib-card[data-name="November 2026 journal"] .lib-more');
+      page.once('dialog', (d) => void d.accept());
+      await hit(app, '.lib-menu [data-key="library-delete"]');
+      await page.waitForSelector('.lib-card[data-name="November 2026 journal"]', { state: 'detached' });
+      expect((await libraryItems(app)).filter((i) => i.name === 'November 2026 journal' || i.name === 'Old week')).toEqual([]);
+      await reload(app);
+      expect(app.errors).toEqual([]);
+    });
   });
-  it('works on a desktop', async () => {
-    const app = await open(env, 'desktop');
-    await flow(app, 'desktop');
-    expect(await app.page.locator('.book-contents').isVisible()).toBe(true); // the list stays beside the page
-  });
-});
-
-/** Dated weekly pages: choose the dated example for pages 1-10, date them as weeks 43-52, and see it on the page. */
-async function dates(app: App, device: string) {
-  const { page } = app;
-  await openBook(app);
-  await click(app, page.getByRole('button', { name: 'Choose design…' }));
-  await page.waitForSelector('dialog.picker[open] .design');
-  await click(app, page.locator('dialog.picker .design', { hasText: 'Year journal weekly page (dated)' }).first());
-  await click(app, page.getByRole('button', { name: 'Apply to more pages…' }));
-  await click(app, page.getByLabel('Pages … to …'));
-  await page.getByLabel('To page').fill('10');
-  await page.getByLabel('To page').dispatchEvent('change');
-  await click(app, page.getByRole('button', { name: /^Apply to \d+ pages$/ }));
-  expect(await page.locator('.page-date').count()).toBe(0); // undated
-
-  await bookMore(app, 'Dates…');
-  await page.waitForSelector('dialog.dates[open]');
-  // From and to default to this page and the end of the run sharing its design
-  expect(await page.locator('[data-key="dates-from"]').inputValue()).toBe('1');
-  expect(await page.locator('[data-key="dates-to"]').inputValue()).toBe('10');
-  await page.locator('[data-key="dates-year"]').fill('2026');
-  await page.locator('[data-key="dates-week"]').fill('43');
-  expect(await page.locator('dialog.dates .apply-summary').innerText()).toBe('Pages 1–10 become weeks 43–52: Oct 18 – Dec 26');
-  if (app.touch) expect(await smallControls(app)).toEqual([]);
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await shot(app, `${device}-book-dates`);
-  await click(app, page.locator('dialog.dates [data-key="dates-mode-day"]'));
-  await page.locator('[data-key="dates-start"]').fill('2026-10-18');
-  expect(await page.locator('dialog.dates .apply-summary').innerText()).toBe('Pages 1–10 become days: Oct 18 – Oct 27');
-  await click(app, page.locator('dialog.dates [data-key="dates-mode-week"]'));
-  await page.locator('[data-key="dates-year"]').fill('2026');
-  await page.locator('[data-key="dates-week"]').fill('43');
-  await click(app, page.locator('dialog.dates [data-key="dates-set"]'));
-  expect((await saved(app)).dates).toEqual(['2026-10-18', '2026-10-25', '2026-11-01', '2026-11-08', '2026-11-15', '2026-11-22', '2026-11-29', '2026-12-06', '2026-12-13', '2026-12-20', ...Array(42).fill(null)]);
-  expect(await page.locator('.page-date').innerText()).toContain('Sun Oct 18, 2026');
-  // the page shows its own dates, and the NOV / DEC week
-  expect(await page.locator('.stage-page svg').innerHTML()).toContain('>OCT<');
-  await shot(app, `${device}-book-dated`);
-  await click(app, page.getByRole('button', { name: 'Next page' }));
-  expect(await page.locator('.page-date').innerText()).toContain('Sun Oct 25, 2026');
-
-  // Undo takes it back; Clear dates takes them off a range
-  await click(app, page.getByRole('button', { name: 'Undo' }));
-  expect((await saved(app)).dates).toBeUndefined();
-  await bookMore(app, 'Dates…');
-  await page.locator('[data-key="dates-from"]').fill('1');
-  await page.locator('[data-key="dates-from"]').dispatchEvent('change');
-  await page.locator('[data-key="dates-year"]').fill('2026');
-  await page.locator('[data-key="dates-week"]').fill('43');
-  await click(app, page.locator('dialog.dates [data-key="dates-set"]'));
-  expect((await saved(app)).dates[0]).toBe('2026-10-18');
-  await bookMore(app, 'Dates…');
-  await page.locator('[data-key="dates-from"]').fill('3');
-  await page.locator('[data-key="dates-from"]').dispatchEvent('change');
-  await page.locator('[data-key="dates-to"]').fill('4');
-  await page.locator('[data-key="dates-to"]').dispatchEvent('change');
-  await click(app, page.locator('dialog.dates [data-key="dates-clear"]'));
-  expect((await saved(app)).dates.slice(0, 5)).toEqual(['2026-10-18', '2026-10-25', null, null, '2026-11-15']);
-  noErrors(app);
 }
-
-describe('book dates', () => {
-  for (const device of ['phone', 'desktop'] as const) {
-    it(`sets, shows and clears dates on a ${device}`, async () => { await dates(await open(env, device), device); });
-  }
-});
-
-/** The design picker's tabs, a lined spread across two pages, the mirrored weekly spread, and the last tab being remembered. */
-async function spreadsPicker(app: App, device: string) {
-  const { page } = app;
-  await openBook(app);
-  await click(app, page.getByRole('button', { name: 'Choose design…' }));
-  await page.waitForSelector('dialog.picker[open] .design');
-  // Page 1 is a right page: a spread can't start there, so there are no tabs
-  expect(await page.locator('dialog.picker .lib-tabs').isVisible()).toBe(false);
-  await click(app, page.getByRole('button', { name: 'Close' }).last());
-  await click(app, page.getByRole('button', { name: 'Next page' })); // page 2, a left page
-  await click(app, page.getByRole('button', { name: 'Choose design…' }));
-  await page.waitForSelector('dialog.picker[open] .design');
-  const tabs = page.locator('dialog.picker [role=tab]');
-  expect(await tabs.allInnerTexts()).toEqual(['Pages', 'Spreads']);
-  for (const t of await tabs.all()) expect((await t.boundingBox())!.height).toBeGreaterThanOrEqual(43.5);
-  expect(await page.locator('dialog.picker .design[data-kind=spread]').count()).toBe(0);
-  expect((await page.locator('dialog.picker h3').allInnerTexts()).map((t) => t.toLowerCase())).toEqual(['saved pages', 'built-in pages']);
-  await click(app, tabs.nth(1));
-  expect((await page.locator('dialog.picker h3').allInnerTexts()).map((t) => t.toLowerCase())).toEqual(['saved spreads', 'built-in spreads']);
-  for (const want of ['Lined spread', 'Dot grid spread', 'Notes spread', 'Weekly spread']) expect(await page.locator('dialog.picker .design', { hasText: want }).count()).toBeGreaterThan(0);
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  if (app.touch) expect(await smallControls(app)).toEqual([]);
-  await shot(app, `${device}-book-picker-tabs`);
-  await click(app, page.locator('dialog.picker .design', { hasText: 'Lined spread' }).first());
-  expect((await names(app)).slice(0, 4)).toEqual([null, 'Lined page', 'Lined page', null]);
-  expect((await saved(app)).pages.slice(1, 3).map((p: { side: string }) => p.side)).toEqual(['left', 'right']);
-  expect(await page.locator('.book-problem').isHidden()).toBe(true);
-
-  // The picker opens on the tab used last
-  await click(app, page.getByRole('button', { name: 'Choose design…' }));
-  expect(await tabs.nth(1).getAttribute('aria-selected')).toBe('true');
-  await click(app, page.locator('dialog.picker .design', { has: page.locator('.design-title', { hasText: /^Weekly spread$/ }) }));
-  expect((await names(app)).slice(1, 3)).toEqual(['Year journal weekly page (dated)', 'Year journal weekly page (dated)']);
-  await click(app, page.getByRole('button', { name: 'Spreads' }));
-  await shot(app, `${device}-book-weekly-spread`);
-  await click(app, page.getByRole('button', { name: 'Undo' }));
-  await shot(app, `${device}-book-lined-spread`);
-  noErrors(app);
-}
-
-describe('the design picker', () => {
-  for (const device of ['phone', 'desktop'] as const) {
-    it(`has Pages and Spreads tabs and places a spread on a ${device}`, async () => { await spreadsPicker(await open(env, device), device); });
-  }
-});

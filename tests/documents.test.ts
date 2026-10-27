@@ -3,7 +3,9 @@ import { Autosave, DocSession, SAVE_DELAY_MS, isUntitled, type Adapter } from '.
 import { Library, MemoryBackend, type Backend, type LibraryItem } from '../src/library/library';
 import { emptyPage, type Page } from '../src/format/types';
 import { buildSpread, emptySpread, type Spread } from '../src/format/spread';
-import { emptyBook, setSlot, type Book } from '../src/book/book';
+import { emptyBook, type Book } from '../src/book/book';
+import { onPages } from './books';
+import { pageBlock } from '../src/book/outline';
 import { readSection, type Section } from '../src/book/sections';
 import { CANT_KEEP, Keeper } from '../src/library/keeper';
 import { statusText } from '../src/documents';
@@ -353,7 +355,7 @@ describe('a book is a document too', () => {
     const b = bookSetup(backend);
     await b.session.startNew();
     const before = backend.puts;
-    b.edit((x) => setSlot(x, 1, box(3)));
+    b.edit((x) => onPages(x, { 1: box(3) }));
     expect(await b.session.flush()).toBe(true);
     expect(backend.puts).toBe(before + 1);
     expect(b.session.status).toBe('saved');
@@ -414,7 +416,7 @@ describe('a book is a document too', () => {
 });
 
 describe('sections are documents', () => {
-  const section = (name: string): Section => ({ format: 'dotwork-section', version: 1, name, pages: [null, null], days: [0, 1], weekday: 1, move: 'week', left: false });
+  const section = (name: string): Section => ({ format: 'dotwork-section', version: 1, name, children: [pageBlock(null, 2)] });
 
   it('are named like the rest: a taken name gets " 2", a rename keeps its own, nothing is replaced', async () => {
     const lib = new Library(new MemoryBackend());

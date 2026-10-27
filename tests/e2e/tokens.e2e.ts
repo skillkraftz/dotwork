@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { choose, open, reload, seedPage, shot, start, stop, type App, type Device, type Env } from './harness';
+import { choose, open, seedPage, shot, start, stop, type App, type Device, type Env } from './harness';
 
 let env: Env;
 beforeAll(async () => { env = await start(); });
@@ -34,29 +34,6 @@ for (const device of ['phone', 'desktop'] as Device[]) {
       await page.waitForSelector('dialog.settings[open]');
       await page.locator('[data-key="settings-identity-page"]').fill('{day+1@end}');
       expect(await page.locator('dialog.settings .warn').innerText()).toMatch(/@end takes no offset/);
-      noErrors(app);
-    });
-
-    it('lists the saved documents whose tokens changed meaning, and changes none', async () => {
-      const app = await open(env, device);
-      const { page } = app;
-      await seedPage(app, PAGE('{month+1}', '{year-1}'), 'Old offsets');
-      const notice = page.locator('#notice');
-      await notice.waitFor({ state: 'visible' });
-      const text = await notice.innerText();
-      expect(text).toContain('whose meaning changed');
-      expect(text).toContain('Old offsets (page), identity: {month+1}');
-      expect(await notice.locator('[data-help="copy-details"]').count()).toBe(1);
-      await shot(app, `tokens-notice-${device}`);
-      const stored = await page.evaluate(async () => {
-        const db = await new Promise<IDBDatabase>((res) => { const r = indexedDB.open('dotwork', 1); r.onsuccess = () => res(r.result); });
-        return new Promise<unknown>((res) => { const r = db.transaction('library').objectStore('library').getAll(); r.onsuccess = () => res(r.result); });
-      }) as { name: string; data: { identity: string; elements: { text: string }[] } }[];
-      const doc = stored.find((i) => i.name === 'Old offsets')!;
-      expect(doc.data.identity).toBe('{month+1}');
-      expect(doc.data.elements[0].text).toBe('{year-1}');
-      await reload(app); // once per start: it is shown again, nothing was changed
-      await page.locator('#notice').waitFor({ state: 'visible' });
       noErrors(app);
     });
   });

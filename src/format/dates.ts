@@ -14,12 +14,6 @@ export function isDate(value: unknown): value is string {
   return Number.isFinite(ms) && toIso(ms) === value;
 }
 
-/** Today's date on the clock the person is using, not UTC (which turns evening into tomorrow). */
-export function todayIso(now: Date = new Date()): string {
-  const pad = (n: number, w = 2) => String(n).padStart(w, '0');
-  return `${pad(now.getFullYear(), 4)}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-}
-
 export const addDays = (iso: string, days: number): string => toIso(toMs(iso) + days * DAY_MS);
 
 /** The date `months` calendar months on (or before, when negative), keeping the day of the month unless it is too long for that month: Jan 31 + 1 is Feb 28. */
@@ -75,10 +69,4 @@ export function formatDate(iso: string): string {
   const v = dateValues(iso);
   const cap = (s: string) => s[0] + s.slice(1).toLowerCase();
   return `${cap(v.weekday)} ${cap(v.month)} ${v.day}, ${v.year}`;
-}
-
-/** "Oct 18" or, with the year, "Oct 18, 2026". */
-export function shortDate(iso: string, withYear = false): string {
-  const v = dateValues(iso);
-  return `${v.month[0] + v.month.slice(1).toLowerCase()} ${v.day}${withYear ? `, ${v.year}` : ''}`;
 }

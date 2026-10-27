@@ -2,7 +2,8 @@ import { DEFAULT_PRINT } from '../src/book/impose';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { exportBookFiles } from '../src/print/export';
-import { emptyBook, setSlot } from '../src/book/book';
+import { emptyBook } from '../src/book/book';
+import { onPages } from './books';
 import { itemOrigin, itemValue, sequenceItems } from '../src/format/sequence';
 import { GLYPH_EM, TEXT_SIZE_MM } from '../src/format/bounds';
 import { emptyPage, PITCH_MM as P, type Page, type Sequence } from '../src/format/types';
@@ -162,7 +163,7 @@ describe('printing', () => {
     };
     const book = emptyBook(8);
     book.page_numbers = false;
-    setSlot(book, 1, page);
+    onPages(book, { 1: page });
     const files = await exportBookFiles(book, DEFAULT_PRINT, {
       regular: readFileSync('src/fonts/CourierPrime-Regular.ttf'), bold: readFileSync('src/fonts/CourierPrime-Bold.ttf'),
     });
