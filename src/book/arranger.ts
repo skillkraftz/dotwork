@@ -2,6 +2,7 @@ import { PAGE_H_MM, PAGE_W_MM } from '../format/types';
 import type { Page } from '../format/types';
 import { withSide, type Spread } from '../format/spread';
 import { fingerprint } from '../format/fingerprint';
+import { readsText, suggestUnit } from '../format/tokens';
 import { pageContent, thumbnailSvg } from '../render';
 import { h, tabBar } from '../panel';
 import { issuesProblem, problemView } from '../problems';
@@ -17,7 +18,8 @@ import { isUntitled } from '../documents';
 import { designName, opening, slotLabel } from './labels';
 import {
   addBlock, blockAt, canAddFree, canFill, canMove, canMoveIn, duplicateBlock, fillRepeat, freeBlock, groupBlock, moveBlock, moveIntoGroup, moveOutOfGroup,
-  nameOf, pageBlock, removeBlock, repeatLabel, replaceBlock, setPin, setRepeat, spreadBlock, timesOf, totalLine, MAX_REPEAT, type Block, type Child, type Link, type Path, type Row,
+  firstCell, isEach, nameOf, pageBlock, removeBlock, repeatLabel, replaceBlock, setFreePage, setPin, setRepeat, setShared, spreadBlock, timesOf, totalLine, MAX_REPEAT,
+  type Block, type Child, type GroupBlock, type Link, type Path, type Repeat, type Row,
 } from './outline';
 
 export interface ArrangerHost {
@@ -78,8 +80,8 @@ function commitField(field: HTMLInputElement | HTMLSelectElement, commit: () => 
 /** A path as an attribute value: "2" or "2.1". */
 const keyOf = (path: Path) => path.join('.');
 
-/** The pages a child takes in one repeat of its group (not counting any gap pages). */
-const childPages = (c: Child) => (c.type === 'free' ? Math.max(1, c.pages.length) : (c.type === 'spread' ? 2 : 1) * timesOf(c.repeat));
+/** The pages a child takes in one repeat of its group (not counting any gap pages); for a child that follows the calendar, in all. */
+const childPages = (c: Child, all: number) => (c.type === 'free' ? Math.max(1, c.pages.length) : isEach(c.repeat) ? all : (c.type === 'spread' ? 2 : 1) * timesOf(c.repeat));
 
 /**
  * The book: its pages one at a time (or as spreads), and the outline that makes them. The outline is a list of blocks (a page,
@@ -118,7 +120,7 @@ export class Arranger {
   private pickerBody = h('div', { class: 'picker-body' });
   private pickerTitle = h('h2', {});
   /** What the picker is choosing: a design for a cover, or a block to add (to a group, or to the end of the outline). */
-  private picking: { for: 'cover' } | { for: 'add'; group: number | null } = { for: 'add', group: null };
+  private picking: { for: 'cover' } | { for: 'free'; path: Path; index: number } | { for: 'add'; group: number | null } = { for: 'add', group: null };
 
   constructor(root: HTMLElement, private host: ArrangerHost, book: Book) {
     this.book = book;
@@ -333,15 +335,27 @@ export class Arranger {
     return `From block ${cell.block + 1}, ${nameOf(block)}.`;
   }
 
+  /** The free-pages block and page a slot is, if it is a free page. */
+  private freeAt(slot: number): { path: Path; index: number } | null {
+    const cell = slot >= 1 && slot <= this.book.page_count ? bookLayout(this.book).cells[slot - 1] : null;
+    return cell && cell.kind === 'free' && cell.free !== undefined ? { path: cell.child === undefined ? [cell.block] : [cell.block, cell.child], index: cell.free } : null;
+  }
+
+  private clearFree(path: Path, index: number) { this.editOutline((o) => setFreePage(o, path, index, null)); }
+
   private renderActions() {
     const here = getSlot(this.book, this.slot);
     const cover = isCover(this.book, this.slot);
+    const free = this.freeAt(this.slot);
     this.actions.replaceChildren(...([
       h('p', { class: 'design-name' }, h('span', { class: 'hint' }, `${slotLabel(this.book, this.slot)}: `), h('strong', {}, designName(here)),
         cover ? null : h('span', { class: 'hint page-origin' }, ` · ${this.origin(this.slot)}`)),
       cover ? h('div', { class: 'row' },
         h('button', { type: 'button', class: 'primary', 'data-help': 'book-choose', onclick: () => void this.openCoverPicker() }, 'Choose design…'),
         h('button', { type: 'button', disabled: !here, 'data-help': 'book-clear', onclick: () => this.edit(() => setCover(this.book, this.slot, null)), title: 'Make this cover blank' }, 'Clear'),
+      ) : free ? h('div', { class: 'row' },
+        h('button', { type: 'button', class: 'primary', 'data-key': 'free-design', 'data-help': 'free-design', onclick: () => void this.openFreePicker(free.path, free.index) }, 'Choose design…'),
+        h('button', { type: 'button', disabled: !here, 'data-key': 'free-clear', 'data-help': 'free-clear', onclick: () => this.clearFree(free.path, free.index), title: 'Make this free page blank' }, 'Clear'),
       ) : null,
     ].filter(Boolean) as HTMLElement[]));
   }
@@ -365,7 +379,8 @@ export class Arranger {
     rows.push(this.coverRow(b.page_count + 1), this.coverRow(lastSlot(b)));
     this.contents.replaceChildren(
       h('header', {}, h('h2', {}, 'Outline'), h('button', { type: 'button', class: 'contents-close', 'data-help': 'outline-close', onclick: () => this.contents.classList.remove('open') }, 'Close')),
-      h('div', { class: 'outline-total' }, this.totalView()),
+      h('div', { class: 'outline-total' }, this.totalView(),
+        h('p', { class: 'hint calendar-line', 'data-key': 'outline-calendar' }, b.calendar ? `Calendar: ${b.calendar.start} to ${b.calendar.end}` : 'No calendar: pages print no dates. Set one in Settings.')),
       h('ul', { class: 'orows' }, ...rows),
       h('div', { class: 'outline-add' }, h('button', { type: 'button', class: 'primary', 'data-key': 'outline-add', 'data-help': 'book-add', onclick: () => void this.openAdd(null) }, 'Add…')),
     );
@@ -395,18 +410,38 @@ export class Arranger {
   }
 
   /** What a block row says under its name: "×10 · 10 pages · p.1–10 · pinned: last page". */
-  private summary(block: Block, row: Row | null): string {
+  private summary(block: Block, row: Row | null, path: Path): string {
+    const parent = path.length === 2 ? (this.book.outline[path[0]] as GroupBlock) : undefined;
     const parts: string[] = [];
     if (block.type === 'free') parts.push(row ? 'takes what’s left' : 'free pages');
-    else parts.push(repeatLabel(block));
+    else parts.push(repeatLabel(block, parent));
     if (row) {
       parts.push(plural(row.pages, 'page'));
       if (row.first !== null) parts.push(row.last !== row.first ? `p.${row.first}–${row.last}` : `p.${row.first}`);
       if (row.innerGaps) parts.push(plural(row.innerGaps, 'gap page'));
-    } else if (block.type !== 'group') parts.push(plural(childPages(block), 'page'));
+      if (row.beyond.length) parts.push(`${row.beyond.length} ${row.beyond.length === 1 ? 'doesn’t' : 'don’t'} fit`);
+    } else if (block.type !== 'group') {
+      const all = parent ? bookLayout(this.book).cells.filter((c) => c && c.block === path[0] && c.child === path[1]).length : 0;
+      parts.push(plural(childPages(block, all), 'page') + (block.type !== 'free' && isEach(block.repeat) ? ' in all' : ''));
+    }
     if (block.type === 'group') parts.push(plural(block.children.length, 'block'));
     if (block.type !== 'free' && block.pin !== undefined) parts.push(block.pin === 'last' ? 'pinned: last page' : `pinned: p.${block.pin}`);
     return parts.join(' · ');
+  }
+
+  /** What the block's first repeat prints ("SUN NOV 1"), or null for a group, free pages, or pages that print no dates. */
+  private readsLine(block: Block, path: Path): string | null {
+    if (block.type === 'group' || block.type === 'free') return null;
+    const lay = bookLayout(this.book);
+    // With a calendar, a block that doesn't follow it (a plain ×N, a fill) reads nothing; say so rather than "outside the calendar".
+    const parent = path.length === 2 ? this.book.outline[path[0]] : null;
+    const follows = isEach(block.repeat) || (parent !== null && parent.type === 'group' && isEach(parent.repeat));
+    const cal: boolean | 'unplaced' = this.book.calendar ? (follows ? true : 'unplaced') : false;
+    const first = firstCell(lay, path[0], path.length === 2 ? path[1] : undefined);
+    const pages = block.type === 'spread' ? [block.left, block.right] : [block.page];
+    const reads = pages.map((p, i) => readsText(p, first ? (lay.cells[first.slot - 1 + i]?.read ?? null) : null, cal));
+    const shown = reads.filter((t, i): t is string => !!t && reads.indexOf(t) === i);
+    return shown.length ? shown.join(' | ') : null;
   }
 
   private blockRow(path: Path, block: Block, row: Row | null, siblings: number): HTMLElement {
@@ -418,8 +453,9 @@ export class Arranger {
     const tool = (help: string, label: string, text: string, disabled: boolean, run: () => void) =>
       h('button', { type: 'button', class: 'orow-tool', 'data-key': help, 'data-help': help, 'aria-label': `${label}: ${name}`, disabled, onclick: run }, text);
     const at = path.length === 1 ? path[0] : path[1];
+    const reads = this.readsLine(block, path);
     const main = h('button', {
-      type: 'button', class: 'orow-main', 'data-help': 'outline-row', 'data-block': key, 'aria-label': `${name}, ${this.summary(block, row)}`,
+      type: 'button', class: 'orow-main', 'data-help': 'outline-row', 'data-block': key, 'aria-label': `${name}, ${this.summary(block, row, path)}`,
       onclick: () => {
         this.selected = path;
         const first = row?.first ?? null;
@@ -427,7 +463,8 @@ export class Arranger {
         this.renderOutline();
         this.contents.classList.remove('open'); // on a phone the outline covers the page: show it
       },
-    }, thumb, h('span', { class: 'crow-text' }, h('strong', {}, name), h('span', { class: 'crow-name' }, this.summary(block, row))));
+    }, thumb, h('span', { class: 'crow-text' }, h('strong', {}, name), h('span', { class: 'crow-name' }, this.summary(block, row, path)),
+      reads ? h('span', { class: 'crow-reads', 'data-key': 'row-reads' }, `reads: ${reads}`) : null));
     return h('li', { class: `orow${here ? ' selected' : ''}${path.length === 2 ? ' child' : ''}`, 'data-block-row': key },
       h('div', { class: 'orow-line' }, main,
         h('div', { class: 'orow-tools' },
@@ -454,10 +491,18 @@ export class Arranger {
     const controls: (HTMLElement | null)[] = [];
 
     if (block.type === 'free') {
-      controls.push(h('p', { class: 'hint' }, top ? 'Pages you fill by hand. They take whatever pages the other blocks leave.' : 'Pages you fill by hand, for each repeat of the group.'));
+      controls.push(h('p', { class: 'hint' }, top ? 'Pages you fill by hand. They take whatever pages the other blocks leave.' : 'Pages you fill by hand, for each repeat of the group.'), ...this.freeList(path, block));
     } else {
       const filling = 'fill' in block.repeat;
-      if (!filling) controls.push(this.stepper('Repeat', 'outline-repeat', timesOf(block.repeat), 1, MAX_REPEAT, (n) => this.editOutline((x) => setRepeat(x, path, { times: n }))));
+      if (!filling) {
+        controls.push(this.repeatSelect(path, block));
+        if (!isEach(block.repeat)) controls.push(this.stepper('Repeat', 'outline-repeat', timesOf(block.repeat), 1, MAX_REPEAT, (n) => this.editOutline((x) => setRepeat(x, path, { times: n }))));
+        else if (block.type === 'spread') {
+          const unit = block.repeat.each, shared = block.shared ?? unit === 'month';
+          controls.push(h('div', { class: 'field' }, h('span', { class: 'field-label' }, 'Pages'),
+            button('outline-shared', shared ? `Both pages the same ${unit}` : `One ${unit} for each page`, () => this.editOutline((x) => setShared(x, path, !shared)), { 'aria-pressed': String(shared) })));
+        }
+      }
       if (top) {
         controls.push(h('div', { class: 'field' }, h('span', { class: 'field-label' }, 'Fill'),
           button('outline-fill', filling ? 'Filling what’s left' : 'Fill what’s left', () => this.editOutline((x) => setRepeat(x, path, filling ? { times: 1 } : fillRepeat())), {
@@ -498,6 +543,41 @@ export class Arranger {
       actions.push(into);
     }
     return h('div', { class: 'orow-settings', 'data-key': `settings-${key}` }, ...controls, h('div', { class: 'row' }, ...actions));
+  }
+
+  /** How often the block repeats: a number of times, or for each day, week or month of the calendar (or of the group's span). */
+  private repeatSelect(path: Path, block: Exclude<Block, { type: 'free' }>): HTMLElement {
+    const cal = !!this.book.calendar, top = path.length === 1;
+    const parent = top ? null : (this.book.outline[path[0]] as GroupBlock);
+    const spanUnit = parent && isEach(parent.repeat) ? parent.repeat.each : null;
+    const options: [string, string, boolean][] = top
+      ? [['times', 'A number of times', true], ...(['day', 'week', 'month'] as const).map((u): [string, string, boolean] => [u, `Each ${u} of the calendar${cal ? '' : ' (set a calendar first)'}`, cal])]
+      : [['times', 'A number of times', true], ...(['day', 'week'] as const).map((u): [string, string, boolean] => [`span-${u}`, `Each ${u} of the group’s span${spanUnit ? '' : ' (the group must repeat by week or month)'}`, !!spanUnit])];
+    const r = block.repeat;
+    const value = !isEach(r) ? 'times' : 'of' in r ? `span-${r.each}` : r.each;
+    const select = h('select', { 'aria-label': 'How often', 'data-key': 'outline-each', 'data-help': 'outline-each' },
+      ...options.map(([v, label, on]) => h('option', { value: v, selected: v === value, disabled: !on && v !== value }, label)));
+    commitField(select, () => {
+      const v = select.value;
+      const next: Repeat = v === 'times' ? { times: 1 } : v.startsWith('span-') ? { each: v.slice(5) as 'day' | 'week', of: 'span' } : { each: v as 'day' | 'week' | 'month' };
+      this.editOutline((x) => setRepeat(x, path, next));
+    });
+    return h('div', { class: 'field' }, h('label', {}, 'How often'), select);
+  }
+
+  /** The free pages that hold a design or don't fit, each with a way to take it off. */
+  private freeList(path: Path, block: Extract<Block, { type: 'free' }>): HTMLElement[] {
+    const lay = bookLayout(this.book);
+    const beyond = path.length === 1 ? lay.rows[path[0]]?.beyond ?? [] : [];
+    const slotOf = (j: number) => lay.cells.findIndex((c) => !!c && c.kind === 'free' && c.block === path[0] && c.child === (path.length === 2 ? path[1] : undefined) && c.free === j) + 1;
+    const shown = block.pages.flatMap((p, j) => (p || beyond.includes(j) ? [j] : []));
+    if (!shown.length) return [];
+    return [h('ul', { class: 'free-list', 'data-key': 'free-list' }, ...shown.map((j) => {
+      const at = slotOf(j), fits = !beyond.includes(j);
+      return h('li', {},
+        h('span', {}, h('strong', {}, `Free page ${j + 1}`), ` · ${designName(block.pages[j])}`, fits ? (at ? ` · p.${at}` : '') : null, fits ? null : h('em', { class: 'nofit' }, ' · doesn’t fit')),
+        h('button', { type: 'button', 'data-key': 'free-clear-listed', 'data-help': 'free-clear', 'aria-label': `Clear free page ${j + 1}`, onclick: () => this.clearFree(path, j) }, 'Clear'));
+    }))];
   }
 
   /** The page a block is at now, for Pin to page to start from (a spread needs a left, even, page). */
@@ -550,10 +630,17 @@ export class Arranger {
     this.picker.showModal();
   }
 
+  private async openFreePicker(path: Path, index: number) {
+    await this.refreshDesigns();
+    this.picking = { for: 'free', path, index };
+    this.renderPicker();
+    this.picker.showModal();
+  }
+
   private renderPicker() {
-    const cover = this.picking.for === 'cover';
+    const cover = this.picking.for !== 'add';
     const into = this.picking.for === 'add' ? this.picking.group : null;
-    this.pickerTitle.textContent = cover ? `Design for ${slotLabel(this.book, this.slot).toLowerCase()}` : into !== null ? `Add to ${nameOf(this.book.outline[into] ?? groupBlock('the group'))}` : 'Add to the book';
+    this.pickerTitle.textContent = this.picking.for === 'free' ? `Design for free page ${this.picking.index + 1}` : cover ? `Design for ${slotLabel(this.book, this.slot).toLowerCase()}` : into !== null ? `Add to ${nameOf(this.book.outline[into] ?? groupBlock('the group'))}` : 'Add to the book';
     const tab = cover ? 'pages' : this.pickerTab;
     this.pickerTabs.el.parentElement!.hidden = cover;
     this.pickerTabs.select(tab);
@@ -629,6 +716,11 @@ export class Arranger {
       this.edit(() => setCover(this.book, at, c.kind === 'blank' ? null : (c.data as Page)));
       return;
     }
+    if (this.picking.for === 'free') {
+      const { path, index } = this.picking;
+      this.editOutline((o) => setFreePage(o, path, index, c.kind === 'blank' ? null : (c.data as Page)));
+      return;
+    }
     const link = (p: Page | null, q?: Page): Link | undefined => (c.id && p ? { id: c.id, fingerprint: q ? `${fingerprint(p)}/${fingerprint(q)}` : fingerprint(p) } : undefined);
     if (c.kind === 'spread') {
       const s = c.data as Spread;
@@ -636,17 +728,33 @@ export class Arranger {
     } else this.addBlock(pageBlock(c.data as Page, 1, link(c.data as Page)));
   }
 
+  /**
+   * A page or spread that prints dates is placed to repeat the way its tokens suggest (docs/product-model.md, D13): each day, week or
+   * month of the calendar, or, in a group that repeats by week or month, each day of its span. Anything else stays ×1.
+   */
+  private withSuggestedRepeat(block: Block, group: number | null): Block {
+    if (block.type !== 'page' && block.type !== 'spread') return block;
+    const unit = block.type === 'page' ? suggestUnit(block.page) : suggestUnit(block.left, block.right);
+    if (!unit) return block;
+    if (group === null) return this.book.calendar ? { ...block, repeat: { each: unit } } : block;
+    const parent = this.book.outline[group];
+    return unit === 'day' && parent?.type === 'group' && isEach(parent.repeat) ? { ...block, repeat: { each: 'day', of: 'span' } } : block;
+  }
+
   /** Add a block to the end of the outline (or the end of the group the picker was opened from) and show it. */
   private addBlock(block: Block) {
     this.picker.close();
     const group = this.picking.for === 'add' ? this.picking.group : null;
+    block = this.withSuggestedRepeat(block, group);
     this.editOutline((o) => addBlock(o, block, group !== null ? { group } : undefined), () => {
       const o = this.book.outline;
       this.selected = group !== null ? [group, (o[group] as Extract<Block, { type: 'group' }>).children.length - 1] : [o.length - 1];
       this.openRow = null;
       const row = bookLayout(this.book).rows[group ?? o.length - 1];
       if (row?.first) this.slot = row.first;
-      this.say(`Added “${nameOf(block)}”${group !== null ? ` to ${nameOf(o[group])}` : ''}. Undo takes it back.`);
+      const at = group !== null ? (o[group] as GroupBlock).children[(o[group] as GroupBlock).children.length - 1] : o[o.length - 1];
+      const how = at.type !== 'free' && isEach(at.repeat) ? ` It repeats ${repeatLabel(at, group !== null ? (o[group] as GroupBlock) : undefined)}; change that in its settings.` : '';
+      this.say(`Added “${nameOf(block)}”${group !== null ? ` to ${nameOf(o[group])}` : ''}.${how} Undo takes it back.`);
     });
     this.contents.querySelector('.orow.selected')?.scrollIntoView?.({ block: 'nearest' });
   }

@@ -2,6 +2,8 @@ import { h } from './panel';
 import { TOKEN_LIST, tokenProblem } from './format/tokens';
 import { PAGE_SIDES, type Page } from './format/types';
 import { validatePage } from './format/validate';
+import { calendarFor, calendarMonths } from './format/calendar';
+import { parts } from './format/dates';
 import { LAYOUT_LIMITS, MAX_PAGES, MIN_PAGES, PRINT_LIMITS, resizeBook, roundPageCount, type Book } from './book/book';
 import { DEFAULT_PRINT, EDGE_NAMES, LAYOUT_NAMES, SHEET_LAYOUTS, profileOf, type LayoutProfile, type PrintSettings, type SheetLayout } from './book/impose';
 import type { Store } from './store';
@@ -139,7 +141,7 @@ export class SettingsDialog {
       h('label', { class: 'inline' }, numberOn, 'Print the page number'),
       numberMsg,
       labelled('Identity', identity, identityMsg, tokens),
-      h('p', { class: 'hint' }, `Optional text by the spine. Tokens: ${TOKEN_LIST}; add +1 or -1 to move by the token’s own unit (days, weeks, months or years), as in {month+1}, or @end for the last day the page covers, as in {day@end}. With no identity, row 0 (the header row) is free to draw on, except the page number’s corner.`),
+      h('p', { class: 'hint' }, `Optional text by the spine. Tokens: ${TOKEN_LIST}; add +1 or -1 to move by the token’s own unit (days, weeks, months or years), as in {month+1}, or @start / @end for the first or last day the page covers, as in {day@end}. With no identity, row 0 (the header row) is free to draw on, except the page number’s corner.`),
       sideField,
     ].filter(Boolean) as HTMLElement[];
   }
@@ -181,6 +183,7 @@ export class SettingsDialog {
       labelled('Pages (a multiple of 4)', pages),
       h('label', { class: 'inline' }, numbers, 'Print page numbers'),
       signaturesField(() => this.host.book(), (change) => this.host.editBook(change)),
+      ...calendarFields(() => this.host.book(), (change) => this.host.editBook(change)),
       h('p', { class: 'hint' }, 'The creep, offsets, scale and tones belong to your printer, not the book: they are in Import and export, on the PDF tab.'),
     ];
   }
@@ -233,6 +236,53 @@ export function printField(printer: () => PrintSettings, edit: EditPrinter, key:
     edit((p) => { if (isLayoutKey(key)) p.layouts[layout][key] = v; else p[key] = v; });
   };
   return h('label', { class: 'compact' }, label, input);
+}
+
+const MONTH_LABELS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const WEEKDAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+/**
+ * The book's calendar: the month it starts in, how many months it lasts and the day weeks start on. A book with none is undated
+ * (its date tokens print blank); the fields start on next month as a suggestion and nothing is set until Set calendar is tapped.
+ * Once a calendar is set, changing a field changes it at once; Remove calendar makes the book undated again.
+ */
+export function calendarFields(book: () => Book, edit: (change: (b: Book) => void) => void): HTMLElement[] {
+  const cal = book().calendar;
+  const next = new Date(), nextMonth = new Date(Date.UTC(next.getFullYear(), next.getMonth() + 1, 1));
+  const start = cal ? parts(cal.start) : { year: nextMonth.getUTCFullYear(), month: nextMonth.getUTCMonth() + 1 };
+  const month = h('select', { 'aria-label': 'First month', 'data-key': 'calendar-month', 'data-help': 'book-calendar-month' },
+    ...MONTH_LABELS.map((m, i) => h('option', { value: String(i + 1), selected: i + 1 === start.month }, m)));
+  const year = h('input', { type: 'number', value: start.year, min: 1900, max: 2200, step: 1, inputmode: 'numeric', 'aria-label': 'Year', 'data-key': 'calendar-year', 'data-help': 'book-calendar-year' });
+  const months = h('input', { type: 'number', value: cal ? calendarMonths(cal) : 1, min: 1, max: 24, step: 1, inputmode: 'numeric', 'aria-label': 'Months', 'data-key': 'calendar-months', 'data-help': 'book-calendar-months' });
+  const weekStarts = h('select', { 'aria-label': 'Week starts on', 'data-key': 'calendar-week-start', 'data-help': 'book-calendar-week-start' },
+    ...WEEKDAY_LABELS.map((d, i) => h('option', { value: String(i), selected: i === (cal?.week_starts ?? 0) }, d)));
+  const clamp = (input: HTMLInputElement, lo: number, hi: number, fallback: number) => {
+    const v = Math.round(Number(input.value));
+    const ok = input.value !== '' && Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : fallback;
+    input.value = String(ok);
+    return ok;
+  };
+  const make = () => calendarFor(clamp(year, 1900, 2200, start.year), Number(month.value), clamp(months, 1, 24, 1), Number(weekStarts.value));
+  const state = h('div', { class: 'cal-actions' });
+  const draw = () => {
+    const current = book().calendar;
+    state.replaceChildren(current
+      ? h('button', { type: 'button', 'data-key': 'calendar-remove', 'data-help': 'book-calendar-remove', onclick: () => { edit((b) => { delete b.calendar; }); draw(); } }, 'Remove calendar')
+      : h('button', { type: 'button', class: 'primary', 'data-key': 'calendar-set', 'data-help': 'book-calendar-set', onclick: () => { const c = make(); edit((b) => { b.calendar = c; }); draw(); } }, 'Set calendar'));
+    summary.textContent = current ? `Dated: ${current.start} to ${current.end}, weeks start on ${WEEKDAY_LABELS[current.week_starts]}.` : 'Undated: date tokens print blank. Pick a month and tap Set calendar to date the pages.';
+  };
+  const summary = h('p', { class: 'hint', 'data-key': 'calendar-summary' });
+  for (const field of [month, year, months, weekStarts]) {
+    field.addEventListener('change', () => {
+      if (!book().calendar) { clamp(year, 1900, 2200, start.year); clamp(months, 1, 24, 1); return; }
+      const c = make();
+      edit((b) => { b.calendar = c; });
+      draw();
+    });
+  }
+  draw();
+  const row = (label: string, control: HTMLElement) => h('div', { class: 'field' }, h('label', {}, label), control);
+  return [h('h3', {}, 'Calendar'), row('First month', month), row('Year', year), row('Months', months), row('Week starts on', weekStarts), summary, state];
 }
 
 /** How many signatures the book is split into: the one print setting that belongs to the book. */

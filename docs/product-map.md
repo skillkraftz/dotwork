@@ -126,10 +126,13 @@ Keyboard shortcuts (page and spread views only; the Book view has none except �
 
 ## 4. Dates end to end
 
-**A book has no dates yet.** Since phase 5a the book stores an outline, not a page list: there is no `dates`, no recipe and no Dates window
-(the calendar and "each day / week / month" repeats arrive in phase 6). Every print and preview path calls `bookExpand(book, slot)`
-= `expandFor(null, page)`, so **every date token in an outline book's pages and covers prints blank** (`blankTokens`), to be written
-in by hand. Pages that use tokens are still welcome: they are ready for phase 6.
+**Dates come from the calendar (phase 6).** The book stores an outline and an optional `calendar` (`start`, `end`, `week_starts`; set in Book
+settings → Calendar). `layoutOutline(outline, count, calendar)` gives every placed page a `read` (a day, week or month of the calendar, from the
+block's own repeat: `each day / week / month`, or `each day / week of the span` inside a group), and every print and preview path calls
+`bookExpand(book, slot)`, which expands tokens by that reading. A book with no calendar, a gap page, the covers and a page that reads nothing
+print every token blank (`blankTokens`). The outline rows say `reads: …` for the first repeat; adding a page suggests its repeat from its tokens
+(`suggestUnit`); free pages hold designs (chosen on the page, stored in the block's `pages`) that survive a new calendar, and ones that no longer
+fit are kept and marked "doesn't fit".
 
 **Where a date still comes from.** The sample date `2026-10-26` (`SAMPLE_DATE`) is what every editor view, Library thumbnail, PNG,
 and the Page view's Preview show tokens as. Nothing else supplies a date to a book. Templates build outlines; the reflection pages they
@@ -177,7 +180,7 @@ The book has four cover pages: **inside front** (left page, `cover.front`), **in
 7. ~~IndexedDB missing → memory backend, silently~~: fixed in phase 2 (the warning at the top says so, and the mark never says Saved).
 8. ~~Per-page "Untitled" collision~~: fixed in phase 1 (Untitled, Untitled 2…; a taken name gets ` 2`).
 9. **Template defaults read the clock once at load** (`templates.ts`: `new Date().getFullYear()` and `getMonth()`), while built-in sample pages are fixed to 2026-10 (`builtin/library.ts`) and the editor's token sample is fixed to 2026-10-26 (`tokens.ts`).
-10. **The monthly journal's index and week texts are literal** (`WEEK 44  OCT 25-31` written by the template) where a calendar book will use tokens (phase 6); the page index on its back cover lists the pages of `monthlyLayout`, which the outline reproduces (a test pins it) except that blank pages stand where the layout had notes after the idea spreads.
+10. **The monthly journal's index and week texts are literal** (`WEEK 44  OCT 25-31` written by the template) (the owner's templates now set a calendar and use tokens; this item is about the cover and the page index, which stay literal); the page index on its back cover lists the pages of `monthlyLayout`, which the outline reproduces (a test pins it) except that blank pages stand where the layout had notes after the idea spreads.
 
 **Dead code (nothing in the app uses it)**
 

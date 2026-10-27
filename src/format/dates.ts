@@ -25,6 +25,9 @@ export function addMonths(iso: string, months: number): string {
   return `${pad(y, 4)}-${pad(m)}-${pad(Math.min(day, last))}`;
 }
 
+/** Whole days from `a` to `b` (negative when `b` is earlier). */
+export const daysBetween = (a: string, b: string): number => Math.round((toMs(b) - toMs(a)) / DAY_MS);
+
 /** 0 is Sunday. */
 export const dayOfWeek = (iso: string): number => new Date(toMs(iso)).getUTCDay();
 
@@ -32,6 +35,19 @@ export const parts = (iso: string) => ({ year: +iso.slice(0, 4), month: +iso.sli
 
 /** The Sunday on or before a date. */
 export const sundayOf = (iso: string): string => addDays(iso, -dayOfWeek(iso));
+
+/** The day on or before a date that starts a week, when weeks start on `weekStarts` (0 is Sunday). */
+export const weekStartOn = (iso: string, weekStarts: number): string => addDays(iso, -((dayOfWeek(iso) - weekStarts + 7) % 7));
+
+/** The last day of the month a date is in. */
+export const monthEnd = (iso: string): string => addDays(addMonths(iso.slice(0, 8) + '01', 1), -1);
+
+/**
+ * A week's number in a book of `year`: the week holding January 1 of that year is week 1, counted from the week start. So the week
+ * Dec 27 to Jan 2 is week 53 in a book of 2026 and week 1 in a book of 2027.
+ */
+export const weekNumberIn = (iso: string, weekStarts: number, year: number): number =>
+  Math.floor(daysBetween(weekStartOn(`${String(year).padStart(4, '0')}-01-01`, weekStarts), weekStartOn(iso, weekStarts)) / 7) + 1;
 
 /** The Sunday that starts week 1 of a year: the one on or before January 1. */
 export const weekOneStart = (year: number): string => sundayOf(`${String(year).padStart(4, '0')}-01-01`);

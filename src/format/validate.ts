@@ -229,9 +229,9 @@ function validateElementInto(el: unknown, at: string, fail: Fail, header: Header
 
 function checkTokens(text: string, path: string, fail: Fail) {
   for (const name of findUnknownTokens(text)) {
-    fail('token', path, `Unknown token {${name}}; known tokens are ${TOKEN_LIST}, each with an optional offset such as {day+1}, or @end such as {day@end}.`);
+    fail('token', path, `Unknown token {${name}}; known tokens are ${TOKEN_LIST}, each with an optional offset such as {day+1}, or @start / @end such as {day@end}.`);
   }
   for (const name of findEndOffsets(text)) {
-    fail('token', path, `{${name}}: @end takes no offset. It reads the last day of what the page covers; write {${name.replace(/[+-]\d+/, '')}} or an offset without @end.`);
+    fail('token', path, `{${name}}: @start and @end take no offset. They read the first or last day of what the page covers inside the calendar; write {${name.replace(/[+-]\d+/, '')}} or an offset without @start / @end.`);
   }
 }

@@ -209,21 +209,23 @@ first repeat that starts before the calendar loses only its day pages outside it
 books (a week group with pages that make no sense in a part-week); **the monthly log book does not need it** (section 6): its short weeks
 are handled by the week block (D16) and the day pages that fall outside the month are simply not made.
 
-**D15. Tokens count in the token's own unit, and `@end` reads the end of what the page covers.**
+**D15. Tokens count in the token's own unit, and `@start` / `@end` read what the page covers inside the calendar.**
 - `{day+1}` is the next day, `{weekday+1}` the next weekday, **`{week+1}` the next week**, **`{month+1}` the next month**, **`{year+1}` the
   next year**. (The map's rule that every offset is in days, so `{month+1}` was "the month of tomorrow", goes.)
-- A **week page** reads its week: `{weekday}`, `{day}`, `{month}`, `{year}` are the week's first day, `{week}` its number, `{day+6}` its last
-  day. A **day page** reads its day. A **month page** reads the 1st. **A week is numbered by its book's year** (the year the calendar starts in): the week holding 1 January of that year is week 1, counted from
+- A **week page** reads its week: `{weekday}`, `{day}`, `{month}`, `{year}` are the **week's** first day (Sunday with the default week start, even
+  when that is before the calendar), `{week}` its number, `{day+N}` / `{weekday+N}` its Nth day, so weekday columns never shift. A date token whose day is
+  outside the calendar prints blank (`{day}`, `{day+N}`, and `{month}` `{monthname}` `{year}` without an offset); `{weekday}` names still print, since they label columns. A **day page** reads its day. A **month page** reads the 1st. **A week is numbered by its book's year** (the year the calendar starts in): the week holding 1 January of that year is week 1, counted from
   the book's week start. So in a December 2026 book the week Dec 27 – Jan 2 is **week 53**, and in a January 2027 book the same week is
   **week 1**; the weekly review reads `WEEK 53  DEC 27-JAN 2` in one and `WEEK 1  DEC 27-JAN 2` in the other.
-- **`@end`**: any token can end in `@end` to read the **last day** of what the page covers: a week page its last day, a month page the last day of
-  the month, a day page its own day, a cover the calendar's last day. `{month} {day} – {month@end} {day@end}` on the week of 29 Nov 2026 prints
-  `NOV 29 – DEC 5`. `@end` takes no offset.
-- The built-in Weekly reflection becomes `WEEK {week}  {month} {day}-{month@end} {day@end}` (its old `{month+6}` would now mean six months
+- **`@start` / `@end`**: any token can end in `@start` to read the **first day** of what the page covers *inside the calendar*, or `@end` for the **last day inside it**:
+  a week page its first and last day in the calendar, a month page the 1st (or the calendar's first day) and the last day of the month, a day page its own day,
+  a cover the calendar's last day. `{month@start} {day@start} – {month@end} {day@end}` on the last week of a November 2026 book prints `NOV 29 – NOV 30`; in a
+  January 2027 book the first week prints `JAN 1 – JAN 2`. Neither takes an offset.
+- The built-in Weekly reflection becomes `WEEK {week}  {month@start} {day@start}-{month@end} {day@end}` (its old `{month+6}` would now mean six months
   on). Covers use it for ranges: `{monthname} – {monthname@end} {year@end}`. `{months}` ("NOV" or "NOV / DEC") stays as it is.
 - **Example.** A week tracker whose seven column headings are `{day}`, `{day+1}` … `{day+6}` (and `{weekday}` … `{weekday+6}` above them) prints that
-  week's seven days: `SUN MON TUE WED THU FRI SAT` over `1 2 3 4 5 6 7` for the week of 1 Nov 2026, and `29 30 1 2 3 4 5` for the week of
-  29 Nov (a week page covers the whole week, even the days outside the month).
+  week's seven days: `SUN MON TUE WED THU FRI SAT` over `1 2 3 4 5 6 7` for the week of 1 Nov 2026; for the last week of a November book, `SUN 29`, `MON 30`
+  and blank days for TUE to SAT; for the first week of a January 2027 book, blank days for SUN to THU, then `FRI 1`, `SAT 2`.
 - In the editor, tokens still show the sample date (Mon 26 Oct 2026). Undated pages and covers of an undated book print them blank.
 
 **D16. Generated elements are widgets that draw from the book.** Three pieces are drawn at print time from the book, not typed: the **Week
@@ -467,7 +469,7 @@ thing: **build November 2026 and print it.** There are three file changes on the
 | 4 | **Token units and `@end`** (meaning change) (done) | `{month+1}`, `{year+1}`, `{week+1}` count in their own unit; week pages read their week; `@end`; the built-in Weekly reflection and the examples are rewritten; the editor shows the new samples. The one-time widget and art move from phase 3 is removed. Books still store dates, so they print as before. Until the calendar (phase 6) a page is a week page if it has `{week}`, any `@end`, or a day offset of 6 or more, and reads the week holding its stored date. At each start a notice lists the documents that use `{month±N}`, `{year±N}` or `{week±N}`, whose meaning changed (removed in phase 5a). | See `{month+1}` and `NOV 29 – DEC 5` on a week page in the editor. |
 | C | **Cleanup** (done, this PR) | No back compatibility (the page v1 reader and converter, old-shape tests and the monthly-log book test are gone; the rule is in CLAUDE.md); the unit and e2e suites trimmed to rules and math plus one main path per feature; the owner's pages and spreads are built-ins; the gauge widgets; a printer-profile layout missing from a saved profile takes the defaults, and Reset this layout to defaults on the PDF tab. | Open the Library: Daily Log, Daily Log Spread, Book notes, Idea variations and the rest are there. |
 | 5a | **★ The outline (undated)** (done) | The book becomes an outline: pages, spreads, simple groups with a repeat, and free pages; ×N and fill; pin to page; gap pages for spreads; Up / Down to move a block; the live "N of 52 pages". Links (`from`) are recorded but not used yet. Removes `pages`, `dates`, `recipe`, the Build, Dates and Apply windows. Old books and sections become "Old format" (Export and Delete). | Build a 52-page undated book as an outline on a phone: blank ×10, a group of an idea spread and a lined page ×6, free pages for the rest, a closing page pinned to the last page. Done: see **Phase 5a as built** below. |
-| 6 | **★ The calendar and derived dates** | `calendar`, the "each day / week / month" repeats, "of the span", week start, week numbers by the book's year, the repeat suggested from a page's tokens and the "reads:" line on every row, spread coverage, short-repeat leave-out, dates on every page, the Page map. The book's dates reach the PDFs, previews and Flip through. Free pages that do not fit after a re-date are kept and marked. | Make a November 2026 book from ordinary pages (a week group: a tracker page, a daily log for each day, a review page), change the calendar to January 2027 and watch every date move. |
+| 6 | **★ The calendar and derived dates** (done) | `calendar`, the "each day / week / month" repeats, "of the span", week start, week numbers by the book's year, the repeat suggested from a page's tokens and the "reads:" line on every row, spread coverage, short-repeat leave-out, dates on every page, the Page map. The book's dates reach the PDFs, previews and Flip through. Free pages that do not fit after a re-date are kept and marked. | Make a November 2026 book from ordinary pages (a week group: a tracker page, a daily log for each day, a review page), change the calendar to January 2027 and watch every date move. |
 | 7 | **★ The week block and the monthly log book** | The first `generated` element in the page format, the **Week block** (placed from the widget picker, resizes to its box, sample data and a full / first / last preview in the editor; every weekday at the same row on every page). The built-in **Monthly log** template. Rebuilds the November book fixture as the Monthly log for November 2026 and its test. | Make the Monthly log for November 2026 (40 pages used, 11 free), then January 2027 (six weeks, partial first and last week pages), fill some free pages and re-date: your free pages stay, and the month review stays on page 52. |
 | 8 | **Build November 2026 and print it** | No new code: the owner builds the book from the outline and the Monthly log, calibrates, prints and binds it. What goes wrong or is slow in that hour is what comes next. | A printed, bound November 2026 journal. |
 
@@ -497,6 +499,19 @@ Where the model left a choice, the simplest reading was taken. The book file is 
 - **Covers** stay what they were: four pages, chosen with Choose design… on the cover itself.
 - **Undated.** Date tokens print blank in every outline book. The monthly journal template builds its week texts as literal text, as before.
 - **Templates** build outlines: the idea and plain books use fill and a pinned last page; the monthly journal builds a block per week from `monthlyLayout`, then patterns, questions, idea spreads to fill and three notes pages pinned to the end (its page index is made from the same layout, and a test pins that the outline reproduces its pages).
+
+### Phase 6 as built
+
+Where the model left a choice, the simplest reading was taken. Code: `src/format/calendar.ts` (days, weeks, months), `layoutOutline` (readings), `tokens.ts` (`Reading`, `suggestUnit`, `readsText`); the file is in `docs/book-format.md`.
+
+- **Calendar.** `start`, `end`, `week_starts`, at most 800 days. The settings ask for a first month, a year and a number of months; nothing is set until Set calendar, then fields apply at once. Removing it makes the book undated; `each` repeats then place once, undated.
+- **Repeats.** `{each: day|week|month}` at the top level; `{each: day|week, of: "span"}` inside a group. Groups still don't nest, so a span is one week, month or day. A span-child outside a spanning group places once, undated.
+- **Week pages** read the week's start (offsets count from it, so weekday columns never shift); a date outside the calendar prints blank, weekday names print. `@start` and `@end` read the first and last day inside the calendar (D15), so the last week of November reads `NOV 29 – NOV 30` with the Weekly reflection `WEEK {week}  {month@start} {day@start}-{month@end} {day@end}`. `{week}` is numbered by the book's year as D15 says.
+- **Spreads.** `shared` is optional: each day and each week default to one day or week a page (left page *k*, right page *k*+1), each month to shared; the switch changes either. An odd last one leaves the right page undated.
+- **Suggested repeat.** On adding a page or spread: the D13 rule from its tokens at the top level of a dated book (×1 without a calendar), and, in a group that repeats by the calendar, "each day of the span" for a day page and ×1 (reads the span) otherwise. Sections and templates are placed as built.
+- **Row line.** `reads:` shows the page's header expanded when it has tokens, else the days it reads (`NOV 1 – NOV 7`); not shown for groups and free pages. Not built: the dates a block covers, listing every repeat, leave-out lists (D14), the Page map.
+- **Free pages.** Tapping a free page (in the preview, or its row) offers Choose design… and Clear; a free row lists the pages that hold designs or don't fit, each with Clear. Clearing a page drops blank pages at the end of the list. Free pages inside a group have the same controls and apply to every repeat.
+- **Templates.** Monthly journal: calendar = the month, a week group (each day of the week, the weekly reflection), patterns and questions each month. Year planner: calendar = the chosen weeks (kept inside the year), the mirrored Weekly spread (day strip on the outer edge of both pages) repeating each week, a week a page. Spreads start on a left page, so page 1 is a gap page and a whole year (52 weeks) takes 56 pages; the template makes the book that long when the weeks need it.
 
 ## 11. The database later
 

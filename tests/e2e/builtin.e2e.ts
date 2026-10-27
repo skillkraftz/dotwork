@@ -107,10 +107,18 @@ for (const device of ['phone', 'desktop'] as Device[]) {
       const book = await savedBook(app);
       expect(book.name).toBe('2026 year planner');
       expect(book.page_count).toBe(52);
-      expect(book.outline.map((b: { type: string }) => b.type)).toEqual(['group', 'spread']); // weekly pages in pairs, then idea spreads to fill
-      expect(book.outline[0]).toMatchObject({ repeat: { times: 5 } }); // weeks 43 to 52
+      expect(book.outline.map((b: { type: string }) => b.type)).toEqual(['spread', 'spread']); // the weekly spread for each week, then idea spreads to fill
+      expect(book.outline[0]).toMatchObject({ name: 'Weekly spread', repeat: { each: 'week' } }); // weeks 43 to 52, a week on each page
+      expect(book.calendar).toEqual({ start: '2026-10-18', end: '2026-12-26', week_starts: 0 });
       expect(book.outline[1].repeat).toEqual({ fill: true });
       await shot(app, `book-${device}-year-planner`);
+      // the weekly spread on pages 2 and 3: the day strip on the outer edge of both, and two consecutive weeks
+      await hit(app, '.view-toggle');
+      await app.page.focus('.stage-page');
+      await app.page.keyboard.press('ArrowRight');
+      await app.page.waitForFunction(() => document.querySelector('.where strong')?.textContent?.startsWith('Page 2'));
+      expect(await app.page.locator('.stage-page').count()).toBe(2);
+      await shot(app, `${device}-year-planner-spread`);
       noErrors(app);
     });
 

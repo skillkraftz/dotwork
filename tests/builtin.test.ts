@@ -6,7 +6,7 @@ import { BUILTIN_PAGES, BUILTIN_SPREADS, BUILTIN_WIDGETS, asCopy, isBuiltinName 
 import { TEMPLATES } from '../src/builtin/templates';
 import { monthStarts, monthOfWeek } from '../src/builtin/calendar';
 import { monthlyLayout } from '../src/builtin/layout';
-import { readBook, bookLayout, bookPage, getSlot } from '../src/book/book';
+import { readBook, bookExpand, bookLayout, bookPage, getSlot } from '../src/book/book';
 import { readSpread } from '../src/format/spread';
 import { formatIssue, validatePage, validateElement } from '../src/format/validate';
 import { placeWidget } from '../src/widgets';
@@ -145,18 +145,20 @@ describe('the book templates', () => {
     for (const a of inputs[t.id]) {
       it(`${t.name} ${JSON.stringify(a)} builds a valid 52-page book`, async () => {
         const book = t.build(a);
-        expect(book.page_count).toBe(52);
+        const pages = book.page_count;
+        // a whole year of weekly spreads needs a gap page first, so it is the one book that takes 56 pages
+        expect(pages).toBe(t.id === 'year-planner' && (a.last ?? 52) - (a.first ?? 1) >= 50 ? 56 : 52);
         expect(bookLayout(book).over).toBe(0); // the outline fits the book
         const r = readBook(JSON.parse(JSON.stringify(book)));
         expect(r.ok ? [] : problems(r.issues)).toEqual([]);
         expect(getSlot(book, 0)).not.toBeNull();
-        expect(getSlot(book, 53)).not.toBeNull();
+        expect(getSlot(book, pages + 1)).not.toBeNull();
         const files = await exportBookFiles(book, DEFAULT_PRINT, fonts);
         expect(files.map((f) => f.name).sort()).toEqual(['cover-inside.pdf', 'cover-outside.pdf', 'pages.pdf', 'print-first.pdf', 'print-second.pdf', 'summary.txt']);
         const count = async (name: string) => (await PDFDocument.load(files.find((f) => f.name === name)!.bytes)).getPageCount();
-        expect(await count('pages.pdf')).toBe(52);
-        expect(await count('print-first.pdf')).toBe(13);
-        expect(await count('print-second.pdf')).toBe(13);
+        expect(await count('pages.pdf')).toBe(pages);
+        expect(await count('print-first.pdf')).toBe(pages / 4);
+        expect(await count('print-second.pdf')).toBe(pages / 4);
         expect(await count('cover-inside.pdf')).toBe(1);
         expect(await count('cover-outside.pdf')).toBe(1);
       });
@@ -171,17 +173,29 @@ describe('the book templates', () => {
     expect(files.filter((f) => f.name.endsWith('.pdf')).reduce((n, f) => n + f.bytes.length, 0)).toBeLessThan(500_000);
   });
 
-  it('fills the year planner with weekly pages and the rest with idea spreads', () => {
+  it('fills the year planner with weekly spreads and the rest with idea spreads', () => {
     const book = TEMPLATES.find((t) => t.id === 'year-planner')!.build({ year: 2026, first: 43, last: 52 });
-    expect([1, 10].map((n) => bookPage(book, n).name)).toEqual(['Year journal weekly page (dated)', 'Year journal weekly page (dated)']);
-    expect(bookPage(book, 11).name).toBe('Notes'); // a gap page: the idea spreads start on a left page
-    expect([12, 13, 50, 51].map((n) => bookPage(book, n).name)).toEqual(['Idea page', 'Dot grid page', 'Idea page', 'Dot grid page']);
+    expect(bookPage(book, 1).name).toBe('Notes'); // a gap page: the spreads start on a left page
+    expect([2, 3, 10, 11].map((n) => bookPage(book, n).name)).toEqual(Array(4).fill('Year journal weekly page (dated)'));
+    expect(bookPage(book, 12).name).toBe('Idea page'); // 10 weeks end on page 11, so the idea spreads start on a left page with no gap
     expect(getSlot(book, 53)!.name).toBe('Year index');
     expect(getSlot(book, 0)!.name).toBe('Year goals cover');
-    // the day column is on the outer edge: right on right pages, left on left pages
-    const col = (slot: number) => bookPage(book, slot).elements.find((e) => e.type === 'rule' && e.y1 === 1 && e.y2 === 44);
-    expect(col(1)).toMatchObject({ x1: 25 });
-    expect(col(2)).toMatchObject({ x1: 2 });
+    // the book has the chosen weeks as its calendar; each page of the spread reads its own week
+    expect(book.calendar).toEqual({ start: '2026-10-18', end: '2026-12-26', week_starts: 0 });
+    expect([2, 3, 4, 11].map((n) => bookExpand(book, n)('{month} {day}'))).toEqual(['OCT 18', 'OCT 25', 'NOV 1', 'DEC 20']);
+    expect(bookExpand(book, 2)('{week}')).toBe('43');
+    expect(bookExpand(book, 3)('{week}')).toBe('44');
+    // the day strip is on the outer edge of both pages: the left of a left page, the right of a right page
+    const strip = (slot: number) => bookPage(book, slot).elements.find((e) => e.type === 'rule' && e.y1 === 1 && e.y2 === 44);
+    expect(strip(2)).toMatchObject({ x1: 2 });
+    expect(strip(3)).toMatchObject({ x1: 25 });
+  });
+
+  it('takes 56 pages for a whole year of weeks, the first on page 2', () => {
+    const book = TEMPLATES.find((t) => t.id === 'year-planner')!.build({ year: 2027 });
+    expect(book.page_count).toBe(56);
+    expect(bookLayout(book).used).toBe(55); // a gap page and 26 spreads, then one idea spread
+    expect(bookExpand(book, 53)('{week}')).toBe('52');
   });
 
   it('lays the monthly journal out like the October 2026 reference', () => {

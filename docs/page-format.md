@@ -229,17 +229,23 @@ tokens blank. Dotwork shows sample values in the editor, for Monday
 A month offset keeps the day of the month where it can (Jan 31 + 1 month is in February, Feb 29 + 1 year is Feb 28), so
 `{month+1}` on any date of January reads `FEB`. `{months+N}` still moves by days. An offset is a whole number of at most four digits.
 
-**What a page covers.** A page is a *week page* if its tokens include `{week}`, any `@end`, or a day offset of 6 or more
-(`{day}`, `{weekday}` or `{months}` with +6 or beyond, or −6); otherwise it is a *day page*. (Until the book has a calendar this is
-how Dotwork decides; a book has no dates yet, so in a book every token prints blank.)
+**What a page covers.** In a book, the block's repeat decides (see `book-format.md`, Tokens): a page placed for each day reads
+that day, for each week that week, for each month that month, and a page placed with no calendar prints every token blank. The
+editor has no block, so it guesses for its sample: a *week page* if its tokens include `{week}`, any `@start` or `@end`, or a day offset of 6 or
+more (`{day}`, `{weekday}` or `{months}` with +6 or beyond, or −6); otherwise a *day page*. Adding a page to a book suggests its
+repeat from its tokens: `@start`, `@end` or a day offset of 6 or more is each week; `{weekday}` or `{day}` is each day (a `{week}` beside
+them is only extra); `{week}` alone is each week; any other date token is each month.
 
 - A **day page** reads its date.
 - A **week page** reads the week holding its date, Sunday to Saturday: `{weekday}`, `{day}`, `{month}`, `{year}` are the
   week's first day (a Sunday), `{day+6}` its last, and offsets count from that first day.
 
-**`@end`.** Any token may end in `@end` to read the last day of what the page covers: a week page's Saturday, a day
-page's own day. `{month} {day} – {month@end} {day@end}` on the week of 29 Nov 2026 prints `NOV 29 – DEC 5`. `@end` takes
-no offset: `{day+1@end}` and `{day@end+1}` are errors, and the reader says so.
+**`@start` and `@end`.** Any token may end in `@start` or `@end` to read the first or last day of what the page covers. In the
+editor a week page covers Sunday to Saturday, so `{month@start} {day@start} – {month@end} {day@end}` on the week of 29 Nov 2026
+prints `NOV 29 – DEC 5`; in a book, a page covers only the days inside the book's calendar, so the same text on the last week of a
+November 2026 book prints `NOV 29 – NOV 30` (see `book-format.md`). A day page's `@start` and `@end` are its own day. Neither takes
+an offset: `{day+1@end}` and `{day@start+1}` are errors, and the reader says so. In a book, a week page's plain `{day}`, `{weekday}`,
+`{month}` and `{year}` read the week's first day, which may be before the calendar (its date tokens then print blank).
 
 In the editor the sample date is Monday 2026-10-26, read the way the page's kind reads it: a week page shows the week of
 Sunday 2026-10-25 (`OCT 25` to `OCT 31`).
@@ -248,7 +254,7 @@ Sunday 2026-10-25 (`OCT 25` to `OCT 31`).
 (as in journal-system): 2026-10-18 is week 43, and week 1 of 2027 starts on
 2026-12-27.
 
-Identities print in all caps. An unknown token (or a malformed offset, or an offset with `@end`) is an
+Identities print in all caps. An unknown token (or a malformed offset, or an offset with `@start` or `@end`) is an
 error.
 
 ## Spreads
