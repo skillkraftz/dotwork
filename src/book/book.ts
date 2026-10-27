@@ -1,6 +1,7 @@
 import { emptyPage, type Page } from '../format/types';
 import { readPage } from '../format/read';
-import { expandFor } from '../format/tokens';
+import { expandRead } from '../format/tokens';
+import { calendarProblem, type Calendar } from '../format/calendar';
 import { withSide, type SpreadSide } from '../format/spread';
 import { headerOf, hitsCorner } from '../format/bounds';
 import type { ValidationIssue } from '../format/validate';
@@ -20,6 +21,8 @@ export interface Book {
   print: { signatures: number };
   /** The interior pages as blocks, in order (see outline.ts). It is replaced when it changes, never edited in place. */
   outline: Block[];
+  /** The days the pages are dated from. A book without one is undated: its date tokens print blank. Replaced when it changes, never edited in place. */
+  calendar?: Calendar;
   /** front and back are the inside covers; the outside covers are optional (missing means blank). */
   cover: { front: Page | null; back: Page | null; outside_front?: Page | null; outside_back?: Page | null };
 }
@@ -80,14 +83,14 @@ export const FIRST_SLOT = -1;
 export const lastSlot = (book: Book) => book.page_count + 2;
 export const slotSide = (slot: number): SpreadSide => (slot % 2 ? 'right' : 'left');
 
-const layouts = new WeakMap<readonly Block[], { count: number; layout: Layout }>();
+const layouts = new WeakMap<readonly Block[], { count: number; calendar: Calendar | undefined; layout: Layout }>();
 
-/** What is on every page of the book, worked out from its outline. Kept for as long as the outline and the page count are as they were. */
+/** What is on every page of the book, worked out from its outline and calendar. Kept for as long as they and the page count are as they were. */
 export function bookLayout(book: Book): Layout {
   const kept = layouts.get(book.outline);
-  if (kept && kept.count === book.page_count) return kept.layout;
-  const layout = layoutOutline(book.outline, book.page_count);
-  layouts.set(book.outline, { count: book.page_count, layout });
+  if (kept && kept.count === book.page_count && kept.calendar === book.calendar) return kept.layout;
+  const layout = layoutOutline(book.outline, book.page_count, book.calendar);
+  layouts.set(book.outline, { count: book.page_count, calendar: book.calendar, layout });
   return layout;
 }
 
@@ -119,8 +122,11 @@ export function resizeBook(book: Book, pageCount: number): void {
   if (book.cover.back) book.cover.back = withSide(book.cover.back, 'right');
 }
 
-/** Undated for now: every date token prints blank, so the date can be written in by hand. */
-export const bookExpand = (book: Book, slot: number) => expandFor(null, bookPage(book, slot));
+/**
+ * How a slot turns date tokens into text: by what its block reads (a day, a week or a month of the calendar, see outline.ts). A page
+ * with no calendar, a gap page and the covers read nothing, so their tokens print blank and the date can be written in by hand.
+ */
+export const bookExpand = (book: Book, slot: number) => expandRead(isCover(book, slot) ? null : bookLayout(book).cells[slot - 1]?.read ?? null);
 
 // ---- reading ---------------------------------------------------------------
 
@@ -161,6 +167,12 @@ export function readBook(input: unknown): ReadBookResult {
   };
 
   const outline = readOutline(input.outline, fail);
+  let calendar: Calendar | undefined;
+  if (input.calendar !== undefined) {
+    const problem = calendarProblem(input.calendar);
+    if (problem) fail('calendar', 'calendar', problem);
+    else { const c = input.calendar as Calendar; calendar = { start: c.start, end: c.end, week_starts: c.week_starts }; }
+  }
 
   let cover: Book['cover'] = { front: null, back: null };
   if (!isObject(input.cover)) fail('cover', 'cover', '"cover" is required and must be an object with "front" and "back".');
@@ -174,7 +186,7 @@ export function readBook(input: unknown): ReadBookResult {
   if (issues.length || !outline) return { ok: false, issues };
   return {
     ok: true,
-    book: { format: 'dotwork-book', version: 1, name: input.name as string, page_count: count as number, page_numbers: input.page_numbers as boolean, print: { signatures }, outline, cover },
+    book: { format: 'dotwork-book', version: 1, name: input.name as string, page_count: count as number, page_numbers: input.page_numbers as boolean, print: { signatures }, outline, ...(calendar ? { calendar } : {}), cover },
   };
 }
 

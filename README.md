@@ -14,7 +14,7 @@ previews of them). It runs entirely in the browser: no backend, nothing leaves t
 - **Design pages and spreads.** A page is a stack of layered elements on whole or half cells: pattern (lines, grid, dots), shade
   (three tones), box, rule, checkboxes, text, sequence (numbers, letters, lists, icons) and imported SVG art. Row 0 is the header the
   software draws (page number at the outer corner, the page's identity by the spine; leave the identity empty to draw there). Date tokens
-  such as `{weekday}` and `{day+1}` are ready for dated books (a book has no dates yet, so they print blank). Tools are in a three-mode bottom bar (Select, Draw, Advanced); selection is by
+  such as `{weekday}` and `{day+1}` print the page's day, week or month in a book with a calendar (a book without one prints them blank). Tools are in a three-mode bottom bar (Select, Draw, Advanced); selection is by
   tap or drag-box, with groups, layers, a properties drawer, widgets (saved selections) and a help mode that explains any control.
 - **Keep them in a Library.** Pages, spreads, sections (groups of blocks), books, widgets and art, with search, tabs, favorites and a
   backup file. It comes filled with every reference page, paired spreads, starter widgets, sections and book templates; built-ins can't be
@@ -80,7 +80,7 @@ Settings > Pages > Source: GitHub Actions). The build uses relative paths, so it
 
 The next step is not more features but a simpler shape. [docs/product-model.md](docs/product-model.md) describes it. Done so far: every page, spread, section
 and book is a document that saves itself, and a book is an outline of blocks (pages, spreads, groups) each with a repeat (×N, "fill what's left") and
-an optional pin. Next: repeats like "each week of the calendar", so undated books and dated books are built the same way and dates are worked out, never typed; pages stay linked
+an optional pin. A book may have a calendar, and blocks repeat "each day / week / month of the calendar" so dates are worked out, never typed; free pages hold designs of their own. Next: the week block; pages stay linked
 to their designs so a change can be brought into a book, with snapshots to go back; and the app is organised as Design, Plan and Print, sharing one
 Library. A database comes after that.
 

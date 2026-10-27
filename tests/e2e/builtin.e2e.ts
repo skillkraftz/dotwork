@@ -107,8 +107,9 @@ for (const device of ['phone', 'desktop'] as Device[]) {
       const book = await savedBook(app);
       expect(book.name).toBe('2026 year planner');
       expect(book.page_count).toBe(52);
-      expect(book.outline.map((b: { type: string }) => b.type)).toEqual(['group', 'spread']); // weekly pages in pairs, then idea spreads to fill
-      expect(book.outline[0]).toMatchObject({ repeat: { times: 5 } }); // weeks 43 to 52
+      expect(book.outline.map((b: { type: string }) => b.type)).toEqual(['page', 'spread']); // a weekly page for each week, then idea spreads to fill
+      expect(book.outline[0]).toMatchObject({ repeat: { each: 'week' } }); // weeks 43 to 52
+      expect(book.calendar).toEqual({ start: '2026-10-18', end: '2026-12-26', week_starts: 0 });
       expect(book.outline[1].repeat).toEqual({ fill: true });
       await shot(app, `book-${device}-year-planner`);
       noErrors(app);

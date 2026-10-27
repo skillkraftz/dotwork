@@ -6,7 +6,7 @@ import { BUILTIN_PAGES, BUILTIN_SPREADS, BUILTIN_WIDGETS, asCopy, isBuiltinName 
 import { TEMPLATES } from '../src/builtin/templates';
 import { monthStarts, monthOfWeek } from '../src/builtin/calendar';
 import { monthlyLayout } from '../src/builtin/layout';
-import { readBook, bookLayout, bookPage, getSlot } from '../src/book/book';
+import { readBook, bookExpand, bookLayout, bookPage, getSlot } from '../src/book/book';
 import { readSpread } from '../src/format/spread';
 import { formatIssue, validatePage, validateElement } from '../src/format/validate';
 import { placeWidget } from '../src/widgets';
@@ -178,10 +178,10 @@ describe('the book templates', () => {
     expect([12, 13, 50, 51].map((n) => bookPage(book, n).name)).toEqual(['Idea page', 'Dot grid page', 'Idea page', 'Dot grid page']);
     expect(getSlot(book, 53)!.name).toBe('Year index');
     expect(getSlot(book, 0)!.name).toBe('Year goals cover');
-    // the day column is on the outer edge: right on right pages, left on left pages
-    const col = (slot: number) => bookPage(book, slot).elements.find((e) => e.type === 'rule' && e.y1 === 1 && e.y2 === 44);
-    expect(col(1)).toMatchObject({ x1: 25 });
-    expect(col(2)).toMatchObject({ x1: 2 });
+    // the book has the chosen weeks as its calendar, and each weekly page prints its own week
+    expect(book.calendar).toEqual({ start: '2026-10-18', end: '2026-12-26', week_starts: 0 });
+    expect([1, 2, 10].map((n) => bookExpand(book, n)('{month} {day}'))).toEqual(['OCT 18', 'OCT 25', 'DEC 20']);
+    expect(bookExpand(book, 1)('{week}')).toBe('43');
   });
 
   it('lays the monthly journal out like the October 2026 reference', () => {

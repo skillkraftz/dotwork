@@ -302,6 +302,12 @@ dialog.calibrate { width: min(640px, calc(100% - 28px)); }
 .crow-text { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
 .crow-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--gray-4); }
 .orow .crow-name { white-space: normal; overflow-wrap: anywhere; font-size: 12px; }
+.crow-reads { font-size: 12px; color: var(--gray-4); font-style: italic; white-space: normal; overflow-wrap: anywhere; }
+.calendar-line { margin: 4px 0 0; }
+.free-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.free-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.free-list .nofit { color: #c00; font-style: normal; font-weight: 700; }
+.settings .cal-actions { margin-top: 4px; }
 
 /* design picker */
 dialog.picker { width: min(960px, calc(100% - 28px)); }

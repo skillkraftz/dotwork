@@ -1,4 +1,6 @@
 import type { Page } from '../format/types';
+import { readingOf, spansOf, type Calendar } from '../format/calendar';
+import type { Reading, Unit } from '../format/tokens';
 import { notesPage } from '../builtin/pages';
 
 // A book is an outline: an ordered list of blocks. The pages it prints are worked out from it by `layoutOutline`, the one
@@ -7,13 +9,21 @@ import { notesPage } from '../builtin/pages';
 /** The design a block was placed from (its Library id) and a fingerprint of that design as it was placed. Recorded, not used yet. */
 export interface Link { id: string; fingerprint: string }
 
-/** How often a block is placed: a number of times, or as many times as use up the pages the others leave. */
-export type Repeat = { times: number } | { fill: true };
+/**
+ * How often a block is placed: a number of times, as many times as use up the pages the others leave, or once for each day, week
+ * or month of the book's calendar. Inside a group that repeats by week or month, a block can instead repeat once for each day
+ * or week of the group's span (`of: 'span'`).
+ */
+export type Repeat = { times: number } | { fill: true } | { each: Unit } | { each: 'day' | 'week'; of: 'span' };
 /** A page number, or the last page of the book (which follows the book if it is resized). */
 export type Pin = number | 'last';
 
 export interface PageBlock { type: 'page'; /** null is a blank page. */ page: Page | null; repeat: Repeat; pin?: Pin; from?: Link }
-export interface SpreadBlock { type: 'spread'; name: string; left: Page; right: Page; repeat: Repeat; pin?: Pin; from?: Link }
+/**
+ * `shared` sets whether both pages read the same day, week or month. Left out, a spread that repeats each day gives each page its
+ * own day (two days a repeat) and one that repeats each week or month gives both pages the one week or month.
+ */
+export interface SpreadBlock { type: 'spread'; name: string; left: Page; right: Page; repeat: Repeat; shared?: boolean; pin?: Pin; from?: Link }
 /**
  * Pages the owner fills by hand. At the top level the block takes whatever pages the others leave (blank, or the design
  * kept in `pages`); inside a group it is exactly its `pages` (one blank page when empty) for each repeat of the group.
@@ -29,6 +39,8 @@ export const MAX_BLOCKS = 200;
 
 export const isFill = (b: Block): boolean => b.type !== 'free' && 'fill' in b.repeat;
 export const timesOf = (r: Repeat): number => ('times' in r ? r.times : 1);
+/** Whether a repeat follows the calendar (each day, week or month of it, or of a group's span). */
+export const isEach = (r: Repeat): r is Extract<Repeat, { each: Unit }> => 'each' in r;
 /** Whether a top-level block takes what the others leave: free pages, or a fill. */
 export const takesRest = (b: Block): boolean => b.type === 'free' || isFill(b);
 
@@ -41,6 +53,12 @@ export interface Cell {
   page: Page | null;
   /** The top-level block it comes from. */
   block: number;
+  /** For a block inside a group: which child. */
+  child?: number;
+  /** For a free page: which of the block's `pages` it is. */
+  free?: number;
+  /** What its tokens read: a day, a week or a month of the calendar; null when nothing is dated (no calendar, or outside it). */
+  read: Reading | null;
 }
 
 /** What a top-level block did. */
@@ -57,6 +75,8 @@ export interface Row {
   gaps: number[];
   /** Gap pages inside it. */
   innerGaps: number;
+  /** For free pages: the ones kept that don't fit in the book, as their index in `pages`. */
+  beyond: number[];
 }
 
 export interface Layout {
@@ -73,28 +93,47 @@ export interface Layout {
   issues: string[];
 }
 
-interface Atom { pages: (Page | null)[]; free?: boolean }
+interface Atom { pages: (Page | null)[]; /** What each page reads. */ reads: (Reading | null)[]; free?: number; child?: number }
 
 const pinOf = (b: Block): Pin | undefined => (b.type === 'free' ? undefined : b.pin);
 
 const blockName = (b: Block) => (b.type === 'page' ? b.page?.name || 'Blank' : b.type === 'free' ? 'Free pages' : b.name);
 
-/** The atoms of one repeat of a child: a page, a spread (two pages that must start on a left page) or free pages, each repeated by the child's own repeat inside a group. */
-function childAtoms(c: Child): Atom[] {
-  if (c.type === 'free') return (c.pages.length ? c.pages : [null]).map((page) => ({ pages: [page], free: true }));
-  const one: Atom = c.type === 'page' ? { pages: [c.page] } : { pages: [c.left, c.right] };
-  return Array.from({ length: timesOf(c.repeat) }, () => one);
+/** What each repeat of an `each` repeat reads. Without a calendar (or a span to read) there is one repeat and it is undated. */
+function eachReads(r: Extract<Repeat, { each: Unit }>, cal: Calendar | undefined, span: Reading | null): (Reading | null)[] {
+  if (!cal || ('of' in r && !span)) return [null];
+  return spansOf(cal, r.each, 'of' in r && span ? span : undefined).map((s) => readingOf(cal, s));
 }
 
-/** `times` repeats of what a block holds. */
-function atomsOf(b: Block, times: number): Atom[] {
-  const unit = b.type === 'group' ? b.children.flatMap(childAtoms) : b.type === 'free' ? childAtoms(b) : childAtoms({ ...b, repeat: { times: 1 } });
-  return Array.from({ length: times }, () => unit).flat();
+/** What each repeat of a repeat reads: its day, week or month, or the span it sits in. `times` is how often a plain repeat runs. */
+const repeatReads = (r: Repeat, times: number, cal: Calendar | undefined, span: Reading | null) =>
+  isEach(r) ? { reads: eachReads(r, cal, span), unit: r.each } : { reads: Array.from({ length: times }, () => span), unit: null };
+
+/** Atoms of a page or spread block, one for each thing it reads. */
+function pageAtoms(c: PageBlock | SpreadBlock, child: number | undefined, times: number, cal: Calendar | undefined, span: Reading | null): Atom[] {
+  const { reads, unit } = repeatReads(c.repeat, times, cal, span);
+  if (c.type === 'page') return reads.map((r) => ({ pages: [c.page], reads: [r], child }));
+  if (c.shared ?? unit !== 'day') return reads.map((r) => ({ pages: [c.left, c.right], reads: [r, r], child }));
+  const out: Atom[] = [];
+  for (let i = 0; i < reads.length; i += 2) out.push({ pages: [c.left, c.right], reads: [reads[i], reads[i + 1] ?? null], child });
+  return out;
+}
+
+/** The pages of a free block inside a group, one atom each (one blank page when it holds none). */
+const freeAtoms = (c: FreeBlock, child: number | undefined, span: Reading | null): Atom[] =>
+  (c.pages.length ? c.pages : [null]).map((page, j) => ({ pages: [page], reads: [span], free: j, child }));
+
+/** `times` repeats of what a block holds (for a block that follows the calendar, one for each day, week or month instead). */
+function atomsOf(b: Block, cal: Calendar | undefined, times: number): Atom[] {
+  if (b.type === 'free') return Array.from({ length: times }, () => freeAtoms(b, undefined, null)).flat();
+  if (b.type === 'page' || b.type === 'spread') return pageAtoms(b, undefined, times, cal, null);
+  return repeatReads(b.repeat, times, cal, null).reads.flatMap((span) =>
+    b.children.flatMap((c, k) => (c.type === 'free' ? freeAtoms(c, k, span) : pageAtoms(c, k, timesOf(c.repeat), cal, span))));
 }
 
 const widthOf = (atoms: Atom[]) => atoms.reduce((n, a) => n + a.pages.length, 0);
 
-const gapCell = (block: number): Cell => ({ kind: 'gap', page: notesPage(), block });
+const gapCell = (block: number): Cell => ({ kind: 'gap', page: notesPage(), block, read: null });
 
 /**
  * Put atoms down from slot `start`, skipping slots `taken`. A spread starts on a left (even) page: where it would land on a
@@ -109,7 +148,7 @@ function put(atoms: Atom[], start: number, block: number, taken: (n: number) => 
     if (a.pages.length === 2) {
       while (p % 2 === 1 || taken(p + 1)) { out.set(p, gapCell(block)); p++; skip(); }
     }
-    a.pages.forEach((page, i) => out.set(p + i, { kind: a.free ? 'free' : 'content', page, block }));
+    a.pages.forEach((page, i) => out.set(p + i, { kind: a.free !== undefined ? 'free' : 'content', page, block, read: a.reads[i] ?? null, child: a.child, free: a.free }));
     p += a.pages.length;
   }
   return { next: p, hit };
@@ -123,16 +162,16 @@ const lastOf = (m: Map<number, Cell>) => { let e = 0; for (const k of m.keys()) 
  * takes as many pages as still fit, so a book keeps its length. Blocks that need more pages than the book has run past the
  * end: `over` says by how many.
  */
-export function layoutOutline(outline: readonly Block[], count: number): Layout {
+export function layoutOutline(outline: readonly Block[], count: number, cal?: Calendar): Layout {
   const issues: string[] = [];
   const pinned = new Map<number, Cell>();
   const rest = outline.findIndex((b) => pinOf(b) === undefined && takesRest(b));
-  const repeats = (b: Block) => (b.type === 'free' ? 1 : timesOf(b.repeat));
+  const repeats = (b: Block) => (b.type === 'free' ? 1 : isEach(b.repeat) ? repeatReads(b.repeat, 0, cal, null).reads.length : timesOf(b.repeat));
 
   outline.forEach((b, i) => {
     const pin = pinOf(b);
     if (pin === undefined) return;
-    const atoms = atomsOf(b, repeats(b));
+    const atoms = atomsOf(b, cal, repeats(b));
     const width = widthOf(atoms);
     const taken = (n: number) => pinned.has(n);
     let start = typeof pin === 'number' ? pin : Math.max(1, count - width + 1);
@@ -156,8 +195,8 @@ export function layoutOutline(outline: readonly Block[], count: number): Layout 
     outline.forEach((b, i) => {
       if (pinOf(b) !== undefined) return;
       let atoms: Atom[];
-      if (i === rest && b.type === 'free') atoms = Array.from({ length: k }, (_, j) => ({ pages: [b.pages[j] ?? null], free: true }));
-      else atoms = atomsOf(b, i === rest ? k : repeats(b));
+      if (i === rest && b.type === 'free') atoms = Array.from({ length: k }, (_, j) => ({ pages: [b.pages[j] ?? null], reads: [null], free: j }));
+      else atoms = atomsOf(b, cal, i === rest ? k : repeats(b));
       p = put(atoms, p, i, (n) => pinned.has(n) || out.has(n), out).next;
     });
     return out;
@@ -172,7 +211,7 @@ export function layoutOutline(outline: readonly Block[], count: number): Layout 
       k = Math.max(min, room);
       while (k > min && lastOf(flow(k)) > count) k--;
     } else {
-      const unit = widthOf(atomsOf(b, 1));
+      const unit = widthOf(atomsOf(b, cal, 1));
       k = unit > 0 ? Math.max(0, Math.floor(room / unit)) : 0;
       while (k > 0 && lastOf(flow(k)) > count) k--;
     }
@@ -189,6 +228,7 @@ export function layoutOutline(outline: readonly Block[], count: number): Layout 
     return {
       block: i, pages: mine.length, first: mine[0] ?? null, last: mine[mine.length - 1] ?? null,
       repeats: i === rest ? k : repeats(b), gaps: lead, innerGaps: mine.filter((n) => all.get(n)!.kind === 'gap').length,
+      beyond: i === rest && b.type === 'free' ? mine.filter((n) => n > count).map((n) => all.get(n)!.free!) : [],
     };
   });
 
@@ -267,7 +307,7 @@ export function moveIntoGroup(outline: readonly Block[], path: Path, group: numb
   const [block] = copy.splice(path[0], 1) as Child[];
   if (block.type !== 'free') {
     delete block.pin;
-    if ('fill' in block.repeat) block.repeat = { times: 1 };
+    if ('fill' in block.repeat || isEach(block.repeat)) block.repeat = { times: 1 };
   }
   const target = group > path[0] ? group - 1 : group;
   (copy[target] as GroupBlock).children.push(block);
@@ -278,6 +318,7 @@ export function moveIntoGroup(outline: readonly Block[], path: Path, group: numb
 export function moveOutOfGroup(outline: readonly Block[], path: [number, number]): Block[] {
   const copy = clone(outline) as Block[];
   const [block] = (copy[path[0]] as GroupBlock).children.splice(path[1], 1);
+  if (block.type !== 'free' && isEach(block.repeat)) block.repeat = { times: 1 }; // "of the group's span" means nothing outside it
   copy.splice(path[0] + 1, 0, block);
   return copy;
 }
@@ -327,8 +368,42 @@ export const fillRepeat = (): Repeat => ({ fill: true });
 /** What the outline calls a block. */
 export const nameOf = blockName;
 
-/** "×6", or "fill what’s left". */
-export const repeatLabel = (b: Block): string => (b.type === 'free' ? 'free pages' : 'fill' in b.repeat ? 'fill what’s left' : `×${b.repeat.times}`);
+/** "×6", "fill what’s left", "each day", or, inside a group that repeats by week, "each day of the week". */
+export function repeatLabel(b: Block, parent?: GroupBlock): string {
+  if (b.type === 'free') return 'free pages';
+  const r = b.repeat;
+  if ('fill' in r) return 'fill what’s left';
+  if (!isEach(r)) return `×${r.times}`;
+  if (!('of' in r)) return `each ${r.each}`;
+  const span = parent && isEach(parent.repeat) ? parent.repeat.each : null;
+  return `each ${r.each} of ${span ? `the ${span}` : 'the group’s span'}`;
+}
+
+/** The first page a block (or a child of a group) lands on, or null when it takes none. */
+export const firstCell = (layout: Layout, block: number, child?: number): { slot: number; cell: Cell } | null => {
+  const at = layout.cells.findIndex((c) => !!c && c.kind !== 'gap' && c.block === block && (child === undefined || c.child === child));
+  return at < 0 ? null : { slot: at + 1, cell: layout.cells[at]! };
+};
+
+/**
+ * Put a design on one of a free-pages block's pages (null makes it blank). The list is padded with blank pages up to it, and
+ * blank pages at its end are dropped, which is how a free page that doesn't fit is taken out.
+ */
+export function setFreePage(outline: readonly Block[], path: Path, index: number, page: Page | null): Block[] {
+  const b = blockAt(outline, path);
+  if (!b || b.type !== 'free') return clone(outline) as Block[];
+  const pages = [...b.pages];
+  while (pages.length <= index) pages.push(null);
+  pages[index] = page ? clone(page) : null;
+  while (pages.length && pages[pages.length - 1] === null) pages.pop();
+  return replaceBlock(outline, path, { type: 'free', pages });
+}
+
+/** Whether a spread's two pages read the same day, week or month. */
+export function setShared(outline: readonly Block[], path: Path, shared: boolean): Block[] {
+  const b = blockAt(outline, path);
+  return b?.type === 'spread' ? replaceBlock(outline, path, { ...clone(b), shared }) : (clone(outline) as Block[]);
+}
 
 /** "Make the book N pages": the next multiple of 4 that holds `end` pages. */
 export const pagesToHold = (end: number): number => Math.ceil(end / 4) * 4;

@@ -28,14 +28,26 @@ export function readOutline(raw: unknown, fail: Fail, at = 'outline'): Block[] |
     if (!isObject(v) || typeof v.id !== 'string' || typeof v.fingerprint !== 'string') { bad('from', path, '"from" must be {"id": string, "fingerprint": string}.'); return undefined; }
     return { id: v.id, fingerprint: v.fingerprint };
   };
-  const repeat = (v: unknown, path: string, allowFill: boolean): Repeat | undefined => {
-    if (isObject(v) && Number.isInteger(v.times) && (v.times as number) >= 1 && (v.times as number) <= MAX_REPEAT && Object.keys(v).length === 1) return { times: v.times as number };
-    if (isObject(v) && v.fill === true && Object.keys(v).length === 1) {
-      if (allowFill) return { fill: true };
+  const repeat = (v: unknown, path: string, top: boolean): Repeat | undefined => {
+    const keys = isObject(v) ? Object.keys(v).sort().join() : '';
+    if (isObject(v) && keys === 'times' && Number.isInteger(v.times) && (v.times as number) >= 1 && (v.times as number) <= MAX_REPEAT) return { times: v.times as number };
+    if (isObject(v) && keys === 'fill' && v.fill === true) {
+      if (top) return { fill: true };
       bad('repeat', path, '"repeat" can only be {"fill": true} on a top-level page, spread or group block.');
       return undefined;
     }
-    bad('repeat', path, `"repeat" must be {"times": 1 to ${MAX_REPEAT}}${allowFill ? ' or {"fill": true}' : ''}, got ${JSON.stringify(v)}.`);
+    // Following the calendar: each day, week or month of it at the top level; inside a group, each day or week of the group's span.
+    if (isObject(v) && keys === 'each' && (v.each === 'day' || v.each === 'week' || v.each === 'month')) {
+      if (top) return { each: v.each };
+      bad('repeat', path, 'Inside a group "repeat" is {"times": n} or {"each": "day" | "week", "of": "span"}; each day, week or month of the calendar is for top-level blocks.');
+      return undefined;
+    }
+    if (isObject(v) && keys === 'each,of' && (v.each === 'day' || v.each === 'week') && v.of === 'span') {
+      if (!top) return { each: v.each, of: 'span' };
+      bad('repeat', path, '{"each": …, "of": "span"} is for a block inside a group that repeats by week or month.');
+      return undefined;
+    }
+    bad('repeat', path, `"repeat" must be {"times": 1 to ${MAX_REPEAT}}${top ? ', {"fill": true} or {"each": "day" | "week" | "month"}' : ' or {"each": "day" | "week", "of": "span"}'}, got ${JSON.stringify(v)}.`);
     return undefined;
   };
   const pin = (v: unknown, path: string): Pin | undefined => {
@@ -57,6 +69,7 @@ export function readOutline(raw: unknown, fail: Fail, at = 'outline'): Block[] |
       return pages.some((x) => x === undefined) ? undefined : { type: 'free', pages: pages as (Page | null)[] };
     }
     const rep = repeat(v.repeat, where('repeat'), top);
+    if (v.shared !== undefined && typeof v.shared !== 'boolean') bad('shared', where('shared'), '"shared" must be true or false.');
     const pn = top ? pin(v.pin, where('pin')) : undefined;
     const from = link(v.from, where('from'));
     if (pn !== undefined && rep && 'fill' in rep) bad('pin', where('pin'), 'A block can’t both fill what is left and be pinned.');
@@ -68,7 +81,7 @@ export function readOutline(raw: unknown, fail: Fail, at = 'outline'): Block[] |
     if (v.type === 'spread') {
       if (typeof v.name !== 'string') bad('name', where('name'), '"name" is required and must be a string.');
       const left = page(v.left, where('left'), 'left'), right = page(v.right, where('right'), 'right');
-      return !left || !right || !rep || typeof v.name !== 'string' ? undefined : { type: 'spread', name: v.name, left, right, repeat: rep, ...extra };
+      return !left || !right || !rep || typeof v.name !== 'string' ? undefined : { type: 'spread', name: v.name, left, right, repeat: rep, ...(typeof v.shared === 'boolean' ? { shared: v.shared } : {}), ...extra };
     }
     if (v.type === 'group') {
       if (!top) { bad('group', where('type'), 'Groups don’t nest: a group holds page, spread and free-pages blocks.'); return undefined; }

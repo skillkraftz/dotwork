@@ -229,9 +229,12 @@ tokens blank. Dotwork shows sample values in the editor, for Monday
 A month offset keeps the day of the month where it can (Jan 31 + 1 month is in February, Feb 29 + 1 year is Feb 28), so
 `{month+1}` on any date of January reads `FEB`. `{months+N}` still moves by days. An offset is a whole number of at most four digits.
 
-**What a page covers.** A page is a *week page* if its tokens include `{week}`, any `@end`, or a day offset of 6 or more
-(`{day}`, `{weekday}` or `{months}` with +6 or beyond, or −6); otherwise it is a *day page*. (Until the book has a calendar this is
-how Dotwork decides; a book has no dates yet, so in a book every token prints blank.)
+**What a page covers.** In a book, the block's repeat decides (see `book-format.md`, Tokens): a page placed for each day reads
+that day, for each week that week, for each month that month, and a page placed with no calendar prints every token blank. The
+editor has no block, so it guesses for its sample: a *week page* if its tokens include `{week}`, any `@end`, or a day offset of 6 or
+more (`{day}`, `{weekday}` or `{months}` with +6 or beyond, or −6); otherwise a *day page*. Adding a page to a book suggests its
+repeat from its tokens: `@end` or a day offset of 6 or more is each week; `{weekday}` or `{day}` is each day (a `{week}` beside
+them is only extra); `{week}` alone is each week; any other date token is each month.
 
 - A **day page** reads its date.
 - A **week page** reads the week holding its date, Sunday to Saturday: `{weekday}`, `{day}`, `{month}`, `{year}` are the
