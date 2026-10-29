@@ -23,7 +23,7 @@ export type ToneLetter = (typeof TONE_LETTERS)[number];
 export const ALONGS = ['rows', 'columns', 'checker'] as const;
 export type Along = (typeof ALONGS)[number];
 
-export const SEQUENCE_VALUES = ['numbers', 'letters', 'list', 'icons'] as const;
+export const SEQUENCE_VALUES = ['numbers', 'letters', 'list', 'icons', 'month_days', 'month_weekdays'] as const;
 export type SequenceValues = (typeof SEQUENCE_VALUES)[number];
 export const ICON_SIZES = [1, 2] as const;
 export type IconSize = (typeof ICON_SIZES)[number];
@@ -35,6 +35,9 @@ export const WEIGHTS = ['thin', 'thick'] as const;
 export type Weight = (typeof WEIGHTS)[number];
 export const RULE_WEIGHTS = ['hair', 'thin', 'thick'] as const;
 export type RuleWeight = (typeof RULE_WEIGHTS)[number];
+
+export const WEEK_LINES = ['hair', 'thin'] as const;
+export type WeekLine = (typeof WEEK_LINES)[number];
 
 export const DIRECTIONS = ['down', 'across'] as const;
 export type Direction = (typeof DIRECTIONS)[number];
@@ -75,6 +78,15 @@ export interface Shade extends Area {
   along?: Along;
   /** How many cells each tone step covers. */
   every?: number;
+  /**
+   * Only the Saturdays and Sundays of the month the page reads are shaded: the shade is split into day cells (one per day, `every` cells apart, along
+   * `direction`, from its top or left) and only those of weekends get the first of `tones`; days past the month's end get none. `along` is ignored.
+   */
+  weekends?: boolean;
+  /** weekends: which way the days run. */
+  direction?: Direction;
+  /** weekends: a rule across the box between each Saturday and the next Sunday. */
+  week_lines?: WeekLine;
 }
 
 export interface Box extends Area {
@@ -115,7 +127,11 @@ export interface Text {
   rotate?: Rotation;
 }
 
-/** A run of cells with one item in each: numbers, letters, a repeating list of short texts, or icons. */
+/**
+ * A run of cells with one item in each: numbers, letters, a repeating list of short texts, or icons; or the month the page reads:
+ * `month_days` (1, 2, 3 ... to the month's last day) or `month_weekdays` (one letter each, starting at the month's first day).
+ * `count` is the most items drawn; items past the month's last day print nothing.
+ */
 export interface Sequence {
   type: 'sequence';
   x: number;

@@ -648,7 +648,8 @@ export type Design = { page: Page | null } | { name: string; left: Page; right: 
 /**
  * Put a design in a page or spread block, keeping its repeat, pin, shared setting, position and group. `from` is the link to the
  * design it came from: left out it stays as it is (editing in place), a link replaces it, null takes it off (a blank page has none).
- * A design of the other kind than the block changes nothing.
+ * A design of the other kind than the block turns the block into that kind (a page block into a spread block or back), keeping the
+ * same things; the old link goes, since it named the other kind of design.
  */
 export function setDesign(outline: readonly Block[], path: Path, design: Design, from?: Link | null): Block[] {
   const b = blockAt(outline, path);
@@ -660,6 +661,14 @@ export function setDesign(outline: readonly Block[], path: Path, design: Design,
   if (b?.type === 'spread' && 'left' in design) {
     const { from: old, ...rest } = clone(b);
     return replaceBlock(outline, path, { ...rest, name: design.name, left: clone(design.left), right: clone(design.right), ...link(old) });
+  }
+  if (b?.type === 'page' && 'left' in design) {
+    const { type, page: _page, from: _old, ...rest } = clone(b);
+    return replaceBlock(outline, path, { type: 'spread', name: design.name, left: clone(design.left), right: clone(design.right), ...rest, ...(from ? { from } : {}) });
+  }
+  if (b?.type === 'spread' && 'page' in design) {
+    const { type, name: _name, left: _left, right: _right, shared: _shared, from: _old, ...rest } = clone(b);
+    return replaceBlock(outline, path, { type: 'page', page: design.page ? clone(design.page) : null, ...rest, ...(from ? { from } : {}) });
   }
   return clone(outline) as Block[];
 }

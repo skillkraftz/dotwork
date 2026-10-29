@@ -1,5 +1,8 @@
 import { ICONS } from '../icons/icons';
 import { DEFAULTS, type Area, type Sequence } from './types';
+import type { MonthDays } from './month';
+
+const WEEKDAY_LETTERS = 'SMTWTFS';
 
 /** Text items are short enough to sit in one 3 mm cell: two characters of the label size. */
 export const MAX_ITEM_CHARS = 2;
@@ -32,8 +35,8 @@ function letters(n: number): string {
   return s;
 }
 
-/** What item `i` says (or, for icons, which icon it is). */
-export function itemValue(e: Sequence, i: number): string {
+/** What item `i` says (or, for icons, which icon it is). The month tools read `month`; with none, or past its last day, they say nothing. */
+export function itemValue(e: Sequence, i: number, month: MonthDays | null = null): string {
   switch (e.values ?? DEFAULTS.values) {
     case 'numbers': return String((typeof e.start === 'number' ? e.start : DEFAULTS.start) + i * (e.step ?? DEFAULTS.step));
     case 'letters': {
@@ -43,11 +46,13 @@ export function itemValue(e: Sequence, i: number): string {
     }
     case 'list': return e.list?.length ? e.list[i % e.list.length] : '';
     case 'icons': return e.icons?.length ? e.icons[i % e.icons.length] : '';
+    case 'month_days': return month && i < month.days ? String(i + 1) : '';
+    case 'month_weekdays': return month && i < month.days ? WEEKDAY_LETTERS[(month.first + i) % 7] : '';
   }
 }
 
 /** Every item of the run, in order. */
-export const sequenceItems = (e: Sequence): string[] => Array.from({ length: Math.max(0, e.count) }, (_, i) => itemValue(e, i));
+export const sequenceItems = (e: Sequence, month: MonthDays | null = null): string[] => Array.from({ length: Math.max(0, e.count) }, (_, i) => itemValue(e, i, month));
 
 export const isIconName = (name: unknown): name is string => typeof name === 'string' && Object.hasOwn(ICONS, name);
 

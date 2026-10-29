@@ -215,9 +215,8 @@ describe('the book templates', () => {
   it('puts the month’s own tracker and day list on the covers', () => {
     const book = TEMPLATES.find((t) => t.id === 'monthly-journal')!.build({ year: 2027, month: 2 });
     const tracker = getSlot(book, 0)!;
-    const days = tracker.elements.find((e) => e.type === 'sequence' && e.values === 'numbers');
-    expect(days).toMatchObject({ count: 28 });
-    expect(tracker.identity).toBe('FEBRUARY 2027');
+    expect(tracker.elements.find((e) => e.type === 'sequence' && e.values === 'month_days')).toMatchObject({ count: 31 });
+    expect(bookExpand(book, 0)(tracker.identity!)).toBe('FEBRUARY 2027'); // the cover reads the calendar's first month
     const dailies = Array.from({ length: 52 }, (_, i) => bookPage(book, i + 1).name).filter((n) => n === 'Daily Log');
     expect(dailies).toHaveLength(28); // a daily page for each day
   });

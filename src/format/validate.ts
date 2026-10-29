@@ -1,6 +1,6 @@
 import {
   ALIGNS, ALONGS, COLS, DAY_FILTERS, DIRECTIONS, DOT_SIZES, ELEMENT_TYPES, ICON_SIZES, PAGE_SIDES, PATTERNS, PITCH_MM, ROTATIONS, ROWS, RULE_WEIGHTS,
-  GENERATED_KINDS, SEQUENCE_VALUES, SIDES, TEXT_SIZES, TEXT_STYLES, TEXT_TONES, WEIGHTS, type Sequence,
+  GENERATED_KINDS, SEQUENCE_VALUES, WEEK_LINES, SIDES, TEXT_SIZES, TEXT_STYLES, TEXT_TONES, WEIGHTS, type Sequence,
 } from './types';
 import { tonesProblem } from './shade';
 import { CLOSED_HEADER, checkboxSpan, headerOf, hitsCorner, insideGrid, limitsArea, type Header } from './bounds';
@@ -152,7 +152,8 @@ function validateElementInto(el: unknown, at: string, fail: Fail, header: Header
       if (el.type === 'shade') {
         const problem = tonesProblem(el.tones);
         if (problem) fail('tones', `${at}.tones`, problem);
-        choice('along', ALONGS);
+        choice('along', ALONGS); choice('direction', DIRECTIONS); choice('week_lines', WEEK_LINES);
+        if (el.weekends !== undefined && typeof el.weekends !== 'boolean') fail('value', `${at}.weekends`, `"weekends" must be true or false, got ${JSON.stringify(el.weekends)}.`);
         every();
       }
       if (el.type === 'generated') {

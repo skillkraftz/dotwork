@@ -1,6 +1,5 @@
 import type { Page, PageElement, PageSide, Pattern, Rule, Sequence, Text } from '../format/types';
-import { dayOfWeek } from '../format/dates';
-import { MONTH_ABBR, MONTH_NAMES, daysInMonth, monthStarts } from './calendar';
+import { MONTH_ABBR, monthStarts } from './calendar';
 
 // Built-in pages, drawn in code so the ones that depend on a date (a month's tracker, a year's index) can be
 // made for any year. Positions are in cells; see docs/page-format.md. Gray text, hair lines and thin rules are
@@ -168,25 +167,15 @@ export function purposeCover(): Page {
 // ---- the monthly tracker --------------------------------------------------------------------------------
 
 /**
- * The monthly tracker (inside front cover) for a real month: a numbered row for each day with its weekday letter
- * and the weekends shaded, a grid of habit columns, a column of sleep hours, and appointment lines. Everything is
- * concrete, so the day count, the weekday letters and the shading are right for that month.
+ * The monthly tracker (inside front cover), drawn once for every month: a row for each of up to 31 days with its number and weekday
+ * letter and the weekends shaded, a grid of habit columns, a column of sleep hours, and appointment lines. The numbers, letters and
+ * shading read the month of the page (a cover reads the calendar's first month), so days past the month's end are left blank.
  */
-export function monthlyTracker(year: number, month: number): Page {
-  const n = daysInMonth(year, month);
-  const first = dayOfWeek(`${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-01`);
-  const weekend = (i: number) => [0, 6].includes((first + i) % 7);
-  const shades: PageElement[] = [];
-  for (let i = 0; i < n; i++) {
-    if (!weekend(i)) continue;
-    const prev = shades[shades.length - 1];
-    if (prev && prev.type === 'shade' && prev.y + prev.h === 8 + i) prev.h += 1;
-    else shades.push({ type: 'shade', tones: 'L', x: 1, y: 8 + i, w: 26, h: 1 });
-  }
-  const letters = [...'SMTWTFS'];
+export function monthlyTracker(): Page {
+  const n = 31; // rows for the longest month
   const rest = 36 - n; // rows left under the days for the times box
-  return makePage('Monthly tracker', 'left', `${MONTH_NAMES[month - 1]} ${year}`, [
-    ...shades,
+  return makePage('Monthly tracker', 'left', '{monthname} {year}', [
+    { type: 'shade', tones: 'L', x: 1, y: 8, w: 26, h: n, weekends: true },
     lines(15, 7, 12, n + 1),
     { type: 'pattern', pattern: 'grid', x: 1, y: 8, w: 14, h: n },
     lines(0, 8.5, 1, n),
@@ -200,7 +189,7 @@ export function monthlyTracker(year: number, month: number): Page {
     label(0, 8, 'hrs sleep', { rotate: 90 }),
     label(2, 8, 'habits', { rotate: 90 }),
     label(2, 43, 'times', { rotate: 90 }),
-    { type: 'sequence', x: 1, y: 8, count: n, values: 'numbers', tone: 'black' },
-    { type: 'sequence', x: 2, y: 8, count: n, values: 'list', list: [...letters.slice(first), ...letters.slice(0, first)], tone: 'gray' },
+    { type: 'sequence', x: 1, y: 8, count: n, values: 'month_days', tone: 'black' },
+    { type: 'sequence', x: 2, y: 8, count: n, values: 'month_weekdays', tone: 'gray' },
   ]);
 }

@@ -400,13 +400,39 @@ describe('putting a design in a block', () => {
     expect('from' in setDesign(week(), [0], { page: null }, null)[0]).toBe(false);
   });
 
-  it('works inside a group, on a spread, and ignores a design of the other kind', () => {
+  it('works inside a group and on a spread', () => {
     const o = setDesign(week(), [1, 0], { name: 'T', left: C, right: A });
     expect((o[1] as Extract<Block, { type: 'group' }>).children[0]).toMatchObject({ type: 'spread', name: 'T', left: { name: 'C' }, repeat: { times: 2 }, from: link });
-    expect(JSON.stringify(setDesign(week(), [0], { name: 'T', left: C, right: A }))).toBe(JSON.stringify(week()));
     const before = JSON.stringify(week());
     const input = week();
     setDesign(input, [0], { page: C });
+    expect(JSON.stringify(input)).toBe(before);
+  });
+});
+
+describe('replacing a page with a spread and back', () => {
+  const link = { id: 'lib-1', fingerprint: 'old' };
+  const book = (): Block[] => [
+    { ...pin(pageBlock(A, 3, link), 9), dates: 'week', repeat: { to: 'month' } } as Block,
+    groupBlock('G', [{ ...spreadBlock('S', A, B, 2, link), dates: 'day', shared: false } as Child]),
+  ];
+
+  it('turns a page block into a spread block, keeping how often, page type and pin', () => {
+    const o = setDesign(book(), [0], { name: 'T', left: C, right: A });
+    expect(o[0]).toEqual({ type: 'spread', name: 'T', left: C, right: A, dates: 'week', repeat: { to: 'month' }, pin: 9 });
+    expect(o).toHaveLength(2);
+  });
+
+  it('turns a spread block in a group into a page block in the same place, dropping what only a spread has', () => {
+    const next = { id: 'lib-2', fingerprint: 'new' };
+    const o = setDesign(book(), [1, 0], { page: C }, next);
+    expect((o[1] as GroupBlock).children[0]).toEqual({ type: 'page', page: C, dates: 'day', repeat: { times: 2 }, from: next });
+    expect('from' in ((setDesign(book(), [1, 0], { page: null })[1] as GroupBlock).children[0])).toBe(false); // the old link named a spread
+  });
+
+  it('leaves the input alone', () => {
+    const input = book(), before = JSON.stringify(input);
+    setDesign(input, [0], { name: 'T', left: C, right: A });
     expect(JSON.stringify(input)).toBe(before);
   });
 });

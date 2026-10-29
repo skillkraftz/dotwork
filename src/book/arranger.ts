@@ -143,7 +143,7 @@ export class Arranger {
   private pickerTab: PickerTab = stored(PICKER_TAB_KEY) === 'spreads' ? 'spreads' : 'pages';
   private pickerTabs = tabBar('Kinds of design', PICKER_TABS, 'picker-tab', (t) => {
     this.pickerTab = t;
-    try { localStorage.setItem(PICKER_TAB_KEY, t); } catch { /* ignore */ }
+    if (this.picking.for === 'add') try { localStorage.setItem(PICKER_TAB_KEY, t); } catch { /* ignore */ }
     this.renderPicker();
   });
   private picker: HTMLDialogElement;
@@ -869,6 +869,8 @@ export class Arranger {
   private async openReplacePicker(path: Path) {
     await this.refreshDesigns();
     this.picking = { for: 'replace', path };
+    // It opens on the block's own kind of design; the other tab turns the block into that kind.
+    this.pickerTab = blockAt(this.book.outline, path)?.type === 'spread' ? 'spreads' : 'pages';
     this.pending = null;
     this.renderPicker();
     this.picker.showModal();
@@ -887,8 +889,9 @@ export class Arranger {
     const replacing = this.picking.for === 'replace' ? blockAt(this.book.outline, this.picking.path) : undefined;
     const into = this.picking.for === 'add' ? this.addAt(pageBlock(null)).group ?? null : null;
     this.pickerTitle.textContent = replacing ? `Replace design: ${nameOf(replacing)}` : this.picking.for === 'free' ? `Design for free page ${this.picking.index + 1}` : cover ? `Design for ${slotLabel(this.book, this.slot).toLowerCase()}` : into !== null ? `Add to ${nameOf(this.book.outline[into] ?? groupBlock('the group'))}` : 'Add to the book';
-    const tab = replacing?.type === 'spread' ? 'spreads' : cover ? 'pages' : this.pickerTab;
-    this.pickerTabs.el.parentElement!.hidden = cover;
+    const tab = replacing ? (this.pickerTab === 'spreads' ? 'spreads' : 'pages') : cover ? 'pages' : this.pickerTab;
+    this.pickerTabs.el.parentElement!.hidden = cover && !replacing;
+    this.pickerTabs.el.querySelector<HTMLElement>('[data-tab="blocks"]')!.hidden = !!replacing;
     this.pickerTabs.select(tab);
     const side = cover && !replacing ? slotSide(this.slot) : 'right';
     const card = (c: Choice) => {
@@ -994,7 +997,8 @@ export class Arranger {
         const s = c.data as Spread;
         this.editOutline((o) => setDesign(o, path, { name: c.name, left: s.left, right: s.right }, link(s.left, s.right) ?? null));
       } else this.editOutline((o) => setDesign(o, path, { page: c.kind === 'blank' ? null : (c.data as Page) }, link(c.data as Page | null) ?? null));
-      this.say(`Replaced the design of “${old ? nameOf(old) : 'the block'}” with “${c.name}”. Undo takes it back.`);
+      const turned = old && (c.kind === 'spread') !== (old.type === 'spread') ? ` The block is now a ${c.kind === 'spread' ? 'spread' : 'page'}.` : '';
+      this.say(`Replaced the design of “${old ? nameOf(old) : 'the block'}” with “${c.name}”.${turned} Undo takes it back.`);
     }
   }
 
