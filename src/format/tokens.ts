@@ -123,6 +123,19 @@ export function expandTokens(text: string, from: Reading | string = SAMPLE_DATE,
  */
 export type Expander = ((text: string) => string) & { read?: Reading | null };
 
+/**
+ * The text with its `{day}` and `{weekday}` tokens moved `by` more days: `{day}` becomes `{day+3}`, `{weekday-1}` becomes `{weekday+2}` for 3.
+ * `@start` / `@end` are dropped (on one day they read that day). Other tokens are left as they are.
+ */
+export function offsetDayTokens(text: string, by: number): string {
+  return text.replace(TOKEN_RE, (whole, inner: string) => {
+    const t = parseToken(inner);
+    if (!t || (t.token !== 'day' && t.token !== 'weekday')) return whole;
+    const n = t.offset + by;
+    return `{${t.token}${n > 0 ? '+' : ''}${n || ''}}`;
+  });
+}
+
 /** For print when there is no date: a known token is left empty, so the date can be written in by hand. Unknown tokens are left as typed. */
 export const blankTokens: Expander = Object.assign(
   (text: string) => text.replace(TOKEN_RE, (whole, inner: string) => (parseToken(inner) ? '' : whole)),

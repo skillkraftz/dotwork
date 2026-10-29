@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { calendarFor, readingOf, spansOf } from '../src/format/calendar';
 import { readPage } from '../src/format/read';
-import { suggestUnit, sampleFor, expandRead, type Reading } from '../src/format/tokens';
+import { suggestUnit, sampleFor, expandRead, offsetDayTokens, type Reading } from '../src/format/tokens';
 import { emptyPage, type Generated, type Page, type PageElement, type Pattern, type Shade, type Text } from '../src/format/types';
-import { layoutWeek, naturalSize, resolveWeek, rowHeight, weekDays } from '../src/format/week';
+import { convertWeek, layoutWeek, naturalSize, resolveWeek, rowHeight, weekDays } from '../src/format/week';
 import { weekBlock } from '../src/builtin/week';
 import { BUILTIN_PAGES, findBuiltinPage } from '../src/builtin/library';
 import { TEMPLATES } from '../src/builtin/templates';
@@ -287,5 +287,46 @@ describe('the Monthly log', () => {
     const jan = bookLayout(log.build({ year: 2027, month: 1 }));
     expect(jan.cells[0]?.read).toMatchObject({ first: '2027-01-01', last: '2027-01-02', from: '2026-12-27' });
     expect(jan.cells.filter((c) => c?.kind === 'free')).toHaveLength(8);
+  });
+});
+
+describe('converting a week block to elements', () => {
+  const converted = convertWeek(block);
+  const blank = resolveWeek(block, null); // a full week, tokens blank
+  const strip = (els: PageElement[]) => els.map((e) => (e.type === 'text' ? { ...e, text: '' } : e));
+
+  it('keeps every element where the block draws it, in the same order', () => {
+    expect(strip(converted)).toEqual(strip(blank));
+  });
+
+  it('counts each day row\'s day tokens from the page\'s first day, and leaves goals and outcomes alone', () => {
+    expect(offsetDayTokens('{day}', 3)).toBe('{day+3}');
+    expect(offsetDayTokens('{weekday-1} {day+2}', 3)).toBe('{weekday+2} {day+5}');
+    expect(offsetDayTokens('{day@end} {month} {week}', 2)).toBe('{day+2} {month} {week}');
+    const day = block.day.elements.filter((e): e is Text => e.type === 'text').map((e) => e.text);
+    const rows = texts(converted).filter((t) => /\{(day|weekday)/.test(t));
+    expect(day.length).toBeGreaterThan(0);
+    expect(rows).toHaveLength(day.length * 7);
+    for (const k of [0, 6]) expect(rows.slice(k * day.length, (k + 1) * day.length)).toEqual(day.map((t) => offsetDayTokens(t, k)));
+    const own = (p: Generated['goals']) => p.elements.filter((e): e is Text => e.type === 'text').map((e) => e.text);
+    expect(texts(converted).slice(0, own(block.goals).length)).toEqual(own(block.goals));
+  });
+
+  it('prints SUN 1 to SAT 7 down the rows on a week page reading Nov 1–7 2026', () => {
+    const r = weeks(NOV)[0];
+    expect(r.first).toBe('2026-11-01');
+    const printed = texts(converted).map((t) => expandRead(r)(t)).filter((t) => /^(SUN|MON|TUE|WED|THU|FRI|SAT)$|^\d{1,2}$/.test(t));
+    expect(printed).toEqual(expect.arrayContaining(['SUN', '1', 'SAT', '7']));
+    const dayTexts = block.day.elements.filter((e): e is Text => e.type === 'text' && /\{(day|weekday)/.test(e.text)).map((e) => e.text);
+    const perRow = (k: number) => dayTexts.map((t) => expandRead(r)(offsetDayTokens(t, k)));
+    const names = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+    for (let k = 0; k < 7; k++) expect(perRow(k)).toEqual(expect.arrayContaining([names[k], String(k + 1)]));
+  });
+
+  it('prints a day outside the month blank, and keeps weekend shading to the weekend rows', () => {
+    const r = weeks(NOV)[4]; // Sun 29, Mon 30 and then December
+    const tue = block.day.elements.filter((e): e is Text => e.type === 'text' && e.text.includes('{day')).map((e) => expandRead(r)(offsetDayTokens(e.text, 2)));
+    expect(tue).toContain('');
+    expect(shades(converted).filter((s) => s.x === 25)).toHaveLength(2); // Sunday and Saturday rows
   });
 });

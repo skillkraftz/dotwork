@@ -1,5 +1,5 @@
 import { addDays, dayOfWeek, weekStartOn } from './dates';
-import { expandTokens, sampleReading, blankTokens, type Reading } from './tokens';
+import { expandTokens, sampleReading, blankTokens, offsetDayTokens, type Reading } from './tokens';
 import { groupArea, translate } from '../geometry';
 import type { DayFilter, Generated, Part, PageElement, Pattern, Rule } from './types';
 
@@ -128,5 +128,27 @@ export function resolveWeek(el: Generated, read: Reading | null | undefined, pre
   }
   if (at.outcomes !== null) out.push(...placed(el.outcomes, el.x, at.outcomes).map(bare));
   if (at.below) out.push(rule(el.x, el.x + el.w, at.below.y), lines(el.x, at.below.y, el.w, at.below.h));
+  return out;
+}
+
+/**
+ * The plain elements a week block turns into: what it draws for a full week, with each day row's day tokens counted from the page's first day
+ * (row k's {day} is {day+k}), so on a Week page every row still prints its own day. Kept as they are: positions, goals and outcomes. Lost: the
+ * lined space and the hidden rows for days outside the calendar (all seven rows stay, their date tokens print blank), and `days` limits (an
+ * element limited to weekends or weekdays stays only in the rows that are those days in a week starting Sunday).
+ */
+export function convertWeek(el: Generated): PageElement[] {
+  const at = layoutWeek(el, ROWS.map(() => true));
+  const out: PageElement[] = [];
+  const bare = (e: PageElement): PageElement => { const { days: _d, ...rest } = e; return rest as PageElement; };
+  out.push(...placed(el.goals, el.x, at.goals!).map(bare));
+  for (const { row, y } of at.days) {
+    for (const e of placed(el.day, el.x, y)) {
+      if (!shownOn(e.days, null, row, 0)) continue;
+      const b = bare(e);
+      out.push(b.type === 'text' ? { ...b, text: offsetDayTokens(b.text, row) } : b);
+    }
+  }
+  out.push(...placed(el.outcomes, el.x, at.outcomes!).map(bare));
   return out;
 }

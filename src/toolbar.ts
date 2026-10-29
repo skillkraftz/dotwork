@@ -22,7 +22,7 @@ export interface BarState {
   locked: boolean;
   half: boolean;
   /** What the Group button does now, if anything. */
-  group: 'group' | 'ungroup' | null;
+  group: 'group' | 'ungroup' | 'convert' | null;
 }
 
 export interface BarHandlers {
@@ -34,6 +34,8 @@ export interface BarHandlers {
   duplicate(): void;
   remove(): void;
   group(): void;
+  /** Turn the selected generated block into plain elements. */
+  convert(): void;
   /** The More menu, opened above the button (client px). */
   more(at: { x: number; y: number }): void;
   /** Open the saved widgets / the icon grid. */
@@ -51,6 +53,7 @@ const ICON = {
   remove: '<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>',
   group: '<rect x="3" y="3" width="18" height="18" stroke-dasharray="3 2"/><rect x="6.5" y="6.5" width="5" height="5"/><rect x="12.5" y="12.5" width="5" height="5"/>',
   ungroup: '<rect x="3" y="3" width="8" height="8"/><rect x="13" y="13" width="8" height="8"/><path d="M13 7h4M7 13v4"/>',
+  convert: '<rect x="3" y="3" width="18" height="18" stroke-dasharray="3 2"/><path d="M7 9h10M7 15h10M14 6l3 3-3 3M10 12l-3 3 3 3"/>',
   more: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
   pattern: '<rect x="4" y="4" width="16" height="16"/><path d="M4 9.5h16M4 14.5h16M9.5 4v16M14.5 4v16"/>',
   shade: '<rect x="4" y="4" width="16" height="16"/><path d="M4 12L12 4M4 19L19 4M10 20L20 10M16 20l4-4"/>',
@@ -101,11 +104,14 @@ export class Toolbar {
       ];
     }
     const grouped = s.group === 'ungroup';
+    const group: Slot = s.group === 'convert'
+      ? { id: 'convert', label: 'Convert', name: 'Convert to elements', icon: 'convert', help: 'bar-convert', run: () => k.convert() }
+      : { id: 'group', label: grouped ? 'Ungroup' : 'Group', icon: grouped ? 'ungroup' : 'group', help: grouped ? 'bar-ungroup' : 'bar-group', disabled: s.group === null, run: () => k.group() };
     return [
       { id: 'properties', label: 'Props', name: 'Properties', icon: 'properties', help: 'bar-properties', run: () => k.properties() },
       { id: 'duplicate', label: 'Copy', name: 'Duplicate', icon: 'duplicate', help: 'bar-duplicate', disabled: s.locked, run: () => k.duplicate() },
       { id: 'remove', label: 'Delete', icon: 'remove', help: 'bar-remove', disabled: s.locked, run: () => k.remove() },
-      { id: 'group', label: grouped ? 'Ungroup' : 'Group', icon: grouped ? 'ungroup' : 'group', help: grouped ? 'bar-ungroup' : 'bar-group', disabled: s.group === null, run: () => k.group() },
+      group,
       { id: 'more', label: 'More', icon: 'more', help: 'bar-more', run: () => {} },
     ];
   }
