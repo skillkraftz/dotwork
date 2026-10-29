@@ -326,8 +326,9 @@ export class Canvas {
         this.lastHits = hits;
         let hit = hits[0];
         let clickSelect: number | undefined;
-        if (e.shiftKey && hit !== undefined) {
-          // Shift-click adds the element (or its group) to the selection, or takes it out (touch has drag-select).
+        const additive = e.shiftKey || e.ctrlKey || e.metaKey;
+        if (additive && hit !== undefined) {
+          // Ctrl/Cmd-click (or Shift-click) adds the element (or its group) to the selection, or takes it out (touch has drag-select).
           const set = store.pickSet(hit);
           const now = store.selection;
           store.selectMany(store.isSelected(hit) ? now.filter((i) => !set.includes(i)) : [...new Set([...now, ...set])]);
@@ -344,9 +345,9 @@ export class Canvas {
           hit = selectedUnder;
         }
         if (hit === undefined) {
-          if (!e.shiftKey) this.clear();
-          // A mouse drag from empty space draws a box that selects what it touches.
-          if (!touch) this.drag = { kind: 'marquee', start: p, cur: p, add: e.shiftKey };
+          if (!additive) this.clear();
+          // A mouse drag from empty space draws a box that selects what it touches; with Ctrl/Cmd (or Shift) it adds to the selection.
+          if (!touch) this.drag = { kind: 'marquee', start: p, cur: p, add: additive };
         } else {
           // Pressing on part of a multiple selection drags all of it; a click without a drag selects just that one.
           const keep = store.isSelected(hit) && store.selection.length > 1;
@@ -570,7 +571,7 @@ export class Canvas {
   /** Double-click with a mouse: the same as a double-tap. */
   private onDoubleClick = (e: MouseEvent) => {
     const { store } = this;
-    if (e.detail !== 2 || e.button !== 0 || e.shiftKey || this.readOnly || store.mode !== 'edit' || store.tool !== 'select') return;
+    if (e.detail !== 2 || e.button !== 0 || e.shiftKey || e.ctrlKey || e.metaKey || this.readOnly || store.mode !== 'edit' || store.tool !== 'select') return;
     const { p, cellsPerPx } = this.toCells(e);
     const hit = this.hits(p, MOUSE.hit * cellsPerPx)[0];
     if (hit === undefined) return;

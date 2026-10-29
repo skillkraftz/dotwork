@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { deleteElement, duplicateElements, groupAction, moreActions, selectAll, toggleGroup } from '../src/actions';
+import { convertGenerated, deleteElement, duplicateElements, groupAction, moreActions, selectAll, toggleGroup } from '../src/actions';
 import { shadeRects, toneAt } from '../src/format/shade';
 import { emptyPage, type Page, type PageElement, type Shade } from '../src/format/types';
 import { validatePage } from '../src/format/validate';
 import { distanceTo, tapCandidates, touchedBy } from '../src/geometry';
 import { dropLoneGroups, newGroupId, regroup } from '../src/groups';
 import { Store } from '../src/store';
+import { weekBlock } from '../src/builtin/week';
 
 const page = (elements: PageElement[]): Page => ({ ...emptyPage(), elements });
 
@@ -240,5 +241,23 @@ describe('finding what a finger meant', () => {
     expect(touchedBy(box, { x: 5, y: 5, w: 2, h: 2 })).toBe(false); // wholly inside the outline
     expect(touchedBy(box, { x: 1, y: 6, w: 3, h: 1 })).toBe(true); // crosses the left side
     expect(touchedBy({ type: 'checkboxes', x: 2, y: 2, count: 3 }, { x: 2.5, y: 4.5, w: 1, h: 1 })).toBe(true);
+  });
+});
+
+describe('convert to elements', () => {
+  it('replaces a selected week block with one valid group of its plain elements, in one undo step', () => {
+    const store = new Store(page([{ type: 'rule', x1: 1, y1: 1, x2: 5, y2: 1 }, weekBlock()!]));
+    store.select(1);
+    expect(groupAction(store)).toBe('convert');
+    convertGenerated(store);
+    const els = store.page.elements;
+    expect(els.some((e) => e.type === 'generated')).toBe(false);
+    expect(els[0].group).toBeUndefined();
+    expect(new Set(els.slice(1).map((e) => e.group))).toEqual(new Set(['g1']));
+    expect(validatePage(store.page)).toEqual([]);
+    expect(store.selection).toEqual(els.slice(1).map((_, i) => i + 1));
+    expect(groupAction(store)).toBe('ungroup');
+    store.undo();
+    expect(store.page.elements.map((e) => e.type)).toEqual(['rule', 'generated']);
   });
 });

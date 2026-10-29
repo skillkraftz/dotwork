@@ -6,7 +6,7 @@ import { validatePage, type ValidationIssue } from './format/validate';
 import { readPage } from './format/read';
 import { DocSession, statusText, type Adapter } from './documents';
 import { Canvas, type CanvasHooks } from './canvas';
-import { contextActions, deleteElement, duplicateElement, groupAction, moreActions, nudgeElement, selectAll, toggleGroup } from './actions';
+import { contextActions, convertGenerated, deleteElement, duplicateElement, groupAction, moreActions, nudgeElement, selectAll, toggleGroup } from './actions';
 import { h, Panel } from './panel';
 import { closeContextMenu, showContextMenu } from './ctxmenu';
 import { isCompact, Sheet } from './sheet';
@@ -278,6 +278,7 @@ const toolbar = new Toolbar($('tools'), {
   duplicate() { const s = cur(); if (s.selected !== null) duplicateElement(s, s.selected); },
   remove() { const s = cur(); if (s.selected !== null) deleteElement(s, s.selected); },
   group: () => toggleGroup(cur()),
+  convert: () => convertGenerated(cur()),
   more(at) {
     const s = cur();
     if (s.selected === null) return;

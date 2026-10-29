@@ -2,6 +2,7 @@ import type { Page, PageElement } from './format/types';
 import { headerOf } from './format/bounds';
 import { canMove, cycleHit, moveGroup } from './geometry';
 import { dropLoneGroups, newGroupId, regroup } from './groups';
+import { convertWeek } from './format/week';
 import type { Store } from './store';
 
 const clone = (page: Page) => structuredClone(page);
@@ -133,10 +134,29 @@ export function selectAll(store: Store) {
   if (all.length) store.selectMany(all);
 }
 
-/** What the Group / Ungroup button does for the selection: ungroup when all of it is in one group, group when it is several elements, else nothing. */
-export function groupAction(store: Store): 'group' | 'ungroup' | null {
+/** Replace the selected generated element with the plain elements it draws, as one group in the same places. One undo step; the new group stays selected. */
+export function convertGenerated(store: Store) {
+  const index = store.selected;
+  const el = index === null ? undefined : store.page.elements[index];
+  if (index === null || el?.type !== 'generated' || store.selection.length !== 1 || store.isLocked(index)) return;
+  const next = clone(store.page);
+  const group = newGroupId(next.elements.filter((_, i) => i !== index));
+  const plain = convertWeek(el).map((e) => ({ ...e, group }));
+  next.elements.splice(index, 1, ...plain);
+  next.elements = dropLoneGroups(next.elements);
+  const ids = [...store.ids];
+  ids.splice(index, 1, ...plain.map(() => -1));
+  store.others.clear();
+  store.selected = index;
+  store.commit(next, undefined, store.freshIds(ids));
+  store.selectMany(plain.map((_, k) => index + k));
+}
+
+/** What the Group / Ungroup button does for the selection: ungroup when all of it is in one group, group when it is several elements, convert when it is one generated block, else nothing. */
+export function groupAction(store: Store): 'group' | 'ungroup' | 'convert' | null {
   const els = store.selection.map((i) => store.page.elements[i]);
   if (!els.length || store.selection.some((i) => store.isLocked(i))) return null;
+  if (els.length === 1 && els[0].type === 'generated') return 'convert';
   const first = els[0].group;
   if (first !== undefined && els.every((e) => e.group === first)) return 'ungroup';
   return els.length > 1 ? 'group' : null;
@@ -145,7 +165,7 @@ export function groupAction(store: Store): 'group' | 'ungroup' | null {
 /** Make the selected elements one group, or take them out of theirs. The selection stays. */
 export function toggleGroup(store: Store) {
   const action = groupAction(store);
-  if (!action) return;
+  if (!action || action === 'convert') return;
   const chosen = new Set(store.selection);
   const next = clone(store.page);
   if (action === 'group') {
