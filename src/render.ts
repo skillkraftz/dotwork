@@ -8,7 +8,8 @@ import { elementArea, headerOf, TEXT_INSET_MM, TEXT_SIZE_MM } from './format/bou
 import { expandTokens, sampleFor, type Expander } from './format/tokens';
 import { resolveWeek, shownOn, type WeekPreview } from './format/week';
 import { placedElements } from './format/mirror';
-import { shadeRects } from './format/shade';
+import { shadeRects, weekLines } from './format/shade';
+import { monthOf } from './format/month';
 import { artPaths, type ArtTone } from './format/art';
 import { boundsOf, handlesFor, type Pt } from './geometry';
 
@@ -83,9 +84,12 @@ const stroke = (d: string, w: number, c: string, cap = 'butt') =>
   d ? `<path d="${d}" fill="none" stroke="${c}" stroke-width="${n(w)}" stroke-linecap="${cap}"/>` : '';
 
 /** The gray tints of a shade, one rectangle per run of the same tone. */
-function shadeMarkup(e: Shade): string {
-  return shadeRects(e).map((r) =>
+function shadeMarkup(e: Shade, expand: Expander): string {
+  const month = monthOf(expand.read);
+  const rects = shadeRects(e, month).map((r) =>
     `<rect x="${n(r.x * P)}" y="${n(r.y * P)}" width="${n(r.w * P)}" height="${n(r.h * P)}" fill="${SHADE_TONES[r.tone]}"/>`).join('');
+  const rules = weekLines(e, month).map((l) => ruleMarkup({ type: 'rule', ...l }, true)).join('');
+  return rects + rules;
 }
 
 function patternMarkup(e: Pattern): string {
@@ -119,9 +123,9 @@ function boxMarkup(e: Box): string {
   return stroke((e.sides ?? ['top', 'bottom', 'left', 'right']).map((s) => seg[s]).join(''), w, '#000', 'square');
 }
 
-function ruleMarkup(e: Rule): string {
+function ruleMarkup(e: Rule, butt = false): string {
   const l = LINE[e.weight ?? DEFAULTS.ruleWeight];
-  return stroke(`M${n(e.x1 * P)} ${n(e.y1 * P)}L${n(e.x2 * P)} ${n(e.y2 * P)}`, l.w, l.c, e.weight === 'hair' ? 'butt' : 'square');
+  return stroke(`M${n(e.x1 * P)} ${n(e.y1 * P)}L${n(e.x2 * P)} ${n(e.y2 * P)}`, l.w, l.c, butt || e.weight === 'hair' ? 'butt' : 'square');
 }
 
 function checkboxesMarkup(e: Checkboxes): string {
@@ -169,9 +173,9 @@ const turn = (e: Sequence, i: number) => {
   return r ? `rotate(${r === 90 ? -90 : 90} ${n(c.x)} ${n(c.y)}) ` : '';
 };
 
-function sequenceMarkup(e: Sequence): string {
+function sequenceMarkup(e: Sequence, expand: Expander): string {
   const color = TEXT_COLORS[e.tone ?? DEFAULTS.sequenceTone];
-  const items = sequenceItems(e);
+  const items = sequenceItems(e, monthOf(expand.read));
   if (isIcons(e)) {
     return items.map((name, i) => {
       const shape = ICONS[name];
@@ -184,6 +188,7 @@ function sequenceMarkup(e: Sequence): string {
   // Each item is centered in its cell by its own width (the font is monospaced), with no inset.
   const size = TEXT_SIZE_MM.label;
   const texts = items.map((text, i) => {
+    if (!text) return '';
     const o = itemOrigin(e, i), t = turn(e, i).trim();
     return `<text${t ? ` transform="${t}"` : ''} x="${n(o.x * P + P / 2)}" y="${n(o.y * P + P - BASELINE_MM)}">${esc(text)}</text>`;
   }).join('');
@@ -206,12 +211,12 @@ export function elementMarkup(e: PageElement, expand: Expander = sample, weekPre
   if (!shownOn(e.days, dayOf(expand))) return '';
   switch (e.type) {
     case 'pattern': return patternMarkup(e);
-    case 'shade': return shadeMarkup(e);
+    case 'shade': return shadeMarkup(e, expand);
     case 'box': return boxMarkup(e);
     case 'rule': return ruleMarkup(e);
     case 'checkboxes': return checkboxesMarkup(e);
     case 'text': return textMarkup(e, expand);
-    case 'sequence': return sequenceMarkup(e);
+    case 'sequence': return sequenceMarkup(e, expand);
     case 'art': return artMarkup(e);
     case 'generated': return resolveWeek(e, expand.read, weekPreview).map((x) => elementMarkup(x, expand)).join('');
   }

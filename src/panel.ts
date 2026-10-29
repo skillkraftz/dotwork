@@ -1,6 +1,6 @@
 import {
   ALIGNS, ALONGS, DEFAULTS, DIRECTIONS, DOT_SIZES, ICON_SIZES, PATTERNS, RULE_WEIGHTS, SEQUENCE_VALUES, SIDES, TEXT_SIZES, TEXT_STYLES,
-  TEXT_TONES, WEIGHTS, DAY_FILTERS, type Art, type BoxSide, type Generated, type PageElement, type Pattern, type Sequence, type SequenceValues, type Shade,
+  TEXT_TONES, WEIGHTS, WEEK_LINES, DAY_FILTERS, type Art, type BoxSide, type Generated, type PageElement, type Pattern, type Sequence, type SequenceValues, type Shade,
 } from './format/types';
 import { ART_FILLS, ART_SCALINGS, ART_STROKES, canFill, canStroke, type ArtPath } from './format/art';
 import { cleanTones, toneAt } from './format/shade';
@@ -77,6 +77,12 @@ const fmt = (v: number) => String(+v.toFixed(2));
 /** What “Show on” offers: every day (nothing stored), or only the weekends or the weekdays. */
 const DAY_OPTIONS = ['every day', ...DAY_FILTERS] as const;
 
+/** What “Line between weeks” offers: no line (nothing stored), a hair line or a thin one. */
+const WEEK_OPTIONS = ['none', ...WEEK_LINES] as const;
+
+/** The words the Values list shows for the month tools. */
+const VALUE_LABELS: Record<string, string> = { month_days: 'Days of the month', month_weekdays: 'Weekdays of the month' };
+
 /** Change what a sequence is made of, giving the new kind what it needs and dropping what it doesn't use. */
 function switchValues(x: Sequence, to: SequenceValues) {
   x.values = to;
@@ -91,7 +97,7 @@ export function describe(el: PageElement): string {
   const group = el.group === undefined ? '' : ` · ${el.group}`;
   switch (el.type) {
     case 'pattern': return `${el.pattern} · ${fmt(el.x)},${fmt(el.y)} ${fmt(el.w)}×${fmt(el.h)}${group}`;
-    case 'shade': return `shade ${el.tones}${el.along && el.along !== 'rows' ? ` ${el.along}` : ''} · ${fmt(el.x)},${fmt(el.y)} ${fmt(el.w)}×${fmt(el.h)}${group}`;
+    case 'shade': return `shade ${el.weekends ? 'weekends' : el.tones}${!el.weekends && el.along && el.along !== 'rows' ? ` ${el.along}` : ''} · ${fmt(el.x)},${fmt(el.y)} ${fmt(el.w)}×${fmt(el.h)}${group}`;
     case 'sequence': return `${el.values === 'icons' ? 'icons' : `sequence ${el.values ?? DEFAULTS.values}`} · ${fmt(el.x)},${fmt(el.y)} ×${el.count}${group}`;
     case 'art': return `art ${el.paths.length} path${el.paths.length === 1 ? '' : 's'} · ${fmt(el.x)},${fmt(el.y)} ${fmt(el.w)}×${fmt(el.h)}${group}`;
     case 'box': return `box · ${fmt(el.x)},${fmt(el.y)} ${fmt(el.w)}×${fmt(el.h)}${group}`;
@@ -206,7 +212,7 @@ export class Panel {
 
   private select(key: string, help: string, options: readonly (string | number)[], value: string | number, onchange: (v: string) => void) {
     return h('select', { 'data-key': key, 'data-help': help, onchange: (e: Event) => onchange((e.target as HTMLSelectElement).value) },
-      ...options.map((o) => h('option', { value: o, selected: o === value }, String(o))));
+      ...options.map((o) => h('option', { value: o, selected: o === value }, VALUE_LABELS[o] ?? String(o))));
   }
 
   /** The small line under a field that says why a value was refused. */
@@ -448,7 +454,7 @@ export class Panel {
     const { store } = this;
     const i = store.selected;
     const many = store.selection.length > 1;
-    const kind = i === null ? '' : (store.page.elements[i] as { values?: string; pattern?: string }).values ?? (store.page.elements[i] as { pattern?: string }).pattern ?? '';
+    const kind = i === null ? '' : (store.page.elements[i] as { values?: string; pattern?: string }).values ?? (store.page.elements[i] as { pattern?: string }).pattern ?? ((store.page.elements[i] as { weekends?: boolean }).weekends ? 'weekends' : '');
     const key = i === null ? 'none'
       : many ? `many:${store.selection.map((k) => store.idAt(k)).join(',')}:${this.storeNo(store)}`
         : `${i}:${store.idAt(i)}:${store.page.elements[i].type}:${kind}:${this.storeNo(store)}`;
@@ -706,13 +712,13 @@ export class Panel {
   }
 
   /** A tick box for a yes/no field: ticked writes `true`, unticked takes the field out (its default is off). */
-  private flag(store: Store, i: number, id: number, ctls: Ctl[], key: string, label: string, help: string): HTMLElement {
+  private flag(store: Store, i: number, id: number, ctls: Ctl[], key: string, label: string, help: string, also?: (x: PageElement) => void): HTMLElement {
     const input = h('input', {
       type: 'checkbox', 'data-key': `prop-${key}`, 'data-help': help,
       onchange: () => {
         const problem = this.edit(store, i, id, null, (x) => {
           const rec = x as unknown as Record<string, boolean | undefined>;
-          if (input.checked) rec[key] = true; else delete rec[key];
+          if (input.checked) rec[key] = true; else { delete rec[key]; also?.(x); }
         });
         if (problem) sync();
       },
@@ -731,7 +737,7 @@ export class Panel {
     store: Store, i: number, id: number, el: Shade,
     f: {
       num: (key: string, label: string, by?: StepBy, help?: string) => HTMLElement;
-      choice: <T extends string | number>(key: string, label: string, options: readonly T[], dflt: T, help?: string) => HTMLElement;
+      choice: <T extends string | number>(key: string, label: string, options: readonly T[], dflt: T, help?: string, also?: (x: PageElement) => void) => HTMLElement;
       add: (b: Built) => HTMLElement;
       ctls: Ctl[];
       area: () => HTMLElement[];
@@ -751,6 +757,17 @@ export class Panel {
       },
     });
     const input = tones.node.querySelector('input')!;
+    if (el.weekends) {
+      // Only weekends: the days run down or across, and a rule can part the weeks. The tone is the first letter of Tones.
+      return [
+        h('div', { class: 'grid2' }, ...f.area()),
+        tones.node,
+        this.flag(store, i, id, f.ctls, 'weekends', 'Only weekends of the month', 'prop-weekends', (x) => { delete (x as Shade).week_lines; delete (x as Shade).direction; }),
+        f.choice('direction', 'Days run', DIRECTIONS, DEFAULTS.direction, 'prop-shade-direction'),
+        f.choice('week_lines', 'Line between weeks', WEEK_OPTIONS, 'none', 'prop-week-lines', (x) => { if ((x as { week_lines?: string }).week_lines === 'none') delete (x as Shade).week_lines; }),
+        h('div', { class: 'grid2' }, f.num('every', 'Every (cells per day)', 0.5, 'prop-shade-every')),
+      ];
+    }
     // The strip shows what is typed even before it is applied, so a half-typed pattern can be seen.
     const strip = h('div', { class: 'tone-strip', role: 'img', 'aria-label': 'Preview of the tones', 'data-help': 'prop-tone-strip' });
     const draw = () => {
@@ -777,6 +794,7 @@ export class Panel {
       strip,
       f.choice('along', 'Along', ALONGS, DEFAULTS.along, 'prop-along'),
       h('div', { class: 'grid2' }, f.num('every', 'Every (cells per step)', 0.5, 'prop-shade-every')),
+      this.flag(store, i, id, f.ctls, 'weekends', 'Only weekends of the month', 'prop-weekends'),
     ];
   }
 

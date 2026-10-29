@@ -100,6 +100,9 @@ Hair lines and dots are light gray and thin, the same as journal-system's writin
 | `tones` | A string of the letters `L` (light), `M` (medium), `D` (dark) and `B` (blank), repeated across the area. `"L"` is solid light; `"LB"` is every other row; `"LBBMBB"` is a custom repeat. Required, at least one letter, capitals only. |
 | `along` | `"rows"` (default): each row takes the next tone. `"columns"`: each column does. `"checker"`: the cell at row r, column c takes tone number (r + c) mod the number of tones, so `"LB"` is a checkerboard. |
 | `every` | How many cells each tone step covers, default `1`, a multiple of `0.5`. The last step is cut to the area. |
+| `weekends` | `true`: only the Saturdays and Sundays of the month the page reads are shaded (see **Month tools**). The area is split into day cells, one per day, `every` cells apart along `direction` from its top or left; the cells of weekend days get the first letter of `tones` (a `B` shades nothing), and `along` is ignored. Days past the month's last day, and cells past the area's end, are not shaded. A Saturday and the Sunday after it are drawn as one rectangle. |
+| `direction` | `weekends`: `"down"` (default, one row per day) or `"across"` (one column per day). |
+| `week_lines` | `weekends`: `"hair"` or `"thin"` draws a rule across the whole area between each Saturday and the next Sunday (a light gray hair line, or a black 0.5 pt line); left out, none. |
 
 Rows, columns and cells are counted from the area's top-left corner. Light, medium and dark are `#efefef`, `#dcdcdc` and `#bdbdbd`; blank draws nothing.
 
@@ -137,7 +140,7 @@ Rows, columns and cells are counted from the area's top-left corner. Light, medi
 | `count` | How many items. |
 | `direction` | `"down"` (default) or `"across"`. |
 | `every` | Cells from one item to the next, default `1`; a multiple of `0.5`. |
-| `values` | What the items are: `"numbers"` (default), `"letters"`, `"list"` or `"icons"`. |
+| `values` | What the items are: `"numbers"` (default), `"letters"`, `"list"`, `"icons"`, `"month_days"` or `"month_weekdays"` (see **Month tools**). |
 | `start` | `numbers`: the first number (default `1`). `letters`: the first letter (default `"A"`; a small letter gives small letters). |
 | `step` | `numbers`: what to add each time, default `1`. |
 | `list` | `list`: the items, repeating, each one or two characters. May be empty or missing while the person is still typing; nothing is drawn then. |
@@ -151,6 +154,16 @@ characters (100, or -10) is an error. Each text item is centered in its own cell
 by the width of its characters, with no inset, in the label size; the baseline is
 the same as a `text` element's. A letters run goes A to Z and then AA, AB and on.
 An icon fills its 1 x 1 or 2 x 2 cells, starting at the item's cell.
+
+#### Month tools
+
+`"month_days"` (shown as "Days of the month") counts 1, 2, 3 ... to the month's last day; `"month_weekdays"` ("Weekdays of the month") is one letter
+each, `S M T W T F S`, starting at the month's first day. `count` is the most items drawn (31 covers any month); items past the month's last day
+print nothing. With a shade's `weekends`, they let one tracker design read any month.
+
+The month is that of the first day the page reads: a Month page, a review, a day or week page's month (the first day inside the calendar), or a cover,
+which reads the calendar's first month. In the editor it is the sample date's month, October 2026. A page that reads no calendar (an undated book)
+prints these blank and shades no weekends. They draw the same on screen, in PNGs and in the PDFs.
 
 A single icon is a sequence of one: `{ "type": "sequence", "values": "icons",
 "icons": ["sun"], "x": 4, "y": 6, "count": 1 }`. The run must fit in the grid: it

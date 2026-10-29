@@ -9,7 +9,8 @@ import { TEXT_INSET_MM, TEXT_SIZE_MM } from '../format/bounds';
 import {
   BASELINE_MM, DOT_MM, artColor, GRAY_DOT, HEADER_BASELINE_MM, HEADER_COLOR, LINE, TEXT_COLORS, headerItems, iconPlacement, itemCenter, ticks,
 } from '../render';
-import { shadeRects } from '../format/shade';
+import { shadeRects, weekLines } from '../format/shade';
+import { monthOf } from '../format/month';
 import { artPaths } from '../format/art';
 import { compose, parseStored, parseSvgPath, transformSegs, type Matrix, type Seg } from '../format/path';
 import { isIcons, sequenceItems } from '../format/sequence';
@@ -56,7 +57,9 @@ export function layoutPage(page: Page, o: PageLayoutOptions, out: Item[]): void 
     out.push({ k: 'text', str, x: ox + at.x, y: oy + at.y, size, font, c, align, rot: rotate === 270 ? -90 : rotate });
 
   const shade = (e: Shade) => {
-    for (const r of shadeRects(e)) fillRect(r.x * P, r.y * P, r.w * P, r.h * P, tones.shade[r.tone]);
+    const month = monthOf(o.expand.read);
+    for (const r of shadeRects(e, month)) fillRect(r.x * P, r.y * P, r.w * P, r.h * P, tones.shade[r.tone]);
+    for (const l of weekLines(e, month)) line(l.x1 * P, l.y1 * P, l.x2 * P, l.y2 * P, LINE[l.weight].w, LINE[l.weight].c);
   };
 
   const pattern = (e: Pattern) => {
@@ -118,7 +121,8 @@ export function layoutPage(page: Page, o: PageLayoutOptions, out: Item[]): void 
   const sequence = (e: Sequence) => {
     const c = textColor(e.tone ?? DEFAULTS.sequenceTone);
     const rotate = e.rotate ?? DEFAULTS.rotate;
-    sequenceItems(e).forEach((item, i) => {
+    sequenceItems(e, monthOf(o.expand.read)).forEach((item, i) => {
+      if (!item) return;
       const center = itemCenter(e, i);
       if (isIcons(e)) {
         const shape = ICONS[item];

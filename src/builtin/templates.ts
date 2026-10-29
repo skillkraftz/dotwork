@@ -72,7 +72,7 @@ const monthlyJournal: BookTemplate = {
     const calendar = calendarFor(year, month);
     const weeks = weekGroup(calendar, [dailyWeek(example('Daily Log')), typed(weeklyReflection(), 'week-review')]);
     const outline: Block[] = [weeks, typed(patternsPage(), 'month-review'), typed(questionsPage(), 'month-review'), ideaSpreads(), closingNotes(3)];
-    return assemble(`${MONTH_NAMES[month - 1]} ${year} journal`, outline, monthlyTracker(year, month), monthlyPageIndex(layout.map((s) => s.note ?? null)), calendar);
+    return assemble(`${MONTH_NAMES[month - 1]} ${year} journal`, outline, monthlyTracker(), monthlyPageIndex(layout.map((s) => s.note ?? null)), calendar);
   },
 };
 
