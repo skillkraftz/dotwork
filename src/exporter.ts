@@ -45,7 +45,7 @@ export class ExportDialog {
   private tabs = new Map<ExportTab, HTMLElement>();
   private body = h('div', { class: 'export-body' });
   private status = h('p', { class: 'lib-msg', role: 'status', hidden: true });
-  private png = { scope: 'page' as 'page' | 'spread', dpi: PNG_DPI as number };
+  private png = { scope: 'page' as 'page' | 'spread', dpi: PNG_DPI as number, darker: false };
   private pdf = { pages: true, cover: true, signatures: true };
   /** The Library book on the bottom half of a two-up sheet; empty is the book being exported. */
   private bottomId = '';
@@ -155,6 +155,8 @@ export class ExportDialog {
     const dpi = h('select', { 'data-key': 'png-dpi', 'data-help': 'export-png-dpi', 'aria-label': 'Resolution' },
       ...PNG_DPIS.map((d) => h('option', { value: d, selected: d === this.png.dpi }, `${d} DPI${d === PNG_DPI ? ' (best for printing)' : d === 150 ? ' (small file)' : ''}`)));
     dpi.onchange = () => { this.png.dpi = Number(dpi.value); this.render(); };
+    const darker = h('input', { type: 'checkbox', checked: this.png.darker, 'data-key': 'png-darker', 'data-help': 'export-png-darker', 'aria-label': 'Darker grays (for screens)' });
+    darker.onchange = () => { this.png.darker = darker.checked; };
     const whole = spread && this.png.scope === 'spread';
     const nameOf = () => (whole ? spread!.name : shown.page.name);
     /** What is on screen now, after a name may have been asked for. */
@@ -166,13 +168,14 @@ export class ExportDialog {
       ...(spread ? [h('div', { class: 'choices', role: 'radiogroup', 'aria-label': 'What to save' },
         radio('page', `This page (${shown.page.side === 'left' ? 'left' : 'right'})`), radio('spread', 'The whole spread'))] : []),
       h('label', { class: 'compact wide' }, 'Resolution', dpi),
+      h('label', { class: 'choice' }, darker, h('span', {}, 'Darker grays (for screens)')),
       h('p', { class: 'hint export-note' }, 'A page or spread has no date or number of its own, so the picture shows the sample date (Mon 26 Oct 2026) and page number (47).'),
       this.downloadButton('export-png', async () => {
         if (!(await this.host.beforeExport())) return;
         const now = nowShown();
         this.say('Making the PNG…');
         try {
-          const blob = now.whole ? await spreadToPng(now.spread!.left, now.spread!.right, this.png.dpi) : await pageToPng(now.page, this.png.dpi);
+          const blob = now.whole ? await spreadToPng(now.spread!.left, now.spread!.right, this.png.dpi, this.png.darker) : await pageToPng(now.page, this.png.dpi, this.png.darker);
           this.say(null);
           this.host.download(blob, `${slug(now.whole ? now.spread!.name : now.page.name, 'page')}.png`);
         } catch (err) {

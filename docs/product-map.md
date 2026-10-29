@@ -85,8 +85,8 @@ the "Bottom book" choice in the PDF tab, and the `from` links) and the names of 
 | **Old drafts** | None any more. The page, spread and book drafts (`dotwork.page`, `dotwork.spread.left/right/name`, `dotwork.book`) are no longer read or written; anything left under those keys stays untouched. (`src/drafts.ts` is now used only for the printer profile.) | | n/a |
 | **Favorites** | Starred Library item ids. | `localStorage` `dotwork.favorites`. | By Library id; built-ins by name (`example:<page name>`, `template:<id>` …). |
 | **Book templates** | Functions that build a whole book, as an outline with its covers, from a few numbers (year, month, first and last week). | Code only (`src/builtin/templates.ts`). Not saved; the result is just a book. | Output is a copy. |
-| **View settings** | `dotwork.view` (page / spread / book), `dotwork.book.spreads` (one page or two), `dotwork.book.picker-tab` (Pages, Spreads or Other), `dotwork.book.flip-ms`. | `localStorage`. | n/a |
-| **Memory only** (lost on reload) | Undo stacks, selection, hidden/locked layers, current tool and mode, which spread page is active, the Book view's current page, every window's unsaved choices (PDF checkboxes, PNG resolution, "Bottom book", Calibrate readings, which outline row is selected or open). | | |
+| **View settings** | `dotwork.view` (page / spread / book), `dotwork.book.spreads` (one page or two), `dotwork.book.picker-tab` (Pages, Spreads or Other), `dotwork.book.flip-ms`, `dotwork.view.contrast` (Darker grays on screen: on unless `0`; `src/contrast.ts`). | `localStorage`. | n/a |
+| **Memory only** (lost on reload) | Undo stacks, selection, hidden/locked layers, current tool and mode, which spread page is active, the Book view's current page, every window's unsaved choices (PDF checkboxes, PNG resolution and Darker grays, "Bottom book", Calibrate readings, which outline row is selected or open). | | |
 
 **Files the app makes:** page / spread / book JSON, PNG (page or spread), and a zip of PDFs
 (`<book>-print.zip`: `pages.pdf`, `cover-outside.pdf`, `cover-inside.pdf`, per-signature `print-first.pdf` / `print-second.pdf`
@@ -95,7 +95,7 @@ downloads (`calibration-sheet.pdf`, a creep-test zip) also carry `book.json`.
 
 ## 3. Every screen, window and menu
 
-Top bar: **Page ▾** (Page, Spread, Book, Settings…), **Edit ▾** (Edit, Preview, Library…, New), **Export**, Undo, Redo, Help.
+Top bar: **Page ▾** (Page, Spread, Book, Settings…), **Edit ▾** (Edit, Preview, Library…, New, and the checkbox item **Darker grays on screen**: a gray-to-gray SVG filter, `body.contrast`, on every on-screen page drawing: editors, Book view stage, Flip through and thumbnails; markup, PDFs and printer settings are untouched), **Export**, Undo, Redo, Help.
 Page/Spread views also have the bottom tool bar (Select, Draw, Advanced) and the properties drawer / layers.
 
 | Screen | Reads | Writes | When it saves |
@@ -115,7 +115,7 @@ Page/Spread views also have the bottom tool bar (Select, Draw, Advanced) and the
 | **Import and export** window (**Export** button) | See below | See below | See below. Opens on Export; opens on PDF in the Book view. |
 | ↳ **Import** | A chosen `.json` | A page, spread or book is added as a new document named from the file (` 2` if taken) and opened, after the open one is written; a section is added to the Library (nothing opens). Nothing is replaced. A library backup is refused with a pointer to Restore backup. | Immediately. |
 | ↳ **Export** | The open page / spread / book **at the moment Download is pressed** (`jsonToExport()` in `main.ts` runs again on click), whether or not the 400 ms write has happened | A `.json` download. Before the first export (JSON, or the print zip on the PDF tab) of a page, spread or book that is still `Untitled…`, a small window asks for a name (leaving the field empty keeps it; cancelling cancels the export). | On Download. |
-| ↳ **PNG** | The page (or the spread being edited) | A `.png` (150 / 300 / 600 dpi), with the same name question. Not in the Book view. Prints with sample values: the sample date (Mon Oct 26 2026) for tokens and a sample page number "47" (`SAMPLE_DATE`, `SAMPLE_PAGE_NUMBER`); the tab says so in one line | On Download. |
+| ↳ **PNG** | The page (or the spread being edited) | A `.png` (150 / 300 / 600 dpi), with the same name question. Tick **Darker grays (for screens)** (off by default, memory only) to apply the same gray curve to the PNG's pixels; off is exactly the page. Not in the Book view. Prints with sample values: the sample date (Mon Oct 26 2026) for tokens and a sample page number "47" (`SAMPLE_DATE`, `SAMPLE_PAGE_NUMBER`); the tab says so in one line | On Download. |
 | ↳ **PDF** (with **Reset this layout to defaults**: shows the layout's values beside the defaults, then confirms) | The book, printer profile, Library books (Bottom book) | A zip. Its fields write the printer profile (`dotwork.printer`) and the book's signatures (the open book) as they are changed | Fields: on change. Files: on Download. |
 | **Calibrate** (from the PDF tab) | Book (name, page count; included as `book.json` in downloads), printer profile | The printer profile only, each time a field or a "Use" button changes it. Never the book. | Immediately; typed readings are memory only. Closing returns to the PDF tab. |
 | **Help mode** | `src/help.ts` (one entry per `data-help` key, touch and desktop text) | Nothing | n/a |

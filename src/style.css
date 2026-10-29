@@ -283,6 +283,9 @@ dialog.calibrate { width: min(640px, calc(100% - 28px)); }
 .book-stage.spreads .stage-page { flex: 1 1 0; aspect-ratio: auto; max-width: 50%; cursor: pointer; }
 .stage-page, .stage-page[aria-pressed='true'], .stage-page:hover:not(:disabled) { background: none; color: inherit; }
 .stage-page svg { display: block; width: 100%; height: 100%; filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.25)); }
+/* Darker grays on screen (contrast.ts): the filter is in the document; only page drawings get it, never the controls. */
+body.contrast #canvas, body.contrast .half svg, body.contrast .thumb svg, body.contrast .crow-thumb svg, body.contrast .art-thumb svg { filter: url(#dw-contrast); }
+body.contrast .stage-page svg { filter: url(#dw-contrast) drop-shadow(0 1px 3px rgba(0, 0, 0, 0.25)); }
 .stage-page .outline { stroke: var(--gray-3); stroke-width: 0.3; }
 .stage-page.current .outline { stroke: #000; stroke-width: 1; }
 .book-problem { margin: 0; padding: 6px 12px; }

@@ -2,6 +2,7 @@ import type { Page } from './format/types';
 import { PAGE_H_MM, PAGE_W_MM } from './format/types';
 import { exportSpreadSvg, exportSvg } from './render';
 import { setPngDpi } from './pngdpi';
+import { darkenPixels } from './contrast';
 import regular from './fonts/CourierPrime-Regular.woff2?inline';
 import bold from './fonts/CourierPrime-Bold.woff2?inline';
 
@@ -15,7 +16,7 @@ export const FONT_CSS =
   `@font-face{font-family:'Courier Prime';font-weight:700;src:url(${bold}) format('woff2')}`;
 
 /** Rasterise a standalone SVG (sized by its viewBox, with its own fonts) to a PNG of the given pixel size. */
-export async function svgToPng(svg: string, w: number, h: number, dpi: number): Promise<Blob> {
+export async function svgToPng(svg: string, w: number, h: number, dpi: number, darker = false): Promise<Blob> {
   const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
   try {
     const img = new Image();
@@ -28,6 +29,11 @@ export async function svgToPng(svg: string, w: number, h: number, dpi: number): 
     ctx.fillStyle = '#fff';
     ctx.fillRect(0, 0, w, h);
     ctx.drawImage(img, 0, 0, w, h);
+    if (darker) {
+      const pixels = ctx.getImageData(0, 0, w, h);
+      darkenPixels(pixels.data);
+      ctx.putImageData(pixels, 0, 0);
+    }
     const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'));
     if (!blob) throw new Error('The browser could not create the PNG.');
     const bytes = setPngDpi(new Uint8Array(await blob.arrayBuffer()), dpi);
@@ -38,13 +44,13 @@ export async function svgToPng(svg: string, w: number, h: number, dpi: number): 
 }
 
 /** Render the page as printed to a PNG at its final size (88.9 x 139.7 mm; 600 DPI unless told otherwise). */
-export async function pageToPng(page: Page, dpi: number = PNG_DPI): Promise<Blob> {
+export async function pageToPng(page: Page, dpi: number = PNG_DPI, darker = false): Promise<Blob> {
   const w = mmToPx(PAGE_W_MM, dpi), h = mmToPx(PAGE_H_MM, dpi);
-  return svgToPng(exportSvg(page, w, h, FONT_CSS), w, h, dpi);
+  return svgToPng(exportSvg(page, w, h, FONT_CSS), w, h, dpi, darker);
 }
 
 /** Render a spread's two pages side by side, as the book looks open. */
-export async function spreadToPng(left: Page, right: Page, dpi: number = PNG_DPI): Promise<Blob> {
+export async function spreadToPng(left: Page, right: Page, dpi: number = PNG_DPI, darker = false): Promise<Blob> {
   const w = mmToPx(PAGE_W_MM * 2, dpi), h = mmToPx(PAGE_H_MM, dpi);
-  return svgToPng(exportSpreadSvg(left, right, w, h, FONT_CSS), w, h, dpi);
+  return svgToPng(exportSpreadSvg(left, right, w, h, FONT_CSS), w, h, dpi, darker);
 }
