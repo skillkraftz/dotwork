@@ -261,17 +261,18 @@ describe('the Week planner', () => {
 describe('the Monthly log', () => {
   const log = TEMPLATES.find((t) => t.id === 'monthly-log')!;
 
-  it('has the week planner, a daily log for each day of the week and the weekly reflection in its week group, free pages for the rest, and the review pinned last', () => {
+  it('has the weekly page, a daily log to the end of each week and the weekly reflection in its week group, free pages for the rest, and the review pinned last', () => {
     const book = log.build({ year: 2026, month: 11 });
     expect(book.calendar).toEqual(NOV);
     expect(book.outline.map((b) => b.type)).toEqual(['group', 'free', 'page']);
     const group = book.outline[0] as Extract<typeof book.outline[number], { type: 'group' }>;
-    expect(group.children.map((c) => (c.type === 'page' ? c.page?.name : c.type))).toEqual(['Week planner', 'Daily Log', 'Weekly reflection']);
-    expect(group.children.map((c) => (c.type === 'page' ? c.repeat : null))).toEqual([{ times: 1 }, { each: 'day', of: 'span' }, { times: 1 }]);
-    expect(book.outline[2]).toMatchObject({ pin: 'last', repeat: { each: 'month' } });
+    expect(group).toMatchObject({ repeat: { times: 5 } }); // a repeat for each week of November
+    expect(group.children.map((c) => (c.type === 'page' ? c.page?.name : c.type))).toEqual(['Year journal weekly page (dated)', 'Daily Log', 'Weekly reflection']);
+    expect(group.children.map((c) => (c.type === 'page' ? [c.dates, c.repeat] : null))).toEqual([['week', { times: 1 }], ['day', { to: 'week' }], ['week-review', { times: 1 }]]);
+    expect(book.outline[2]).toMatchObject({ pin: 'last', dates: 'month-review', repeat: { times: 1 } });
   });
 
-  it('fits every month of 2026 and 2027 in 52 pages with the month review on page 52, and puts the planner of November\'s last week on page 37', () => {
+  it('fits every month of 2026 and 2027 in 52 pages with the month review on page 52, and puts the weekly page of November\'s last week on page 37', () => {
     for (const year of [2026, 2027]) for (let month = 1; month <= 12; month++) {
       const book = log.build({ year, month });
       const layout = bookLayout(book);
@@ -279,9 +280,9 @@ describe('the Monthly log', () => {
       expect(layout.cells[51]?.page?.name, `${year}-${month}`).toBe('Patterns & takeaways');
     }
     const nov = bookLayout(log.build({ year: 2026, month: 11 }));
-    expect(nov.cells[36]?.page?.name).toBe('Week planner');
+    expect(nov.cells[36]?.page?.name).toBe('Year journal weekly page (dated)');
     expect(nov.cells[36]?.read).toMatchObject({ kind: 'week', first: '2026-11-29', last: '2026-11-30', from: '2026-11-29' });
-    expect(nov.cells[0]?.page?.name).toBe('Week planner');
+    expect(nov.cells[0]?.page?.name).toBe('Year journal weekly page (dated)');
     expect(nov.cells.filter((c) => c?.kind === 'free')).toHaveLength(11); // 41 to 51
     const jan = bookLayout(log.build({ year: 2027, month: 1 }));
     expect(jan.cells[0]?.read).toMatchObject({ first: '2027-01-01', last: '2027-01-02', from: '2026-12-27' });

@@ -57,7 +57,8 @@ for (const device of devices) {
       await shot(app, `layers-${device}-settings`);
       await togglePick(app, ['0']); // nothing picked: the list gets the room
 
-      // Drag the free pages above the Weeks group, then back.
+      // Drag the free pages above the Weeks group, then back. The dated rows say more now, so a desktop window needs the height to show every row.
+      if (!app.touch) await page.setViewportSize({ width: 1280, height: 1100 });
       await dragRow(app, '1', { before: '0' }, async () => {
         expect(await page.locator('.orow-drop').getAttribute('data-target')).toBe('{"index":0}');
         expect(await page.locator('.orow-drop').isVisible()).toBe(true);
@@ -97,32 +98,29 @@ for (const device of devices) {
       expect(await page.locator('.orow.selected').count()).toBe(2);
       expect(await reads(app, '0.1')).toBe('reads: SUN NOV 1');
 
-      // Change the Weeks group's How often: every month, and the plain words inside it.
+      // The Weeks group repeats a number of times (a repeat for each week); a Day page's How often also runs to the end of the week or month.
       await showOutline(app);
       await pickRow(app, '0');
-      expect(await optionsOf(app, 'outline-each')).toEqual(['Once', 'A number of times', 'Every day (dated)', 'Every week (dated)', 'Every month (dated)']);
-      expect(await panel(app, 'outline-each').inputValue()).toBe('week');
-      await panel(app, 'outline-each').selectOption('month');
-      await page.waitForFunction(() => (document.querySelector('.outline-settings [data-key="outline-each"]') as HTMLSelectElement).value === 'month');
-      expect((await openDoc(app, 'book')).outline[0].repeat).toEqual({ each: 'month' });
+      expect(await optionsOf(app, 'outline-each')).toEqual(['Once', 'A number of times']);
+      expect(await panel(app, 'outline-each').inputValue()).toBe('times');
+      expect(await panel(app, 'outline-repeat').inputValue()).toBe('5');
+      expect(await panel(app, 'outline-dates').count()).toBe(0); // a group has no page type
       await pickRow(app, '0.1');
-      expect(await optionsOf(app, 'outline-each')).toEqual(['Once each month', 'A number of times each month', 'Every day of the month (dated)', 'Every week of the month (dated)']);
-      expect(await reads(app, '0.1')).toBe('reads: SUN NOV 1');
-      await pickRow(app, '0');
-      await panel(app, 'outline-each').selectOption('week');
-      await page.waitForFunction(() => (document.querySelector('.outline-settings [data-key="outline-each"]') as HTMLSelectElement).value === 'week');
-      await pickRow(app, '0.1');
-      expect(await optionsOf(app, 'outline-each')).toEqual(['Once each week', 'A number of times each week', 'Every day of the week (dated)']);
+      expect(await panel(app, 'outline-dates').inputValue()).toBe('day');
+      expect(await optionsOf(app, 'outline-each')).toEqual(['Once', 'A number of times', 'To the end of the week', 'To the end of the month']);
+      expect(await panel(app, 'outline-each').inputValue()).toBe('to-week');
       expect(await panel(app, 'outline-each-hint').count()).toBe(0);
-      // By a number the group prints no dates, and the panel says so.
-      await pickRow(app, '0');
-      await panel(app, 'outline-each').selectOption('once');
-      await page.waitForSelector('.outline-settings [data-key="outline-each-hint"]');
-      expect(await panel(app, 'outline-each-hint').innerText()).toBe('Repeats by number print no dates.');
-      await panel(app, 'outline-each').selectOption('week');
-      await page.waitForFunction(() => document.querySelector('.outline-settings [data-key="outline-each-hint"]') === null);
+      // Plain prints no dates and has only the plain choices; a Day page again reads its day.
+      await panel(app, 'outline-dates').selectOption('');
+      await page.waitForFunction(() => (document.querySelector('.outline-settings [data-key="outline-each"]') as HTMLSelectElement).value === 'once');
+      expect(await optionsOf(app, 'outline-each')).toEqual(['Once', 'A number of times']);
+      expect(await reads(app, '0.1')).toBe('reads: blank: the page type is Plain');
+      await panel(app, 'outline-dates').selectOption('day');
+      await page.waitForFunction(() => document.querySelector('[data-block-row="0.1"] [data-key="row-reads"]')?.textContent === 'reads: SUN NOV 1');
+      await panel(app, 'outline-each').selectOption('to-week');
+      await page.waitForFunction(() => document.querySelector('[data-block-row="0.1"] .crow-name')?.textContent?.includes('to the end of the week'));
       expect(await reads(app, '0.1')).toBe('reads: SUN NOV 1');
-      expect((await openDoc(app, 'book')).outline[0].repeat).toEqual({ each: 'week' });
+      expect((await openDoc(app, 'book')).outline[0]).toMatchObject({ repeat: { times: 5 }, children: [{ dates: 'week' }, { dates: 'day', repeat: { to: 'week' } }, { dates: 'week-review' }] });
       expect(await kinds(app)).toEqual(['group', 'free', 'page']);
 
       if (!app.touch) {

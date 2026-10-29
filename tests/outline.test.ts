@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { bookLayout, bookPage, emptyBook } from '../src/book/book';
 import {
   addBlock, insertPoint, canAddFree, canFill, duplicateBlock, duplicateBlocks, fillRepeat, freeBlock, groupBlock, groupBlocks, layoutOutline, moveBlocks, pageBlock, pagesToHold,
-  removeBlock, removeBlocks, ungroupBlock, howOftenOf, howOftenOptions, printsNoDates, repeatOf, setDesign, setPin, setRepeat, spreadBlock, totalLine, type Block, type Child, type GroupBlock, type Repeat,
+  removeBlock, removeBlocks, ungroupBlock, howOftenOf, howOftenOptions, repeatOf, setDesign, setPin, setRepeat, spreadBlock, totalLine, type Block, type Child, type DateKind, type GroupBlock,
 } from '../src/book/outline';
 import { emptyPage, type Page } from '../src/format/types';
 import { fingerprint } from '../src/format/fingerprint';
@@ -285,26 +285,24 @@ describe('changing an outline', () => {
     expect(order(moveBlocks(base(), [[2], [2, 0]], { index: 0 })!.outline)).toBe('[CA] A B free');
   });
 
-  it('moves a block into a group at an index, no longer pinned, filling or following the calendar', () => {
+  it('moves a block into a group at an index, no longer pinned or filling', () => {
     const into = moveBlocks(base(), [[1]], { group: 2, index: 1 })!;
     expect(order(into.outline)).toBe('A [CBA] free');
     expect(into.moved).toEqual([[1, 1]]);
     expect('pin' in (into.outline[1] as GroupBlock).children[1]).toBe(false);
-    const dated = moveBlocks([{ ...pageBlock(A), repeat: { each: 'day' } } as Block, groupBlock('G')], [[0]], { group: 1, index: 0 })!;
-    expect((dated.outline[0] as GroupBlock).children[0]).toMatchObject({ repeat: { times: 1 } });
     const filled = moveBlocks([fill(pageBlock(A)), groupBlock('G')], [[0]], { group: 1, index: 0 })!;
     expect(canAddFree(filled.outline)).toBe(true); // the fill is no longer one
-    // a block that already follows its group's span keeps it while it moves within the group
-    const week = { ...groupBlock('W', [pageBlock(A), { ...pageBlock(B), repeat: { each: 'day', of: 'span' } } as Child]), repeat: { each: 'week' } } as Block;
-    expect((moveBlocks([week], [[0, 1]], { group: 0, index: 0 })!.outline[0] as GroupBlock).children[0]).toMatchObject({ repeat: { each: 'day', of: 'span' } });
+    // a page type and a run to the end of the week go with the block
+    const week = groupBlock('W', [pageBlock(A), { ...pageBlock(B), dates: 'day', repeat: { to: 'week' } } as Child]);
+    expect((moveBlocks([week], [[0, 1]], { group: 0, index: 0 })!.outline[0] as GroupBlock).children[0]).toMatchObject({ dates: 'day', repeat: { to: 'week' } });
   });
 
-  it('moves a block out of a group, to any place, and drops the span repeat', () => {
-    const span = { ...pageBlock(B), repeat: { each: 'day', of: 'span' } } as Child;
-    const o: Block[] = [pageBlock(A), { ...groupBlock('G', [pageBlock(C), span]), repeat: { each: 'week' } } as Block];
+  it('moves a block out of a group, to any place, keeping its page type', () => {
+    const dated = { ...pageBlock(B), dates: 'day', repeat: { to: 'week' } } as Child;
+    const o: Block[] = [pageBlock(A), groupBlock('G', [pageBlock(C), dated], 2)];
     const out = moveBlocks(o, [[1, 1]], { index: 0 })!;
     expect(order(out.outline)).toBe('B A [C]');
-    expect(out.outline[0]).toMatchObject({ repeat: { times: 1 } });
+    expect(out.outline[0]).toMatchObject({ dates: 'day', repeat: { to: 'week' } });
     expect(order(moveBlocks(o, [[1, 0]], { index: 2 })!.outline)).toBe('A [B] C');
   });
 
@@ -332,9 +330,8 @@ describe('changing an outline', () => {
     const r = ungroupBlock(base(), 2)!;
     expect(order(r.outline)).toBe('A B C A free');
     expect([r.first, r.count]).toEqual([2, 2]);
-    const span = { ...pageBlock(B), repeat: { each: 'day', of: 'span' } } as Child;
-    const o: Block[] = [{ ...groupBlock('G', [span]), repeat: { each: 'week' } } as Block];
-    expect(ungroupBlock(o, 0)!.outline[0]).toMatchObject({ repeat: { times: 1 } });
+    const dated = { ...pageBlock(B), dates: 'day', repeat: { to: 'week' } } as Child;
+    expect(ungroupBlock([groupBlock('G', [dated])], 0)!.outline[0]).toMatchObject({ dates: 'day', repeat: { to: 'week' } });
     expect(ungroupBlock(base(), 0)).toBeNull(); // not a group
     expect(ungroupBlock([freeBlock(), groupBlock('G', [freeBlock([null])])], 1)).toBeNull(); // two blocks would take what is left
   });
@@ -348,19 +345,19 @@ describe('changing an outline', () => {
   });
 
   it('words "How often" plainly, and keeps the data behind it', () => {
-    const labels = (top: boolean, unit: 'week' | 'month' | null, now: Repeat = { times: 1 }) => howOftenOptions(top, unit, true, now).map((o) => o.label);
-    expect(labels(true, null)).toEqual(['Once', 'A number of times', 'Every day (dated)', 'Every week (dated)', 'Every month (dated)']);
-    expect(labels(false, 'week')).toEqual(['Once each week', 'A number of times each week', 'Every day of the week (dated)']);
-    expect(labels(false, 'month')).toEqual(['Once each month', 'A number of times each month', 'Every day of the month (dated)', 'Every week of the month (dated)']);
-    expect(howOftenOptions(true, null, false, { times: 1 }).filter((o) => o.on).map((o) => o.value)).toEqual(['once', 'times']);
-    expect([{ times: 1 }, { times: 5 }, { each: 'week' }, { each: 'day', of: 'span' }, { fill: true }].map((r) => howOftenOf(r as never))).toEqual(['once', 'times', 'week', 'span-day', 'fill']);
+    const labels = (dates?: DateKind) => howOftenOptions(dates).map((o) => o.label);
+    expect(labels()).toEqual(['Once', 'A number of times']);
+    expect(labels('month')).toEqual(['Once', 'A number of times']);
+    expect(labels('week-review')).toEqual(['Once', 'A number of times']);
+    expect(labels('week')).toEqual(['Once', 'A number of times', 'To the end of the month']);
+    expect(labels('day')).toEqual(['Once', 'A number of times', 'To the end of the week', 'To the end of the month']);
+    expect([{ times: 1 }, { times: 5 }, { to: 'week' }, { to: 'month' }, { fill: true }].map((r) => howOftenOf(r as never))).toEqual(['once', 'times', 'to-week', 'to-month', 'fill']);
     expect(repeatOf('once', { times: 4 })).toEqual({ times: 1 });
     expect(repeatOf('times', { times: 1 })).toEqual({ times: 2 });
     expect(repeatOf('times', { times: 5 })).toEqual({ times: 5 });
-    expect(repeatOf('span-day', { times: 1 })).toEqual({ each: 'day', of: 'span' });
-    expect(repeatOf('month', { times: 1 })).toEqual({ each: 'month' });
-    const weekly = { ...groupBlock('W'), repeat: { each: 'week' } } as GroupBlock;
-    expect([printsNoDates({ times: 3 }, null, true), printsNoDates({ times: 3 }, weekly, true), printsNoDates({ times: 3 }, null, false), printsNoDates({ each: 'day' }, null, true)]).toEqual([true, false, false, false]);
+    expect(repeatOf('times', { to: 'week' })).toEqual({ times: 2 });
+    expect(repeatOf('to-week', { times: 1 })).toEqual({ to: 'week' });
+    expect(repeatOf('to-month', { times: 1 })).toEqual({ to: 'month' });
   });
 
   it('chooses where Add… puts a block: after the selected row, in its group, else before what takes the rest', () => {
@@ -389,11 +386,11 @@ describe('changing an outline', () => {
 
 describe('putting a design in a block', () => {
   const link = { id: 'lib-1', fingerprint: 'old' };
-  const week = (): Block[] => [{ ...pin(pageBlock(A, 3, link), 9), repeat: { each: 'week' } } as Block, groupBlock('G', [spreadBlock('S', A, B, 2, link)])];
+  const week = (): Block[] => [{ ...pin(pageBlock(A, 3, link), 9), dates: 'week', repeat: { to: 'month' } } as Block, groupBlock('G', [spreadBlock('S', A, B, 2, link)])];
 
   it('keeps the repeat, pin and position, and the link unless told otherwise', () => {
     const o = setDesign(week(), [0], { page: C });
-    expect(o[0]).toMatchObject({ type: 'page', page: { name: 'C' }, repeat: { each: 'week' }, pin: 9, from: link });
+    expect(o[0]).toMatchObject({ type: 'page', page: { name: 'C' }, dates: 'week', repeat: { to: 'month' }, pin: 9, from: link });
     expect(o).toHaveLength(2);
   });
 

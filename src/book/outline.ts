@@ -1,5 +1,6 @@
 import type { Page } from '../format/types';
-import { readingOf, spansOf, type Calendar } from '../format/calendar';
+import { readingOf, spansOf, type Calendar, type Span } from '../format/calendar';
+import { daysBetween, parts } from '../format/dates';
 import type { Reading, Unit } from '../format/tokens';
 import { notesPage } from '../builtin/pages';
 
@@ -10,20 +11,25 @@ import { notesPage } from '../builtin/pages';
 export interface Link { id: string; fingerprint: string }
 
 /**
- * How often a block is placed: a number of times, as many times as use up the pages the others leave, or once for each day, week
- * or month of the book's calendar. Inside a group that repeats by week or month, a block can instead repeat once for each day
- * or week of the group's span (`of: 'span'`).
+ * How often a block is placed: a number of times, as many times as use up the pages the others leave, or, for a dated block, until
+ * the end of the week or the month of the date it reads next (`to`).
  */
-export type Repeat = { times: number } | { fill: true } | { each: Unit } | { each: 'day' | 'week'; of: 'span' };
+export type Repeat = { times: number } | { fill: true } | { to: 'week' | 'month' };
+/**
+ * What dates a page or spread block reads (a "page type"). Left out the block is Plain and reads nothing. Day, Week and Month pages
+ * read the next day, week or month of the calendar, each copy in turn; a review reads the week or month of the last day page before it.
+ */
+export type DateKind = 'day' | 'week' | 'month' | 'week-review' | 'month-review';
+export const DATE_KINDS: readonly DateKind[] = ['day', 'week', 'month', 'week-review', 'month-review'];
 /** A page number, or the last page of the book (which follows the book if it is resized). */
 export type Pin = number | 'last';
 
-export interface PageBlock { type: 'page'; /** null is a blank page. */ page: Page | null; repeat: Repeat; pin?: Pin; from?: Link }
+export interface PageBlock { type: 'page'; /** null is a blank page. */ page: Page | null; repeat: Repeat; dates?: DateKind; pin?: Pin; from?: Link }
 /**
- * `shared` sets whether both pages read the same day, week or month. Left out, a spread that repeats each day or week gives each page
- * its own (two a repeat: the left page k, the right page k+1) and one that repeats each month gives both pages the one month.
+ * A spread is one copy: both pages read the same date. `shared: false` ("Each page its own date") gives the left page one date and
+ * the right page the next (a spread of two weeks), so a Week page spread takes two weeks a copy.
  */
-export interface SpreadBlock { type: 'spread'; name: string; left: Page; right: Page; repeat: Repeat; shared?: boolean; pin?: Pin; from?: Link }
+export interface SpreadBlock { type: 'spread'; name: string; left: Page; right: Page; repeat: Repeat; dates?: DateKind; shared?: boolean; pin?: Pin; from?: Link }
 /**
  * Pages the owner fills by hand. At the top level the block takes whatever pages the others leave (blank, or the design
  * kept in `pages`); inside a group it is exactly its `pages` (one blank page when empty) for each repeat of the group.
@@ -39,8 +45,10 @@ export const MAX_BLOCKS = 200;
 
 export const isFill = (b: Block): boolean => b.type !== 'free' && 'fill' in b.repeat;
 export const timesOf = (r: Repeat): number => ('times' in r ? r.times : 1);
-/** Whether a repeat follows the calendar (each day, week or month of it, or of a group's span). */
-export const isEach = (r: Repeat): r is Extract<Repeat, { each: Unit }> => 'each' in r;
+/** Whether a repeat runs to the end of the week or month. */
+export const isTo = (r: Repeat): r is Extract<Repeat, { to: 'week' | 'month' }> => 'to' in r;
+/** Whether a repeat to the end of the week or month suits a page type: a Day page to either, a Week page to the end of the month. */
+export const fitsTo = (dates: DateKind | undefined, to: 'week' | 'month'): boolean => dates === 'day' || (dates === 'week' && to === 'month');
 /** Whether a top-level block takes what the others leave: free pages, or a fill. */
 export const takesRest = (b: Block): boolean => b.type === 'free' || isFill(b);
 
@@ -93,42 +101,113 @@ export interface Layout {
   issues: string[];
 }
 
-interface Atom { pages: (Page | null)[]; /** What each page reads. */ reads: (Reading | null)[]; free?: number; child?: number }
+interface Atom { pages: (Page | null)[]; /** What each page reads. */ reads: (Reading | null)[]; free?: number; child?: number; /** A dated copy that falls after the calendar's last day. */ past?: boolean }
 
 const pinOf = (b: Block): Pin | undefined => (b.type === 'free' ? undefined : b.pin);
 
 const blockName = (b: Block) => (b.type === 'page' ? b.page?.name || 'Blank' : b.type === 'free' ? 'Free pages' : b.name);
 
-/** What each repeat of an `each` repeat reads. Without a calendar (or a span to read) there is one repeat and it is undated. */
-function eachReads(r: Extract<Repeat, { each: Unit }>, cal: Calendar | undefined, span: Reading | null): (Reading | null)[] {
-  if (!cal || ('of' in r && !span)) return [null];
-  return spansOf(cal, r.each, 'of' in r && span ? span : undefined).map((s) => readingOf(cal, s));
+// ---- the date walk -------------------------------------------------------------------
+
+/**
+ * Where the walk through the outline is in the calendar: the next day, week and month a Day, Week or Month page reads, and the last
+ * day, week and month read so far (which the reviews read).
+ */
+interface Walk {
+  cal: Calendar;
+  spans: Record<Unit, Span[]>;
+  next: Record<Unit, number>;
+  lastDay: string | null;
+  lastWeek: number | null;
+  lastMonth: number | null;
 }
 
-/** What each repeat of a repeat reads: its day, week or month, or the span it sits in. `times` is how often a plain repeat runs. */
-const repeatReads = (r: Repeat, times: number, cal: Calendar | undefined, span: Reading | null) =>
-  isEach(r) ? { reads: eachReads(r, cal, span), unit: r.each } : { reads: Array.from({ length: times }, () => span), unit: null };
+const newWalk = (cal: Calendar): Walk => ({
+  cal, spans: { day: spansOf(cal, 'day'), week: spansOf(cal, 'week'), month: spansOf(cal, 'month') },
+  next: { day: 0, week: 0, month: 0 }, lastDay: null, lastWeek: null, lastMonth: null,
+});
 
-/** Atoms of a page or spread block, one for each thing it reads. */
-function pageAtoms(c: PageBlock | SpreadBlock, child: number | undefined, times: number, cal: Calendar | undefined, span: Reading | null): Atom[] {
-  const { reads, unit } = repeatReads(c.repeat, times, cal, span);
-  if (c.type === 'page') return reads.map((r) => ({ pages: [c.page], reads: [r], child }));
-  if (c.shared ?? (unit === null || unit === 'month')) return reads.map((r) => ({ pages: [c.left, c.right], reads: [r, r], child }));
-  const out: Atom[] = [];
-  for (let i = 0; i < reads.length; i += 2) out.push({ pages: [c.left, c.right], reads: [reads[i], reads[i + 1] ?? null], child });
-  return out;
+/** The index of the span that holds a date (the last one when it is after the calendar). */
+const spanIndex = (spans: Span[], date: string): number => {
+  const i = spans.findIndex((s) => date >= s.first && date <= s.last);
+  return i >= 0 ? i : spans.length - 1;
+};
+
+/** Read the next day, week or month: its reading (null past the calendar's end), and whether it was past. */
+function take(w: Walk, kind: Unit): { read: Reading | null; past: boolean } {
+  const i = w.next[kind]++, span = w.spans[kind][i];
+  const at = Math.min(i, w.spans[kind].length - 1);
+  if (kind === 'day') w.lastDay = w.spans.day[at]?.first ?? w.lastDay;
+  else if (kind === 'week') w.lastWeek = at;
+  else w.lastMonth = at;
+  return span ? { read: readingOf(w.cal, span), past: false } : { read: null, past: true };
 }
+
+/** What a review reads: the week or month of the last day page before it, else of the last week (month) page, else the first. */
+function review(w: Walk, kind: 'week' | 'month'): Reading | null {
+  const spans = w.spans[kind];
+  const i = w.lastDay !== null ? spanIndex(spans, w.lastDay) : (kind === 'week' ? w.lastWeek : w.lastMonth) ?? 0;
+  return spans[i] ? readingOf(w.cal, spans[i]) : null;
+}
+
+/** How many copies a repeat makes. `fill` is how many a block that takes the rest is given; `to` runs from the next date to the end of its week or month, `step` dates a copy. */
+function copiesOf(r: Repeat, dates: DateKind | undefined, w: Walk | null, fill: number, step = 1): number {
+  if ('times' in r) return r.times;
+  if ('fill' in r) return fill;
+  if (!w) return 1;
+  if (dates === 'day') {
+    const day = w.spans.day[w.next.day];
+    if (!day) return 0;
+    const spans = r.to === 'week' ? w.spans.week : w.spans.month;
+    return Math.ceil((daysBetween(day.first, spans[spanIndex(spans, day.first)].last) + 1) / step);
+  }
+  if (dates === 'week' && r.to === 'month') {
+    const week = w.spans.week[w.next.week];
+    if (!week) return 0;
+    const month = w.spans.month[spanIndex(w.spans.month, week.first)];
+    let n = 0;
+    while (w.spans.week[w.next.week + n] && w.spans.week[w.next.week + n].first <= month.last) n++;
+    return Math.ceil(n / step);
+  }
+  return 1;
+}
+
+/** One copy of a page or spread block: what it reads, taking the next dates of the walk. */
+function copy(c: PageBlock | SpreadBlock, child: number | undefined, w: Walk | null): Atom {
+  const pages = c.type === 'page' ? [c.page] : [c.left, c.right];
+  const dated = (read: Reading | null, past = false) => ({ pages, reads: pages.map(() => read), child, ...(past ? { past } : {}) });
+  if (!w || !c.dates) return dated(null);
+  if (c.dates === 'week-review' || c.dates === 'month-review') return dated(review(w, c.dates === 'week-review' ? 'week' : 'month'));
+  const kind = c.dates;
+  const first = take(w, kind);
+  if (ownDates(c)) {
+    const second = take(w, kind);
+    return { pages, reads: [first.read, second.read], child, ...(first.past ? { past: true } : {}) };
+  }
+  return dated(first.read, first.past);
+}
+
+/** Whether a copy of a block takes two dates: a spread whose pages each have their own. */
+const ownDates = (c: PageBlock | SpreadBlock) => c.type === 'spread' && c.shared === false && (c.dates === 'day' || c.dates === 'week' || c.dates === 'month');
 
 /** The pages of a free block inside a group, one atom each (one blank page when it holds none). */
-const freeAtoms = (c: FreeBlock, child: number | undefined, span: Reading | null): Atom[] =>
-  (c.pages.length ? c.pages : [null]).map((page, j) => ({ pages: [page], reads: [span], free: j, child }));
+const freeAtoms = (c: FreeBlock, child: number | undefined): Atom[] =>
+  (c.pages.length ? c.pages : [null]).map((page, j) => ({ pages: [page], reads: [null], free: j, child }));
 
-/** `times` repeats of what a block holds (for a block that follows the calendar, one for each day, week or month instead). */
-function atomsOf(b: Block, cal: Calendar | undefined, times: number): Atom[] {
-  if (b.type === 'free') return Array.from({ length: times }, () => freeAtoms(b, undefined, null)).flat();
-  if (b.type === 'page' || b.type === 'spread') return pageAtoms(b, undefined, times, cal, null);
-  return repeatReads(b.repeat, times, cal, null).reads.flatMap((span) =>
-    b.children.flatMap((c, k) => (c.type === 'free' ? freeAtoms(c, k, span) : pageAtoms(c, k, timesOf(c.repeat), cal, span))));
+/** What a block places, in order, as the walk reaches it, and how many times it is placed. `fill` is how many repeats a block that takes the rest gets. */
+function atomsOf(b: Block, w: Walk | null, fill: number): { atoms: Atom[]; count: number } {
+  if (b.type === 'free') return { atoms: Array.from({ length: fill }, (_, j) => ({ pages: [b.pages[j] ?? null], reads: [null], free: j })), count: fill };
+  const run = (c: PageBlock | SpreadBlock, child: number | undefined, n: number) => Array.from({ length: n }, () => copy(c, child, w));
+  if (b.type === 'page' || b.type === 'spread') { const n = copiesOf(b.repeat, b.dates, w, fill, ownDates(b) ? 2 : 1); return { atoms: run(b, undefined, n), count: n }; }
+  const count = copiesOf(b.repeat, undefined, w, fill);
+  return { atoms: Array.from({ length: count }, () => b.children.flatMap((c, k) => (c.type === 'free' ? freeAtoms(c, k) : run(c, k, copiesOf(c.repeat, c.dates, w, 0, ownDates(c) ? 2 : 1))))).flat(), count };
+}
+
+/** Every top-level block's atoms and how many times it is placed, walking the outline in order. The block that takes the rest is given `fill`. */
+function plan(outline: readonly Block[], cal: Calendar | undefined, rest: number, fill: number): { atoms: Atom[][]; counts: number[] } {
+  const w = cal ? newWalk(cal) : null;
+  const made = outline.map((b, i) => atomsOf(b, w, i === rest ? fill : 1));
+  return { atoms: made.map((m) => m.atoms), counts: made.map((m) => m.count) };
 }
 
 const widthOf = (atoms: Atom[]) => atoms.reduce((n, a) => n + a.pages.length, 0);
@@ -138,9 +217,9 @@ const gapCell = (block: number): Cell => ({ kind: 'gap', page: notesPage(), bloc
 /**
  * Put atoms down from slot `start`, skipping slots `taken`. A spread starts on a left (even) page: where it would land on a
  * right one, or where its second page is taken, a gap page goes in first. Returns the slot after the last one used, and
- * whether a taken slot was in the way.
+ * whether a taken slot was in the way. `late` hears of each copy that is past the calendar's end, with its first page.
  */
-function put(atoms: Atom[], start: number, block: number, taken: (n: number) => boolean, out: Map<number, Cell>): { next: number; hit: boolean } {
+function put(atoms: Atom[], start: number, block: number, taken: (n: number) => boolean, out: Map<number, Cell>, late?: (a: Atom, p: number) => void): { next: number; hit: boolean } {
   let p = start, hit = false;
   const skip = () => { while (taken(p)) { p++; hit = true; } };
   for (const a of atoms) {
@@ -148,6 +227,7 @@ function put(atoms: Atom[], start: number, block: number, taken: (n: number) => 
     if (a.pages.length === 2) {
       while (p % 2 === 1 || taken(p + 1)) { out.set(p, gapCell(block)); p++; skip(); }
     }
+    if (a.past) late?.(a, p);
     a.pages.forEach((page, i) => out.set(p + i, { kind: a.free !== undefined ? 'free' : 'content', page, block, read: a.reads[i] ?? null, child: a.child, free: a.free }));
     p += a.pages.length;
   }
@@ -156,68 +236,79 @@ function put(atoms: Atom[], start: number, block: number, taken: (n: number) => 
 
 const lastOf = (m: Map<number, Cell>) => { let e = 0; for (const k of m.keys()) if (k > e) e = k; return e; };
 
+const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const shortDate = (iso: string) => `${SHORT_MONTHS[parts(iso).month - 1]} ${parts(iso).day}`;
+
+/** Outlines read from a book made with the old date settings (`{ each }` repeats): the layout says so. See `readOutline`. */
+export const oldDateOutlines = new WeakSet<readonly Block[]>();
+
 /**
- * Work out what is on every page of a book of `count` pages. Pinned blocks are placed first, at their page; the others follow
- * one after another from page 1, flowing around the pinned pages. The one block that takes the rest (a fill, or free pages)
- * takes as many pages as still fit, so a book keeps its length. Blocks that need more pages than the book has run past the
- * end: `over` says by how many.
+ * Work out what is on every page of a book of `count` pages. The outline is walked in order, and each dated block reads the next
+ * dates of the calendar (see `DateKind`); pinned blocks take their dates from their place in the outline. Pinned blocks are placed
+ * first, at their page; the others follow one after another from page 1, flowing around the pinned pages. The one block that takes
+ * the rest (a fill, or free pages) takes as many pages as still fit, so a book keeps its length. Blocks that need more pages than the
+ * book has run past the end: `over` says by how many.
  */
 export function layoutOutline(outline: readonly Block[], count: number, cal?: Calendar): Layout {
-  const issues: string[] = [];
-  const pinned = new Map<number, Cell>();
   const rest = outline.findIndex((b) => pinOf(b) === undefined && takesRest(b));
-  const repeats = (b: Block) => (b.type === 'free' ? 1 : isEach(b.repeat) ? repeatReads(b.repeat, 0, cal, null).reads.length : timesOf(b.repeat));
 
-  outline.forEach((b, i) => {
-    const pin = pinOf(b);
-    if (pin === undefined) return;
-    const atoms = atomsOf(b, cal, repeats(b));
-    const width = widthOf(atoms);
-    const taken = (n: number) => pinned.has(n);
-    let start = typeof pin === 'number' ? pin : Math.max(1, count - width + 1);
-    let out = new Map<number, Cell>(), r = put(atoms, start, i, taken, out);
-    if (pin === 'last') {
-      // The block ends on the last page: move the start back by what gap pages added.
-      for (let tries = 0; tries < width + 2 && lastOf(out) > count && start > 1; tries++) {
-        start = Math.max(1, start - (lastOf(out) - count));
-        out = new Map();
-        r = put(atoms, start, i, taken, out);
+  /** Everything placed when the block that takes the rest is given `k` repeats (or, for free pages, `k` pages). */
+  const place = (k: number) => {
+    const { atoms, counts } = plan(outline, cal, rest, k);
+    const issues: string[] = [];
+    const late = new Map<string, number>(); // the first late page of each block (or child of a group)
+    const note = (i: number) => (a: Atom, p: number) => { const key = `${i}.${a.child ?? ''}`; late.set(key, Math.min(late.get(key) ?? p, p)); };
+    const pinned = new Map<number, Cell>();
+    outline.forEach((b, i) => {
+      const pin = pinOf(b);
+      if (pin === undefined) return;
+      const width = widthOf(atoms[i]);
+      const taken = (n: number) => pinned.has(n);
+      let start = typeof pin === 'number' ? pin : Math.max(1, count - width + 1);
+      let tried: [Atom, number][] = [];
+      const record = (a: Atom, p: number) => tried.push([a, p]);
+      let out = new Map<number, Cell>(), r = put(atoms[i], start, i, taken, out, record);
+      if (pin === 'last') {
+        // The block ends on the last page: move the start back by what gap pages added.
+        for (let tries = 0; tries < width + 2 && lastOf(out) > count && start > 1; tries++) {
+          start = Math.max(1, start - (lastOf(out) - count));
+          out = new Map();
+          tried = [];
+          r = put(atoms[i], start, i, taken, out, record);
+        }
       }
-    }
-    if (r.hit) issues.push(`“${blockName(b)}” is pinned to ${pin === 'last' ? 'the last page' : `page ${pin}`}, but other pinned pages are in the way.`);
-    for (const [n, cell] of out) pinned.set(n, cell);
-  });
-
-  /** Everything not pinned, with the block that takes the rest given `k` repeats (or, for free pages, `k` pages). */
-  const flow = (k: number): Map<number, Cell> => {
-    const out = new Map<number, Cell>();
+      if (r.hit) issues.push(`“${blockName(b)}” is pinned to ${pin === 'last' ? 'the last page' : `page ${pin}`}, but other pinned pages are in the way.`);
+      for (const [a, p] of tried) note(i)(a, p);
+      for (const [n, cell] of out) pinned.set(n, cell);
+    });
+    const flowed = new Map<number, Cell>();
     let p = 1;
     outline.forEach((b, i) => {
       if (pinOf(b) !== undefined) return;
-      let atoms: Atom[];
-      if (i === rest && b.type === 'free') atoms = Array.from({ length: k }, (_, j) => ({ pages: [b.pages[j] ?? null], reads: [null], free: j }));
-      else atoms = atomsOf(b, cal, i === rest ? k : repeats(b));
-      p = put(atoms, p, i, (n) => pinned.has(n) || out.has(n), out).next;
+      p = put(atoms[i], p, i, (n) => pinned.has(n) || flowed.has(n), flowed, note(i)).next;
     });
-    return out;
+    for (const page of [...late.values()].sort((x, y) => x - y)) issues.push(`Page ${page} is past the calendar's last day (${shortDate(cal!.end)}).`);
+    return { pinned, flowed, issues, counts };
   };
 
   let k = 0;
   if (rest >= 0) {
     const b = outline[rest];
-    const others = flow(0).size, room = count - others - pinned.size;
+    const base = place(0), room = count - base.flowed.size - base.pinned.size;
     if (b.type === 'free') {
       const min = b.pages.length;
       k = Math.max(min, room);
-      while (k > min && lastOf(flow(k)) > count) k--;
+      while (k > min && lastOf(place(k).flowed) > count) k--;
     } else {
-      const unit = widthOf(atomsOf(b, cal, 1));
+      const unit = widthOf(plan(outline, cal, rest, 1).atoms[rest]);
       k = unit > 0 ? Math.max(0, Math.floor(room / unit)) : 0;
-      while (k > 0 && lastOf(flow(k)) > count) k--;
+      while (k > 0 && lastOf(place(k).flowed) > count) k--;
+      // Dates after the fill move with its size, so one more repeat may fit where the estimate said no.
+      while (unit > 0 && k < count && lastOf(place(k + 1).flowed) <= count) k++;
     }
   }
-  const placed = flow(k);
-  const all = new Map<number, Cell>([...placed, ...pinned]);
+  const { pinned, flowed, issues, counts } = place(k);
+  const all = new Map<number, Cell>([...flowed, ...pinned]);
   const end = lastOf(all);
 
   const rows: Row[] = outline.map((b, i) => {
@@ -227,11 +318,12 @@ export function layoutOutline(outline: readonly Block[], count: number, cal?: Ca
     const mine = firstContent < 0 ? [] : slots.slice(firstContent);
     return {
       block: i, pages: mine.length, first: mine[0] ?? null, last: mine[mine.length - 1] ?? null,
-      repeats: i === rest ? k : repeats(b), gaps: lead, innerGaps: mine.filter((n) => all.get(n)!.kind === 'gap').length,
+      repeats: counts[i], gaps: lead, innerGaps: mine.filter((n) => all.get(n)!.kind === 'gap').length,
       beyond: i === rest && b.type === 'free' ? mine.filter((n) => n > count).map((n) => all.get(n)!.free!) : [],
     };
   });
 
+  if (oldDateOutlines.has(outline)) issues.push('This book was made with the old date settings; set its page types again.');
   return {
     cells: Array.from({ length: count }, (_, i) => all.get(i + 1) ?? null),
     rows, used: all.size, end, over: Math.max(0, end - count), issues,
@@ -305,17 +397,11 @@ export function duplicateBlock(outline: readonly Block[], path: Path): Block[] {
   return copy;
 }
 
-/** A block that is no longer pinned, filling or following the calendar: what it becomes inside a group. */
+/** A block that is no longer pinned or filling: what it becomes inside a group. */
 function intoGroup<T extends Block>(block: T): T {
   if (block.type === 'free') return block;
   delete block.pin;
-  if ('fill' in block.repeat || (isEach(block.repeat) && !('of' in block.repeat))) block.repeat = { times: 1 };
-  return block;
-}
-
-/** What a block becomes outside its group: "each … of the group's span" means nothing there. */
-function outOfGroup<T extends Block>(block: T): T {
-  if (block.type !== 'free' && isEach(block.repeat) && 'of' in block.repeat) block.repeat = { times: 1 };
+  if ('fill' in block.repeat) block.repeat = { times: 1 };
   return block;
 }
 
@@ -346,7 +432,7 @@ const restOk = (outline: readonly Block[]) => outline.filter(takesRest).length <
 /**
  * Move a set of blocks together, in their order, to a place in the outline or in a group. Dropping next to a block that is itself
  * being moved lands it where that block was. A block that goes into a group is no longer pinned or following the calendar; one that
- * comes out loses "of the group's span". Returns the new outline and where the moved blocks are now, or null when it can't be done
+ * Returns the new outline and where the moved blocks are now, or null when it can't be done
  * (a group dropped into a group, or a second block that takes what's left at the top level).
  */
 export function moveBlocks(outline: readonly Block[], paths: readonly Path[], to: DropTarget): { outline: Block[]; moved: Path[] } | null {
@@ -364,7 +450,7 @@ export function moveBlocks(outline: readonly Block[], paths: readonly Path[], to
   }
   for (const b of moving) {
     if (origin.get(b) === target) continue; // moved within its own list
-    if (target) intoGroup(b); else outOfGroup(b);
+    if (target) intoGroup(b);
   }
   list.splice(anchor ? list.indexOf(anchor) : list.length, 0, ...moving);
   return restOk(copy) ? { outline: copy, moved: pathsOf(copy, moving) } : null;
@@ -395,7 +481,7 @@ export function duplicateBlocks(outline: readonly Block[], paths: readonly Path[
 
 /**
  * Put top-level page, spread and free-pages blocks into a new group named "Group" that repeats once, where the first of them was.
- * They are no longer pinned, filling or following the calendar. Returns null when a group is among them or nothing is.
+ * They are no longer pinned or filling. Returns null when a group is among them or nothing is.
  */
 export function groupBlocks(outline: readonly Block[], indexes: readonly number[]): { outline: Block[]; group: number } | null {
   const at = [...new Set(indexes)].sort((a, b) => a - b);
@@ -412,7 +498,7 @@ export function ungroupBlock(outline: readonly Block[], index: number): { outlin
   const g = outline[index];
   if (g?.type !== 'group') return null;
   const copy = clone(outline) as Block[];
-  const kids = (copy[index] as GroupBlock).children.map(outOfGroup);
+  const kids = (copy[index] as GroupBlock).children;
   copy.splice(index, 1, ...kids);
   return restOk(copy) ? { outline: copy, first: index, count: kids.length } : null;
 }
@@ -462,47 +548,79 @@ export const fillRepeat = (): Repeat => ({ fill: true });
 /** What the outline calls a block. */
 export const nameOf = blockName;
 
-/** "×6", "fill what’s left", "each day", or, inside a group that repeats by week, "each day of the week". */
-export function repeatLabel(b: Block, parent?: GroupBlock): string {
+/** "×6", "fill what’s left", "to the end of the week". */
+export function repeatLabel(b: Block): string {
   if (b.type === 'free') return 'free pages';
   const r = b.repeat;
   if ('fill' in r) return 'fill what’s left';
-  if (!isEach(r)) return `×${r.times}`;
-  if (!('of' in r)) return `each ${r.each}`;
-  const span = parent && isEach(parent.repeat) ? parent.repeat.each : null;
-  return `each ${r.each} of ${span ? `the ${span}` : 'the group’s span'}`;
+  return isTo(r) ? `to the end of the ${r.to}` : `×${r.times}`;
 }
 
-/** The answers to "How often": a plain number (once, or a number of times), or every day, week or month of the calendar (or of a group's span). */
-export type HowOften = 'once' | 'times' | 'day' | 'week' | 'month' | 'span-day' | 'span-week';
+/** The answers to "How often": once, a number of times, or (for a dated block) to the end of the week or month. Filling what's left is its own button. */
+export type HowOften = 'once' | 'times' | 'to-week' | 'to-month';
 
-export const howOftenOf = (r: Repeat): HowOften | 'fill' =>
-  'fill' in r ? 'fill' : !isEach(r) ? (r.times === 1 ? 'once' : 'times') : 'of' in r ? `span-${r.each}` : r.each;
+export const howOftenOf = (r: Repeat): HowOften | 'fill' => ('fill' in r ? 'fill' : isTo(r) ? `to-${r.to}` : r.times === 1 ? 'once' : 'times');
 
-/**
- * The choices for "How often", in plain words. At the top level: Once, A number of times, Every day / week / month (dated). Inside a
- * group that repeats by week or month (`spanUnit`): the same with "each week", and Every day of the week (dated), and for a month also
- * Every week of the month. The dated ones are off without a calendar, or outside such a group; the choice already made is always listed.
- */
-export function howOftenOptions(top: boolean, spanUnit: Unit | null, calendar: boolean, now: Repeat): { value: HowOften; label: string; on: boolean }[] {
-  const each = spanUnit ? ` each ${spanUnit}` : '';
-  const options: { value: HowOften; label: string; on: boolean }[] = [{ value: 'once', label: `Once${each}`, on: true }, { value: 'times', label: `A number of times${each}`, on: true }];
-  if (top) for (const u of ['day', 'week', 'month'] as const) options.push({ value: u, label: `Every ${u} (dated)${calendar ? '' : ': set a calendar first'}`, on: calendar });
-  else if (spanUnit === 'week' || spanUnit === 'month') for (const u of spanUnit === 'month' ? (['day', 'week'] as const) : (['day'] as const)) options.push({ value: `span-${u}`, label: `Every ${u} of the ${spanUnit} (dated)`, on: true });
-  const have = howOftenOf(now);
-  if (have !== 'fill' && !options.some((o) => o.value === have)) options.push({ value: have, label: have.startsWith('span-') ? `Every ${have.slice(5)} of the group’s span (dated)` : `Every ${have} (dated)`, on: false });
+/** The choices for "How often", in plain words: Once and A number of times, and for a Day or Week page the runs to the end of the week or month that suit it. */
+export function howOftenOptions(dates: DateKind | undefined): { value: HowOften; label: string }[] {
+  const options: { value: HowOften; label: string }[] = [{ value: 'once', label: 'Once' }, { value: 'times', label: 'A number of times' }];
+  if (fitsTo(dates, 'week')) options.push({ value: 'to-week', label: 'To the end of the week' });
+  if (fitsTo(dates, 'month')) options.push({ value: 'to-month', label: 'To the end of the month' });
   return options;
 }
 
 /** The repeat a "How often" answer makes (a number of times starts at 2: Once is 1). */
 export function repeatOf(answer: HowOften, now: Repeat): Repeat {
   if (answer === 'once') return { times: 1 };
-  if (answer === 'times') return { times: isEach(now) || 'fill' in now ? 2 : Math.max(2, now.times) };
-  return answer.startsWith('span-') ? { each: answer.slice(5) as 'day' | 'week', of: 'span' } : { each: answer as Unit };
+  if (answer === 'times') return { times: 'times' in now ? Math.max(2, now.times) : 2 };
+  return { to: answer === 'to-week' ? 'week' : 'month' };
 }
 
-/** Whether a repeat by a plain number in a book with a calendar prints no dates: not inside a group that follows the calendar, where it reads the group's span. */
-export const printsNoDates = (r: Repeat, parent: GroupBlock | null, calendar: boolean): boolean => calendar && 'times' in r && !(parent && isEach(parent.repeat));
+/** The page types, in plain words. */
+export const DATE_KIND_LABELS: Record<DateKind, string> = { day: 'Day page', week: 'Week page', month: 'Month page', 'week-review': 'Week review', 'month-review': 'Month review' };
+
+/** Change a page or spread block's page type (null makes it Plain). A run to the end of the week or month that no longer suits it becomes Once. */
+export function setDates(outline: readonly Block[], path: Path, dates: DateKind | null): Block[] {
+  const b = blockAt(outline, path);
+  if (!b || (b.type !== 'page' && b.type !== 'spread')) return clone(outline) as Block[];
+  const next = clone(b);
+  if (dates) next.dates = dates; else delete next.dates;
+  if (isTo(next.repeat) && !fitsTo(next.dates, next.repeat.to)) next.repeat = { times: 1 };
+  return replaceBlock(outline, path, next);
+}
+
+/**
+ * The dates some placed cells read, for a row's summary: "Nov 1–14", "Nov 1–7, 15–21", "weeks 1–2", "week 3", "Nov–Dec". Runs of days,
+ * weeks (counted from the calendar's first) or months that follow one another are joined. Null when they read nothing.
+ */
+export function datesCovered(cells: readonly (Cell | null)[], cal: Calendar | undefined): string | null {
+  const reads = cells.flatMap((c) => (c && c.kind === 'content' && c.read ? [c.read] : []));
+  if (!cal || !reads.length) return null;
+  const kind = reads[0].kind;
+  const join = (runs: string[]) => runs.join(', ');
+  if (kind === 'day') {
+    const days = [...new Set(reads.map((r) => r.first))].sort();
+    const runs: [string, string][] = [];
+    for (const d of days) {
+      const last = runs[runs.length - 1];
+      if (last && daysBetween(last[1], d) <= 1) last[1] = d; else runs.push([d, d]);
+    }
+    return join(runs.map(([a, z], i) => {
+      if (a === z) return i && parts(a).month === parts(runs[i - 1][1]).month ? `${parts(a).day}` : shortDate(a);
+      const same = parts(a).month === parts(z).month && parts(a).year === parts(z).year;
+      return `${i && parts(a).month === parts(runs[i - 1][1]).month ? `${parts(a).day}` : shortDate(a)}–${same ? parts(z).day : shortDate(z)}`;
+    }));
+  }
+  const spans = spansOf(cal, kind), at = [...new Set(reads.map((r) => spanIndex(spans, r.first)))].sort((x, y) => x - y);
+  const runs: [number, number][] = [];
+  for (const i of at) {
+    const last = runs[runs.length - 1];
+    if (last && i - last[1] === 1) last[1] = i; else runs.push([i, i]);
+  }
+  if (kind === 'week') return `week${at.length > 1 ? 's' : ''} ${join(runs.map(([a, z]) => (a === z ? `${a + 1}` : `${a + 1}–${z + 1}`)))}`;
+  const name = (i: number) => SHORT_MONTHS[parts(spans[i].first).month - 1];
+  return join(runs.map(([a, z]) => (a === z ? name(a) : `${name(a)}–${name(z)}`)));
+}
 
 /** The first page a block (or a child of a group) lands on, or null when it takes none. */
 export const firstCell = (layout: Layout, block: number, child?: number): { slot: number; cell: Cell } | null => {

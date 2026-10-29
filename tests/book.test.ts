@@ -90,7 +90,7 @@ describe('book file', () => {
   it('says which rule failed and where', () => {
     expect(rules(readBook(null))).toEqual(['root-object']);
     expect(rules(readBook({ ...good(), format: 'x' }))).toContain('format');
-    expect(rules(readBook({ ...good(), version: 2 }))).toContain('version');
+    expect(rules(readBook({ ...good(), version: 3 }))).toContain('version');
     expect(rules(readBook({ ...good(), name: 3 }))).toContain('name');
     expect(rules(readBook({ ...good(), page_count: 6 }))).toContain('page-count');
     expect(rules(readBook({ ...good(), page_numbers: 'yes' }))).toContain('page-numbers');

@@ -14,7 +14,7 @@ async function showOutline(app: App) {
   await app.page.waitForSelector('.book-contents', { state: 'visible' });
 }
 
-/** Build the Monthly log from the library's Books tab, for a month. */
+/** Build the Monthly log from the library's Books tab, for a month, with the Week planner (which holds the week block) in place of its weekly page. */
 async function buildLog(app: App, year: string, month: string) {
   await choose(app, 'edit', '#library');
   await app.page.waitForSelector('dialog.library.browser[open] .lib-card');
@@ -25,6 +25,13 @@ async function buildLog(app: App, year: string, month: string) {
   await app.page.selectOption('[data-key="template-month"]', month).catch(async () => app.page.fill('[data-key="template-month"]', month));
   await hit(app, '[data-key="template-build"]');
   await app.page.waitForSelector('.stage-page');
+  await waitSaved(app);
+  await showOutline(app);
+  await hit(app, '[data-block-row="0.0"] > .orow-line .orow-main');
+  await hit(app, '.outline-settings [data-key="outline-replace"]');
+  await app.page.waitForSelector('dialog.picker[open] .design');
+  await hit(app, 'dialog.picker[open] .design[data-name="Week planner"]');
+  await app.page.waitForSelector('dialog.picker', { state: 'hidden' });
   await waitSaved(app);
 }
 
