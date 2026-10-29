@@ -1,6 +1,6 @@
 import {
   ALIGNS, ALONGS, DEFAULTS, DIRECTIONS, DOT_SIZES, ICON_SIZES, PATTERNS, RULE_WEIGHTS, SEQUENCE_VALUES, SIDES, TEXT_SIZES, TEXT_STYLES,
-  TEXT_TONES, WEIGHTS, WEEK_LINES, DAY_FILTERS, type Art, type BoxSide, type Generated, type PageElement, type Pattern, type Sequence, type SequenceValues, type Shade,
+  TEXT_TONES, WEIGHTS, WEEK_LINES, DAY_FILTERS, type Art, type BoxSide, type Generated, type Image, type PageElement, type Pattern, type Sequence, type SequenceValues, type Shade,
 } from './format/types';
 import { ART_FILLS, ART_SCALINGS, ART_STROKES, canFill, canStroke, type ArtPath } from './format/art';
 import { cleanTones, toneAt } from './format/shade';
@@ -9,7 +9,8 @@ import { iconGlyph } from './icons/glyph';
 import { tokenProblem } from './format/tokens';
 import { validateElement } from './format/validate';
 import { headerOf } from './format/bounds';
-import { canNudge, deleteElement, deleteElements, duplicateElement, nudgeButton, nudgeStep, reorderElement } from './actions';
+import { canNudge, deleteElement, deleteElements, duplicateElement, nudgeButton, nudgePicture, nudgeStep, reorderElement, setPicture } from './actions';
+import { isPicture, PICTURE_ROTATIONS, tidyView, ZOOM, type PictureRotation } from './format/picture';
 import type { Store } from './store';
 import type { Widget } from './widgets';
 import { naturalSize, partHeight, rowHeight, WEEK_PREVIEWS, WEEK_PREVIEW_LABELS } from './format/week';
@@ -100,6 +101,7 @@ export function describe(el: PageElement): string {
     case 'shade': return `shade ${el.weekends ? 'weekends' : el.tones}${!el.weekends && el.along && el.along !== 'rows' ? ` ${el.along}` : ''} · ${fmt(el.x)},${fmt(el.y)} ${fmt(el.w)}×${fmt(el.h)}${group}`;
     case 'sequence': return `${el.values === 'icons' ? 'icons' : `sequence ${el.values ?? DEFAULTS.values}`} · ${fmt(el.x)},${fmt(el.y)} ×${el.count}${group}`;
     case 'art': return `art ${el.paths.length} path${el.paths.length === 1 ? '' : 's'} · ${fmt(el.x)},${fmt(el.y)} ${fmt(el.w)}×${fmt(el.h)}${group}`;
+    case 'image': return `image ${el.width_px}×${el.height_px} px · ${fmt(el.x)},${fmt(el.y)} ${fmt(el.w)}×${fmt(el.h)}${group}`;
     case 'box': return `box · ${fmt(el.x)},${fmt(el.y)} ${fmt(el.w)}×${fmt(el.h)}${group}`;
     case 'rule': return `rule · ${fmt(el.x1)},${fmt(el.y1)} → ${fmt(el.x2)},${fmt(el.y2)}${group}`;
     case 'checkboxes': return `checkboxes · ${fmt(el.x)},${fmt(el.y)} ×${el.count}${group}`;
@@ -252,8 +254,9 @@ export class Panel {
   private edit(store: Store, i: number, id: number, key: string | null, fn: (el: PageElement) => void): string | null {
     if (store.idAt(i) !== id) return null; // that element is gone; there is nothing to change
     if (store.isLocked(i)) return 'Locked: unlock it in the layers list to edit.';
-    const el = structuredClone(store.page.elements[i]);
+    let el = structuredClone(store.page.elements[i]);
     fn(el);
+    if (isPicture(el)) el = tidyView(el); // the pan stays where the box and zoom allow it, and a field at its default is left out
     const issues = validateElement(el, 'element', headerOf(store.page));
     if (issues.length) return shortProblem(issues[0]);
     const next = structuredClone(store.page);
@@ -272,7 +275,7 @@ export class Panel {
     const read = (): number | undefined => {
       if (store.idAt(i) !== id) return undefined;
       const rec = store.page.elements[i] as unknown as Record<string, number | undefined>;
-      return rec[key] ?? (key === 'size' ? DEFAULTS.checkSize : key === 'every' ? DEFAULTS.every : key === 'start' ? DEFAULTS.start : key === 'step' ? DEFAULTS.step : undefined);
+      return rec[key] ?? (key === 'pan_x' || key === 'pan_y' ? 0 : key === 'size' ? DEFAULTS.checkSize : key === 'every' ? DEFAULTS.every : key === 'start' ? DEFAULTS.start : key === 'step' ? DEFAULTS.step : undefined);
     };
     const stepSize = () => (o.by === 'cell' ? nudgeStep(store) : o.by);
     const apply = (v: number, group: string | null): string | null => this.edit(store, i, id, group ?? key, (x) => { (x as unknown as Record<string, number>)[key] = v; });
@@ -557,7 +560,11 @@ export class Panel {
         fields = [h('div', { class: 'grid2' }, ...area()), ...this.weekFields(store, i, id, ctls)];
         break;
       case 'art':
-        fields = [h('div', { class: 'grid2' }, ...area()), choice('scaling', 'Scaling', ART_SCALINGS, DEFAULTS.scaling, 'prop-scaling'), ...this.artFills(store, i, id, el, ctls)];
+        fields = [h('div', { class: 'grid2' }, ...area()), choice('scaling', 'Scaling', ART_SCALINGS, DEFAULTS.scaling, 'prop-scaling'),
+          ...this.pictureFields(store, i, id, ctls, { num, choice }), ...this.artFills(store, i, id, el, ctls)];
+        break;
+      case 'image':
+        fields = [h('div', { class: 'grid2' }, ...area()), ...this.pictureFields(store, i, id, ctls, { num, choice })];
         break;
       case 'rule':
         fields = [h('div', { class: 'grid2' }, num('x1', 'x1'), num('y1', 'y1'), num('x2', 'x2'), num('y2', 'y2')),
@@ -654,6 +661,100 @@ export class Panel {
       h('h3', {}, 'Preview week'),
       h('div', { class: 'seg week-preview', role: 'group', 'aria-label': 'Sample week to show while designing' }, ...buttons),
       h('p', { class: 'hint' }, 'Only for designing: a book shows the days of the page’s own week that are inside its calendar.'),
+    ];
+  }
+
+  /**
+   * What an image and art share: zoom (a slider and a number), rotate, where the picture sits in its box (steppers, nudge arrows, and the
+   * Move picture toggle that makes dragging slide it), and Reset.
+   */
+  private pictureFields(
+    store: Store, i: number, id: number, ctls: Ctl[],
+    f: {
+      num: (key: string, label: string, by?: StepBy, help?: string) => HTMLElement;
+      choice: <T extends string | number>(key: string, label: string, options: readonly T[], dflt: T, help?: string, also?: (x: PageElement) => void) => HTMLElement;
+    },
+  ): Child[] {
+    const current = () => (store.idAt(i) === id ? (store.page.elements[i] as Art | Image) : null);
+    const pct = (z: number) => Math.round(z * 100);
+    const setZoom = (percent: number, key: string | null = 'zoom'): string | null =>
+      this.edit(store, i, id, key, (x) => { (x as Art | Image).zoom = Math.round(Math.max(pct(ZOOM.min), Math.min(pct(ZOOM.max), percent))) / 100; });
+
+    // zoom: a number with steppers, and a slider
+    const msg = this.message();
+    let dirty = false;
+    const number = h('input', {
+      type: 'text', id: 'prop-zoom', inputmode: 'numeric', enterkeyhint: 'done', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', 'data-key': 'prop-zoom', 'data-help': 'prop-zoom', 'aria-label': 'Zoom in percent',
+      oninput: () => { dirty = true; msg.hide(); },
+      onblur: () => settle(),
+      onkeydown: (e: KeyboardEvent) => { if (e.key === 'Enter') { settle(); if (matchMedia('(pointer: coarse)').matches) number.blur(); else number.select(); } },
+    });
+    const slider = h('input', {
+      type: 'range', min: pct(ZOOM.min), max: pct(ZOOM.max), step: 5, 'data-key': 'prop-zoom-slider', 'data-help': 'prop-zoom-slider', 'aria-label': 'Zoom',
+      oninput: () => { const problem = setZoom(Number(slider.value)); if (problem) msg.show(problem); },
+    });
+    const settle = () => {
+      if (!dirty) return;
+      dirty = false;
+      const v = parseNumber(number.value.replace('%', ''));
+      if (v === null) { msg.show('Type a number from 100 to 400.'); sync(); return; }
+      const problem = setZoom(v, null);
+      if (problem) msg.show(problem);
+      sync();
+    };
+    const step = (dir: 1 | -1) => h('button', {
+      type: 'button', class: 'step', 'data-key': `step-${dir > 0 ? 'inc' : 'dec'}-zoom`, 'data-help': dir > 0 ? 'step-inc' : 'step-dec', 'aria-label': `${dir > 0 ? 'Increase' : 'Decrease'} zoom`,
+      onmousedown: (e: Event) => e.preventDefault(),
+      onclick: () => { settle(); const z = current()?.zoom ?? 1; const problem = setZoom(pct(z) + dir * 10, `zoomstep${++this.stepId}`); if (problem) msg.show(problem); },
+    }, dir > 0 ? '+' : '−');
+    const sync = () => {
+      const z = pct(current()?.zoom ?? 1);
+      if (!dirty && number.value !== String(z)) number.value = String(z);
+      if (slider.value !== String(z)) slider.value = String(z);
+    };
+    ctls.push({ sync, flush: settle });
+    sync();
+    const zoom = h('div', { class: 'field num' }, h('label', { for: 'prop-zoom' }, 'Zoom (%)'),
+      h('div', { class: 'stepper' }, step(-1), number, step(1)), slider, msg.el);
+
+    // where the picture sits: pan fields, nudge arrows, Move picture
+    const moving = h('button', {
+      type: 'button', class: 'toggle', 'data-key': 'prop-move-picture', 'data-help': 'prop-move-picture', 'aria-pressed': String(store.movingPicture),
+      onclick: () => { settle(); store.setMovePicture(!store.movingPicture); },
+    }, 'Move picture');
+    const arrows: [HTMLButtonElement, number, number][] = [];
+    const arrow = (name: keyof typeof ICONS, label: string, dx: number, dy: number, area: string) => {
+      const b = icon(name, `Move picture ${label}`, () => nudgePicture(store, i, dx * 0.5, dy * 0.5), { key: `picture-${label}`, class: `nudge ${area}`, help: 'prop-picture-nudge' });
+      arrows.push([b, dx, dy]);
+      return b;
+    };
+    const pad = h('div', { class: 'nudge-pad picture-pad', role: 'group', 'aria-label': 'Move the picture inside its box' },
+      arrow('nudgeUp', 'up', 0, -1, 'up'), arrow('left', 'left', -1, 0, 'left'), arrow('right', 'right', 1, 0, 'right'), arrow('nudgeDown', 'down', 0, 1, 'down'));
+    ctls.push({
+      sync: () => {
+        moving.setAttribute('aria-pressed', String(store.movingPicture));
+        const el = current();
+        for (const [b, dx, dy] of arrows) {
+          const was = el ? (dx ? el.pan_x : el.pan_y) ?? 0 : 0;
+          const after = el ? tidyView(el, dx ? { pan_x: was + dx * 0.5 } : { pan_y: was + dy * 0.5 }) : el;
+          b.disabled = !el || ((dx ? after!.pan_x : after!.pan_y) ?? 0) === was;
+        }
+      },
+      flush() {},
+    });
+
+    const reset = h('button', {
+      type: 'button', 'data-lock-aware': true, 'data-key': 'prop-picture-reset', 'data-help': 'prop-picture-reset',
+      onclick: () => { settle(); setPicture(store, i, null, 'reset'); },
+    }, 'Reset zoom, position and rotation');
+    return [
+      h('h3', {}, 'Picture'),
+      zoom,
+      f.choice('rotate', 'Rotate (°, clockwise)', PICTURE_ROTATIONS, 0 as PictureRotation, 'prop-picture-rotate'),
+      h('div', { class: 'grid2' }, f.num('pan_x', 'Move right (cells)', 0.5, 'prop-pan'), f.num('pan_y', 'Move down (cells)', 0.5, 'prop-pan')),
+      h('div', { class: 'row' }, moving),
+      pad,
+      h('div', { class: 'row' }, reset),
     ];
   }
 

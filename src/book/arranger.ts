@@ -59,6 +59,8 @@ export interface EditHere {
   /** The bar's two parts: "p.14", and "Week planner, each week: changes all 5". */
   where: string;
   what: string;
+  /** A cover of the book: the page is always a cover page (no header), whether or not it has the flag. */
+  cover?: true;
   /** The page to come back to in the Book view. */
   slot: number;
   /** What Preview shows for each page: the slot's own date and page number (null: sample values). */
@@ -66,6 +68,9 @@ export interface EditHere {
   /** Write the editor's pages (and a spread's name) into the book. The book autosaves. */
   commit(pages: Page[], name: string): void;
 }
+
+/** Whether a design in the picker is a page made as a cover page. */
+const isCoverDesign = (c: { kind: string; data: unknown }) => c.kind === 'page' && (c.data as Page | null)?.cover === true;
 
 /** Where a copy sits in the book: a page or spread block (inside a group too), a free page, or a cover. */
 type EditTarget = { kind: 'block'; path: Path } | { kind: 'free'; path: Path; index: number } | { kind: 'cover'; slot: number };
@@ -898,7 +903,7 @@ export class Arranger {
       const thumb = h('div', { class: 'thumb' });
       const pages = c.kind === 'spread' ? [(c.data as Spread).left, (c.data as Spread).right] : [withSide(c.data ? (c.data as Page) : blankPage(side), side)];
       thumb.innerHTML = thumbnailSvg(pages);
-      const hint = c.kind === 'blank' ? 'Empty page' : c.kind === 'spread' ? 'Spread: two facing pages' : 'Page';
+      const hint = c.kind === 'blank' ? 'Empty page' : c.kind === 'spread' ? 'Spread: two facing pages' : isCoverDesign(c) ? 'Cover page' : 'Page';
       if (this.picking.for === 'add') return this.addCard({ key: `${c.kind}:${c.id ?? c.name}`, name: c.name, hint, kind: c.kind, wide: c.kind === 'spread', thumb, make: (ch) => this.blockFromChoice(ch ?? c), choice: c });
       return h('button', {
         type: 'button', class: `design${c.kind === 'spread' ? ' wide' : ''}`, 'data-kind': c.kind, 'data-help': 'picker-design', 'data-name': c.name,
@@ -918,11 +923,13 @@ export class Arranger {
       body(this.otherBlocks());
       return;
     }
+    // Choosing a design for a cover: the pages made as cover pages come first in each list.
+    const first = (items: Choice[]) => (this.picking.for === 'cover' ? [...items.filter(isCoverDesign), ...items.filter((c) => !isCoverDesign(c))] : items);
     body(tab === 'pages'
       ? [
         ...(cover ? [h('div', { class: 'design-list' }, card({ name: 'Blank', kind: 'blank', data: null, id: null }))] : []),
-        ...section('Saved pages', saved('page'), 'Nothing saved yet. Pages you save to the Library appear here.'),
-        ...section('Built-in pages', this.host.examples.map(builtinPage)),
+        ...section('Saved pages', first(saved('page')), 'Nothing saved yet. Pages you save to the Library appear here.'),
+        ...section('Built-in pages', first(this.host.examples.map(builtinPage))),
       ]
       : [
         ...section('Saved spreads', saved('spread'), 'No saved spreads.'),
@@ -1174,7 +1181,7 @@ export class Arranger {
     if (t.kind === 'cover') {
       const label = slotLabel(b, t.slot).toLowerCase();
       return {
-        ...common, kind: 'page', pages: [structuredClone(getSlot(b, t.slot) ?? blankPage(slotSide(t.slot)))], where: `the ${label}`,
+        ...common, kind: 'page', cover: true, pages: [structuredClone(getSlot(b, t.slot) ?? blankPage(slotSide(t.slot)))], where: `the ${label}`,
         what: 'a cover: changes only this one', preview: reads(t.slot, 1), commit: commitWith((pages) => setCover(b, t.slot, pages[0])),
       };
     }

@@ -23,6 +23,10 @@ export interface BarState {
   half: boolean;
   /** What the Group button does now, if anything. */
   group: 'group' | 'ungroup' | 'convert' | null;
+  /** The one selected element is a picture (an image or art): Move picture takes the place of Group. */
+  picture: boolean;
+  /** "Move picture" is on. */
+  moving: boolean;
 }
 
 export interface BarHandlers {
@@ -36,6 +40,8 @@ export interface BarHandlers {
   group(): void;
   /** Turn the selected generated block into plain elements. */
   convert(): void;
+  /** Turn "Move picture" on or off for the selected picture. */
+  movePicture(): void;
   /** The More menu, opened above the button (client px). */
   more(at: { x: number; y: number }): void;
   /** Open the saved widgets / the icon grid. */
@@ -54,6 +60,7 @@ const ICON = {
   group: '<rect x="3" y="3" width="18" height="18" stroke-dasharray="3 2"/><rect x="6.5" y="6.5" width="5" height="5"/><rect x="12.5" y="12.5" width="5" height="5"/>',
   ungroup: '<rect x="3" y="3" width="8" height="8"/><rect x="13" y="13" width="8" height="8"/><path d="M13 7h4M7 13v4"/>',
   convert: '<rect x="3" y="3" width="18" height="18" stroke-dasharray="3 2"/><path d="M7 9h10M7 15h10M14 6l3 3-3 3M10 12l-3 3 3 3"/>',
+  picture: '<rect x="3" y="5" width="18" height="14"/><path d="M12 8v8M8 12h8M12 8l-1.5 1.5M12 8l1.5 1.5M12 16l-1.5-1.5M12 16l1.5-1.5M8 12l1.5-1.5M8 12l1.5 1.5M16 12l-1.5-1.5M16 12l-1.5 1.5"/>',
   more: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
   pattern: '<rect x="4" y="4" width="16" height="16"/><path d="M4 9.5h16M4 14.5h16M9.5 4v16M14.5 4v16"/>',
   shade: '<rect x="4" y="4" width="16" height="16"/><path d="M4 12L12 4M4 19L19 4M10 20L20 10M16 20l4-4"/>',
@@ -107,11 +114,15 @@ export class Toolbar {
     const group: Slot = s.group === 'convert'
       ? { id: 'convert', label: 'Convert', name: 'Convert to elements', icon: 'convert', help: 'bar-convert', run: () => k.convert() }
       : { id: 'group', label: grouped ? 'Ungroup' : 'Group', icon: grouped ? 'ungroup' : 'group', help: grouped ? 'bar-ungroup' : 'bar-group', disabled: s.group === null, run: () => k.group() };
+    // A lone picture can be slid inside its box instead of grouped (a single element has nothing to group).
+    const slot: Slot = s.picture
+      ? { id: 'picture', label: 'Pic', name: 'Move picture', icon: 'picture', help: 'bar-move-picture', pressed: s.moving, disabled: s.locked, run: () => k.movePicture() }
+      : group;
     return [
       { id: 'properties', label: 'Props', name: 'Properties', icon: 'properties', help: 'bar-properties', run: () => k.properties() },
       { id: 'duplicate', label: 'Copy', name: 'Duplicate', icon: 'duplicate', help: 'bar-duplicate', disabled: s.locked, run: () => k.duplicate() },
       { id: 'remove', label: 'Delete', icon: 'remove', help: 'bar-remove', disabled: s.locked, run: () => k.remove() },
-      group,
+      slot,
       { id: 'more', label: 'More', icon: 'more', help: 'bar-more', run: () => {} },
     ];
   }

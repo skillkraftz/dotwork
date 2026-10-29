@@ -3,7 +3,7 @@
 // and the PDF match. Nothing here knows about printers or PDFs.
 import {
   DEFAULTS, GRID_X_MM, GRID_Y_MM, PAGE_H_MM, PAGE_W_MM, PITCH_MM as P,
-  type Art, type Box, type Checkboxes, type Page, type PageElement, type Pattern, type Rule, type Shade, type Sequence, type Text,
+  type Art, type Image, type Box, type Checkboxes, type Page, type PageElement, type Pattern, type Rule, type Shade, type Sequence, type Text,
 } from '../format/types';
 import { TEXT_INSET_MM, TEXT_SIZE_MM } from '../format/bounds';
 import {
@@ -11,7 +11,8 @@ import {
 } from '../render';
 import { shadeRects, weekLines } from '../format/shade';
 import { monthOf } from '../format/month';
-import { artPaths } from '../format/art';
+import { artClip, artPaths } from '../format/art';
+import { pictureRect, placePicture } from '../format/picture';
 import { compose, parseStored, parseSvgPath, transformSegs, type Matrix, type Seg } from '../format/path';
 import { isIcons, sequenceItems } from '../format/sequence';
 import { placedElements } from '../format/mirror';
@@ -148,6 +149,8 @@ export function layoutPage(page: Page, o: PageLayoutOptions, out: Item[]): void 
 
   // The paths are in mm from the grid's corner, the same ones the screen draws; line widths are in mm and stay as they are.
   const art = (e: Art) => {
+    const clip = artClip(e);
+    if (clip) out.push({ k: 'clip', pts: rectPts(ox + clip.x, oy + clip.y, clip.w, clip.h) });
     for (const p of artPaths(e)) {
       const parsed = parseStored(p.d);
       if (!parsed.ok) continue;
@@ -157,6 +160,15 @@ export function layoutPage(page: Page, o: PageLayoutOptions, out: Item[]): void 
         ...(p.stroke === 'none' ? {} : { stroke: { w: p.stroke_mm, c: artColor(p.stroke, tones), cap: p.linecap } }),
       });
     }
+    if (clip) out.push({ k: 'unclip' });
+  };
+
+  // The image keeps its own colours (no tone, no conversion) and is cut off at its box, as on the screen.
+  const image = (e: Image) => {
+    const p = placePicture(e, { w: e.width_px, h: e.height_px }, e), r = pictureRect(p);
+    out.push({ k: 'clip', pts: rectPts(ox + p.clip.x, oy + p.clip.y, p.clip.w, p.clip.h) });
+    out.push({ k: 'image', src: e.src, x: ox + r.x, y: oy + r.y, w: r.w, h: r.h, rot: p.rotate });
+    out.push({ k: 'unclip' });
   };
 
   // An element limited to weekends or weekdays shows for the day a day page reads; where no single day is read it always shows.
@@ -172,6 +184,7 @@ export function layoutPage(page: Page, o: PageLayoutOptions, out: Item[]): void 
       case 'checkboxes': return checkboxes(e);
       case 'text': return label(e);
       case 'art': return art(e);
+      case 'image': return image(e);
       case 'generated': return resolveWeek(e, o.expand.read).forEach(element);
     }
   };

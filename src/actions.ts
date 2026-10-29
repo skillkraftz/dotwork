@@ -1,4 +1,5 @@
 import type { Page, PageElement } from './format/types';
+import { isPicture, panTo, resetView, tidyView, type PictureView } from './format/picture';
 import { headerOf } from './format/bounds';
 import { canMove, cycleHit, moveGroup } from './geometry';
 import { dropLoneGroups, newGroupId, regroup } from './groups';
@@ -209,4 +210,24 @@ export function moreActions(store: Store, index: number, hits: number[], saveWid
     { id: 'widget', label: 'Save as widget', enabled: true, run: saveWidget },
     { id: 'half', label: `Half cells: ${store.halfCells ? 'on' : 'off'}`, enabled: true, run: () => store.setHalfCells(!store.halfCells) },
   ];
+}
+
+/** The picture at `index` with its zoom, pan or rotation changed (or all reset, with null): one undo step per `key` within a second, so a slider drag is one. Returns false when nothing changed. */
+export function setPicture(store: Store, index: number, change: PictureView | null, key = 'picture'): boolean {
+  const el = store.page.elements[index];
+  if (!el || !isPicture(el) || store.isLocked(index)) return false;
+  const after = change === null ? resetView(el) : tidyView(el, change);
+  if (JSON.stringify(after) === JSON.stringify(el)) return false;
+  const next = clone(store.page);
+  next.elements[index] = after;
+  store.commit(next, `${key}:${store.idAt(index)}`);
+  return true;
+}
+
+/** Slide a picture inside its box by (dx, dy) cells. */
+export function nudgePicture(store: Store, index: number, dx: number, dy: number) {
+  const el = store.page.elements[index];
+  if (!el || !isPicture(el)) return;
+  const after = panTo(el, (el.pan_x ?? 0) + dx, (el.pan_y ?? 0) + dy);
+  setPicture(store, index, { pan_x: after.pan_x ?? 0, pan_y: after.pan_y ?? 0 }, 'nudge-picture');
 }

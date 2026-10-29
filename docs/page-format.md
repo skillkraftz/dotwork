@@ -22,6 +22,9 @@ no back compatibility, so a file of any other version is refused.
   `false` nothing is reserved and the whole row is free. The corner depends on
   `side`, so a page moved to the other side of the spine can start covering it;
   Dotwork then turns that placed copy's `page_number` off.
+- **A cover page** (`"cover": true`) has no header at all: no page number and no identity are printed, and the whole of row 0 is free to draw
+  on (elements may start at y = 0 and may cover the page number's corner). Dotwork writes a cover page with no `identity` and `page_number`
+  `false`; a reader ignores both on a cover page. The covers of a book are always treated as cover pages, whether or not the page has the flag.
 
 ## Coordinates
 
@@ -47,6 +50,7 @@ no back compatibility, so a file of any other version is refused.
 | `identity` | string | no       | Header text by the spine. May contain tokens. Empty or absent frees row 0 for drawing. |
 | `page_number` | boolean | no    | `false` leaves the page number off this page. Default `true`. A book's own `page_numbers` setting can turn numbers off for every page. |
 | `side`     | string | no       | `"left"`, `"right"` or `"either"` (default). Which page of a spread the design is meant for. The spine is on the right of a left page and on the left of a right page. |
+| `cover`    | boolean | no       | `true` makes this a cover page: no page number and no identity, and row 0 is free to draw on (see above). Only `true` is allowed; leave it out for an ordinary page. |
 | `mirror_left` | boolean | no    | `true` draws the page flipped left to right when it sits on a left page (see "Mirror on left pages"). Default `false`. Anything but a boolean is an error. |
 | `grid`     | object | yes      | Always `{ "cols": 27, "rows": 44, "pitch_mm": 3 }`. |
 | `elements` | array  | yes      | The elements, bottom to top. |
@@ -59,7 +63,8 @@ layout time, so that edge is still the outer one. The file is not changed, and t
 pages on neither side, are drawn as they are. The header and the page number stay where the page rules put them.
 
 - Every element's `x` becomes `27 - x - w` (a rule's ends, and the first column of checkboxes and sequences, are flipped the same way as a block).
-  A box's `left` and `right` sides swap; a shade's tones run from the other end; art is flipped as a whole.
+  A box's `left` and `right` sides swap; a shade's tones run from the other end; art is flipped as a whole (its `pan_x` and `rotate` mirror with it).
+  An `image` is placed on the other side but never flipped, like text: its `pan_x` changes sign and its `rotate` turns the other way (90 and 270 swap), so it keeps its top toward the same side of the page.
 - Text is never drawn backwards: its anchor moves to `27 - x`, `left` and `right` alignment swap, and turned text turns the other way
   (90 and 270 swap) so it keeps its tops toward the same side of the page. Items of a run stay in reading order.
 - A week block mirrors the elements it draws (its goals, each day and its outcomes), like any other.
@@ -202,6 +207,7 @@ file is self-contained and a reader never opens an SVG.
 | `fills` | Optional. `{ "right-half": "dark" }`: for this placement, the fill of the paths with those ids, in place of the path's own `fill`. Values are `"none"`, `"light"`, `"medium"` or `"dark"`; every key must be the `id` of a path. |
 | `strokes` | Optional. `{ "centre-line": "none" }`: for this placement, the line of the paths with those ids, in place of the path's own `stroke`. Values are `"none"`, `"gray"` or `"black"`; every key must be the `id` of a path. A path with no line of its own can't be given one. |
 | `scaling` | `"fit"` (default): keep the art's proportions and center it in the rectangle. `"stretch"`: fill the rectangle. |
+| `zoom`, `pan_x`, `pan_y`, `rotate` | Optional: show part of the art, bigger, moved or turned. See **Zoom, pan and rotate**, below. Art without them is drawn as before and is not cut off at its rectangle. |
 
 Each path is `{ "id": "right-half", "d": "...", "fill": "light", "stroke": "black", "stroke_mm": 0.3, "linecap": "round" }`:
 
@@ -225,6 +231,37 @@ centered; stretch scales the two directions separately. A reader draws `d` throu
 The importer reads shapes (paths, circles, ellipses, rectangles, lines, polylines, polygons) and applies every transform. It leaves out text, images,
 gradients, filters, masks, scripts, styles, links to other files and presentation attributes it cannot honor (line joins, even-odd fills and so on), and
 lists what it left out; an empty or oversized result is refused with the reason.
+
+### `image`: a PNG or JPG
+
+A picture placed on the grid like a box. Dotwork reads the file once and stores its pixels inside the page, so the page file is self-contained.
+It is drawn in its own colors: the printer's gray tones do not touch it, and nothing is converted to black and gray.
+
+| Field | Meaning |
+|-------|---------|
+| `x`, `y`, `w`, `h` | The rectangle the picture lives in, as for `box`. |
+| `src` | The picture as a base64 data URL: `data:image/png;base64,...` or `data:image/jpeg;base64,...`. At most 10 MB of file (about 13.4 million characters). |
+| `width_px`, `height_px` | The picture's size in pixels: whole numbers from 1 to 2400. |
+| `zoom`, `pan_x`, `pan_y`, `rotate` | Optional: see **Zoom, pan and rotate**, below. |
+
+The picture is centered in the rectangle and **keeps its proportions whatever the rectangle's shape**: it is as large as fits (a square picture in a wide
+rectangle is as tall as the rectangle and has empty space beside it). Resizing the rectangle never stretches it. Anything outside the rectangle is cut off.
+Dotwork scales a picture whose longer side is over 2400 px down to 2400 when it imports it (a PNG stays a lossless PNG, a JPG stays a JPG) and refuses a file
+over 10 MB. Library art (and Backups) hold images the same way, as a saved widget of one `image` element.
+
+### Zoom, pan and rotate
+
+`image` and `art` can show part of their picture, bigger, moved or turned. All four fields are optional, and a missing field is its default, so a page
+without them reads exactly as before. Dotwork leaves a field out when it is at its default.
+
+| Field | Meaning |
+|-------|---------|
+| `zoom` | A multiple of the fitted size, from 1 (100%, the whole picture fits the rectangle; default) to 4 (400%). Zooming is about the middle of the picture. |
+| `pan_x`, `pan_y` | Where the picture sits in its rectangle: how far its middle is moved right (`pan_x`) and down (`pan_y`) from the middle of the rectangle, **in grid cells**, any number from -100 to 100 (default 0). Dotwork's editor keeps at least a cell of the picture inside the rectangle. |
+| `rotate` | `0` (default), `90`, `180` or `270`: degrees clockwise. The turned picture is fitted to the rectangle, then zoomed. |
+
+The order is: turn, fit (or, for `stretch` art, fill), zoom, move. **Whatever lies outside the rectangle is cut off at its edge**, on the screen, in the PNG and
+in the PDFs alike. (Art with none of these four fields is not cut off, as before.) On a page drawn mirrored the picture's place mirrors (see "Mirror on left pages").
 
 ### `generated`: drawn from the book
 
@@ -332,6 +369,6 @@ not have `"side": "left"` or whose `right` page does not have
 A reader must reject a file with the wrong `format`, an unknown `version`, an
 unknown element type or field value, a coordinate that is not a multiple of
 0.5, an element outside the grid or above the first usable row (y = 1, or y = 0 when row 0 is free), an element on the page number's corner, a diagonal rule, a
-`checkboxes` or `sequence` element whose items leave the grid, a `shade` whose `tones` are not the letters L, M, D and B, a `days` that is not `weekends` or `weekdays`, a `generated` whose kind, parts, box width or height break the rules above, an `art` whose `view_box`, `paths`, path data, tones or line widths break the rules above (or whose points leave the view box), an empty `group`, a `sequence`
+`checkboxes` or `sequence` element whose items leave the grid, a `shade` whose `tones` are not the letters L, M, D and B, a `days` that is not `weekends` or `weekdays`, a `generated` whose kind, parts, box width or height break the rules above, an `art` whose `view_box`, `paths`, path data, tones or line widths break the rules above (or whose points leave the view box), an `image` whose `src` is not a PNG or JPG data URL (or is over 10 MB) or whose size in pixels is not a whole number from 1 to 2400, an `image` or `art` whose `zoom` is not from 1 to 4, whose `pan_x` or `pan_y` is not a number from -100 to 100, or whose `rotate` is not 0, 90, 180 or 270, a `cover` that is not `true`, an empty `group`, a `sequence`
 with a text item of more than two characters or an unknown icon name, or an unknown token, and say
 which rule failed. Overlap is allowed.

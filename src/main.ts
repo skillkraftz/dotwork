@@ -6,7 +6,9 @@ import { validatePage, type ValidationIssue } from './format/validate';
 import { readPage } from './format/read';
 import { DocSession, statusText, type Adapter } from './documents';
 import { Canvas, type CanvasHooks } from './canvas';
-import { contextActions, convertGenerated, deleteElement, duplicateElement, groupAction, moreActions, nudgeElement, selectAll, toggleGroup } from './actions';
+import { contextActions, convertGenerated, deleteElement, duplicateElement, groupAction, moreActions, nudgeElement, nudgePicture, selectAll, toggleGroup } from './actions';
+import { isPicture } from './format/picture';
+import { asCover } from './format/bounds';
 import { h, Panel } from './panel';
 import { closeContextMenu, showContextMenu } from './ctxmenu';
 import { isCompact, Sheet } from './sheet';
@@ -279,6 +281,7 @@ const toolbar = new Toolbar($('tools'), {
   remove() { const s = cur(); if (s.selected !== null) deleteElement(s, s.selected); },
   group: () => toggleGroup(cur()),
   convert: () => convertGenerated(cur()),
+  movePicture() { const s = cur(); s.setMovePicture(!s.movingPicture); },
   more(at) {
     const s = cur();
     if (s.selected === null) return;
@@ -305,6 +308,7 @@ function updateBar() {
   toolbar.render({
     mode: barMode, tool: store.tool, count: store.selection.length, half: store.halfCells,
     locked: store.selection.some((i) => store.isLocked(i)), group: groupAction(store),
+    picture: store.selection.length === 1 && store.selected !== null && isPicture(store.page.elements[store.selected]), moving: store.movingPicture,
   });
   $('group-banner').hidden = book || preview || store.editingGroup === null;
 }
@@ -543,7 +547,7 @@ async function startEditHere(request: EditHere): Promise<boolean> {
   editHere = { request, saved, name: request.name };
   setMode('edit');
   showing(() => {
-    if (request.kind === 'page') stores.page.load(structuredClone(request.pages[0]));
+    if (request.kind === 'page') stores.page.load(request.cover ? asCover(structuredClone(request.pages[0])) : structuredClone(request.pages[0]));
     else { stores.left.load(withSide(structuredClone(request.pages[0]), 'left')); stores.right.load(withSide(structuredClone(request.pages[1]), 'right')); }
   });
   canvases.page.previewAs = request.kind === 'page' ? request.preview[0] : null;
@@ -750,6 +754,7 @@ const settingsDialog = new SettingsDialog({
   spreadName: () => (editHere ? editHere.name : sessions.spread.name),
   setSpreadName: (name) => { if (editHere) { editHere.name = name; writeHere(); } else renameOpen(sessions.spread, name); },
   nameLocked: () => !editHere && docSession().readOnly,
+  coverLocked: () => editHere?.request.cover === true,
   setBookName: (name) => renameOpen(sessions.book, name),
   book: currentBook,
   editBook: (change) => { ensureArranger(); arranger!.edit(() => change(arranger!.current)); },
@@ -970,6 +975,11 @@ addEventListener('keydown', (e) => {
   } else if (e.key === 'Delete' || e.key === 'Backspace') {
     e.preventDefault();
     if (sel !== null && !store.isLocked(sel)) deleteElement(store, sel);
+  } else if (e.key in ARROWS && sel !== null && store.movingPicture) {
+    // With "Move picture" on, the arrows slide the picture inside its box (half a cell; Shift: a tenth).
+    e.preventDefault();
+    const step = e.shiftKey ? 0.1 : 0.5;
+    nudgePicture(store, sel, ARROWS[e.key][0] * step, ARROWS[e.key][1] * step);
   } else if (e.key in ARROWS && sel !== null) {
     e.preventDefault();
     const step = e.shiftKey ? 0.5 : 1;

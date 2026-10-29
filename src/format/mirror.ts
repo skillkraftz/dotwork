@@ -1,5 +1,6 @@
-import { COLS, DEFAULTS, type Art, type Box, type BoxSide, type Page, type PageElement, type Shade, type Text } from './types';
+import { COLS, DEFAULTS, type Art, type Image, type Box, type BoxSide, type Page, type PageElement, type Shade, type Text } from './types';
 import { elementArea } from './bounds';
+import { mirrorView } from './picture';
 import { parseStored, pathString, transformSegs } from './path';
 import { sequenceArea } from './sequence';
 import { resolveWeek, type WeekPreview } from './week';
@@ -23,6 +24,15 @@ function mirrorText(e: Text): Text {
   return { ...rest, x: flipX(e.x), ...(align !== DEFAULTS.align ? { align } : {}), ...(rotate ? { rotate } : {}) };
 }
 
+/** The element with its zoom, pan and rotation as they read on the mirrored page. */
+function mirroredView<T extends Art | Image>(e: T): T {
+  const { zoom: _z, pan_x: _x, pan_y: _y, rotate: _r, ...rest } = e;
+  return { ...rest, ...mirrorView(e) } as T;
+}
+
+/** An image moves to the other side of the page (and is panned and turned the other way) but its pixels are never flipped, like text. */
+const mirrorImage = (e: Image): Image => ({ ...mirroredView(e), x: flipX(e.x, e.w) });
+
 /** Art is flipped as a whole: its box moves to the other side and its drawing turns about the middle of its view box. */
 function mirrorArt(e: Art): Art {
   const [vx, , vw] = e.view_box;
@@ -31,7 +41,7 @@ function mirrorArt(e: Art): Art {
     const parsed = parseStored(p.d);
     return parsed.ok ? { ...p, d: pathString(transformSegs(parsed.segs, flip)) } : p;
   });
-  return { ...e, x: flipX(e.x, e.w), paths };
+  return { ...mirroredView(e), x: flipX(e.x, e.w), paths };
 }
 
 /** A shade's tones run the other way: columns start from the right, and a checker keeps its squares' places. */
@@ -56,6 +66,7 @@ export function mirrorElement(e: PageElement): PageElement {
     }
     case 'shade': return mirrorShade(e);
     case 'art': return mirrorArt(e);
+    case 'image': return mirrorImage(e);
     case 'rule': return { ...e, x1: flipX(e.x1), x2: flipX(e.x2) };
     case 'text': return mirrorText(e);
     // A run keeps its items in reading order and moves, as a block, to the mirrored place.

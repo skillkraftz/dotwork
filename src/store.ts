@@ -37,6 +37,8 @@ export class Store {
   weekPreview: WeekPreview = 'full';
   hidden = new Set<number>();
   locked = new Set<number>();
+  /** The id of the picture whose "Move picture" is on: dragging it (or the arrow keys) moves the picture inside its box, not the box. Editor view state. */
+  movePictureId: number | null = null;
 
   /**
    * Set while a built-in is open. A change is not made; it is handed here with a function that makes it, to be called
@@ -63,6 +65,8 @@ export class Store {
 
   private emit() {
     this.syncGroup();
+    if (this.movePictureId !== null && !this.movingPicture) this.movePictureId = null; // it ends when something else is selected
+
     this.listeners.forEach((fn) => fn());
   }
 
@@ -103,6 +107,21 @@ export class Store {
 
   get canUndo() { return this.undoStack.length > 0; }
   get canRedo() { return this.redoStack.length > 0; }
+
+  /** Whether "Move picture" is on for the one picture that is selected. */
+  get movingPicture(): boolean {
+    const i = this.selected;
+    if (this.movePictureId === null || i === null || this.others.size > 0 || this.ids[i] !== this.movePictureId) return false;
+    const type = this.page.elements[i]?.type;
+    return type === 'image' || type === 'art';
+  }
+
+  /** Turn "Move picture" on or off for the selected picture. */
+  setMovePicture(on: boolean) {
+    const i = this.selected;
+    this.movePictureId = on && i !== null ? this.ids[i] : null;
+    this.emit();
+  }
 
   /** Indexes of every selected element, in drawing order. */
   get selection(): number[] {

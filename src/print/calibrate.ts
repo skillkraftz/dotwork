@@ -21,7 +21,7 @@ import type { Book } from '../book/book';
 import { EDGE_NAMES, SHEET_W_MM, checkPrintSettings, duplexOrder, impose, pageOrigin, type PrintSettings, type Sheet, type SheetLayout } from '../book/impose';
 import { FOLD_HOW, LINE_MM, SCALE_RANGE_MM, crosshairs, foldScales, scaleCaptions, sheetHeight, type FoldName } from '../book/alignment';
 import { LINE } from '../render';
-import { drawItems, mmToPt, type Fonts } from './draw';
+import { drawItems, embedImages, mmToPt, type Fonts } from './draw';
 import type { Item } from './display';
 import { layoutPage } from './layout';
 import { printSide } from './correct';
@@ -326,6 +326,7 @@ async function calibrationPdf(book: Book, print: PrintSettings, fontBytes: FontB
     });
     page.whole?.({ items, fonts, height: h, dy: 0, c: sheetCanvas(items, fonts), index: 0, count: tops.length });
     if (twoUp) items.push(...cutMarks());
+    await embedImages(doc, items);
     drawItems(doc.addPage([mmToPt(w), mmToPt(h)]), printSide(items, print, page.side, w, h), fonts, h);
   }
   return doc.save({ useObjectStreams: false });

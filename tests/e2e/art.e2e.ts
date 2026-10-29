@@ -67,7 +67,7 @@ for (const device of ['phone', 'desktop'] as Device[]) {
       await openArt(app);
       const names = await page.locator('dialog.advanced .widget-row .art-text strong').allInnerTexts();
       expect(names).toEqual(['Gauge', 'Engagement gauge', 'Energy gauge']);
-      expect(await page.locator('dialog.advanced').innerText()).toContain('Import SVG art');
+      expect(await page.locator('dialog.advanced').innerText()).toContain('Import art or image');
       expect(await missingHelp(app)).toEqual([]);
       if (app.touch) expect(await small(app, 'dialog.advanced')).toEqual([]);
       await shot(app, `${device}-art-window`);
@@ -174,7 +174,7 @@ for (const device of ['phone', 'desktop'] as Device[]) {
       await page.waitForSelector('dialog.library.browser[open] .lib-card');
       await hit(app, '[data-tab="art"]');
       for (const name of ['Gauge', 'Engagement gauge', 'Energy gauge']) await page.waitForSelector(`.lib-card[data-name="${name}"]`);
-      expect(await page.locator('dialog.library.browser').innerText()).toContain('Import SVG art');
+      expect(await page.locator('dialog.library.browser').innerText()).toContain('Import art or image');
       expect(await missingHelp(app)).toEqual([]);
       if (app.touch) expect(await small(app, 'dialog.library.browser')).toEqual([]);
 

@@ -1,6 +1,6 @@
 import {
   COLS, DEFAULTS, GRID_X_MM, GRID_Y_MM, PAGE_H_MM, PAGE_W_MM, PITCH_MM as P, ROWS,
-  type Page, type PageElement, type PageSide, type Pattern, type Shade, type Box, type Rule, type Checkboxes, type Text, type Sequence, type Art,
+  type Page, type PageElement, type PageSide, type Pattern, type Shade, type Box, type Rule, type Checkboxes, type Text, type Sequence, type Art, type Image,
 } from './format/types';
 import { isIcons, itemOrigin, itemSize, sequenceItems } from './format/sequence';
 import { ICON_GRID, ICONS } from './icons/icons';
@@ -10,7 +10,8 @@ import { resolveWeek, shownOn, type WeekPreview } from './format/week';
 import { placedElements } from './format/mirror';
 import { shadeRects, weekLines } from './format/shade';
 import { monthOf } from './format/month';
-import { artPaths, type ArtTone } from './format/art';
+import { artClip, artPaths, type ArtTone } from './format/art';
+import { imageMatrix, pictureRect, placePicture } from './format/picture';
 import { boundsOf, handlesFor, type Pt } from './geometry';
 
 /** Editor view box: the page plus a quiet margin around it. */
@@ -195,13 +196,26 @@ function sequenceMarkup(e: Sequence, expand: Expander): string {
   return `<g font-size="${size}" text-anchor="middle" fill="${color}" xml:space="preserve">${texts}</g>`;
 }
 
-/** Art: its paths fitted into the area, with line widths in mm that a resize leaves alone. */
+/** Everything in `inner` cut off outside the box (mm from the grid's corner): a nested svg clips to its own edges, and needs no id to refer to. */
+const clipped = (box: { x: number; y: number; w: number; h: number }, inner: string) =>
+  `<svg x="${n(box.x)}" y="${n(box.y)}" width="${n(box.w)}" height="${n(box.h)}" viewBox="${n(box.x)} ${n(box.y)} ${n(box.w)} ${n(box.h)}" overflow="hidden">${inner}</svg>`;
+
+/** Art: its paths fitted into the area, with line widths in mm that a resize leaves alone. Art that is zoomed, panned or turned is cut off at its box. */
 function artMarkup(e: Art): string {
-  return artPaths(e).map((p) => {
+  const paths = artPaths(e).map((p) => {
     const fill = p.fill === 'none' ? 'none' : artColor(p.fill, SCREEN_ART_TONES);
     const line = p.stroke === 'none' ? '' : ` stroke="${artColor(p.stroke, SCREEN_ART_TONES)}" stroke-width="${n(p.stroke_mm)}"${p.linecap === 'butt' ? '' : ` stroke-linecap="${p.linecap}"`}`;
     return `<path class="art" d="${p.d}" fill="${fill}"${line}/>`;
   }).join('');
+  const clip = artClip(e);
+  return clip ? clipped(clip, paths) : paths;
+}
+
+/** An image: centred in its box keeping its proportions, then zoomed, panned and turned, and cut off at the box. It prints in its own colours. */
+function imageMarkup(e: Image): string {
+  const p = placePicture(e, { w: e.width_px, h: e.height_px }, e);
+  const m = imageMatrix(pictureRect(p), p.rotate).map(n).join(' ');
+  return clipped(p.clip, `<image class="picture" href="${e.src}" width="1" height="1" preserveAspectRatio="none" transform="matrix(${m})"/>`);
 }
 
 /** Which day an element limited to weekends or weekdays is drawn for: the day a day page reads; none (it shows) where no single day is read. */
@@ -218,6 +232,7 @@ export function elementMarkup(e: PageElement, expand: Expander = sample, weekPre
     case 'text': return textMarkup(e, expand);
     case 'sequence': return sequenceMarkup(e, expand);
     case 'art': return artMarkup(e);
+    case 'image': return imageMarkup(e);
     case 'generated': return resolveWeek(e, expand.read, weekPreview).map((x) => elementMarkup(x, expand)).join('');
   }
 }
@@ -229,6 +244,7 @@ export function headerItems(page: Page, pageNumber: string | null, expand: Expan
   const spineRight = page.side === 'left';
   const edge = (atEnd: boolean) => (atEnd ? COLS * P : 0);
   const items: HeaderItem[] = [];
+  if (page.cover) return items;
   const id = expand(page.identity ?? '').toUpperCase();
   if (id.trim()) items.push({ text: id, x: edge(spineRight), bold: true, anchor: spineRight ? 'end' : 'start' });
   if (pageNumber && page.page_number !== false) items.push({ text: pageNumber, x: edge(!spineRight), bold: false, anchor: spineRight ? 'start' : 'end' });

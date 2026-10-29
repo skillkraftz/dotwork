@@ -120,15 +120,15 @@ export class LibraryDialog {
       file.value = '';
       if (f) await this.importBackup(f);
     };
-    const svgFile = h('input', { type: 'file', accept: '.svg,image/svg+xml', hidden: true, 'data-key': 'art-file' });
+    const svgFile = h('input', { type: 'file', accept: '.svg,image/svg+xml,.png,image/png,.jpg,.jpeg,image/jpeg', hidden: true, 'data-key': 'art-file' });
     svgFile.onchange = async () => {
       const f = svgFile.files?.[0];
       svgFile.value = '';
       if (f) await this.importArt(f);
     };
     this.artRow.append(
-      h('button', { type: 'button', class: 'primary', 'data-key': 'library-art-import', 'data-help': 'library-art-import', onclick: () => svgFile.click() }, 'Import SVG art'),
-      h('span', { class: 'hint' }, 'Shapes and colors come in; text, images and effects are left out.'),
+      h('button', { type: 'button', class: 'primary', 'data-key': 'library-art-import', 'data-help': 'library-art-import', onclick: () => svgFile.click() }, 'Import art or image'),
+      h('span', { class: 'hint' }, 'SVG: shapes and colors come in; text and effects are left out. PNG or JPG: kept as they are (scaled down past 2400 px, up to 10 MB).'),
       svgFile);
     this.search.oninput = () => void this.renderList();
     this.dialog = h('dialog', { class: 'library browser', 'aria-label': 'Library' },
@@ -184,7 +184,7 @@ export class LibraryDialog {
     this.artRow.hidden = this.tab !== 'art';
   }
 
-  /** Read an SVG file into the saved art, and say what came in and what was left out. */
+  /** Read an SVG, PNG or JPG file into the saved art, and say what came in and what was left out. */
   private async importArt(file: File) {
     const r = await importArtFile(file, this.host.widgets);
     if (!r.ok) { this.say(r.problem); return; }
@@ -229,7 +229,7 @@ export class LibraryDialog {
         pages: 'No pages yet. Draw on a page and it is kept here as you go.',
         spreads: 'No spreads yet. Draw on a spread and it is kept here as you go.',
         sections: 'No sections yet. In the Book view, More, Save pages as a section.',
-        art: 'No art yet. Import an SVG file with the button above.',
+        art: 'No art yet. Import an SVG, PNG or JPG file with the button above.',
         books: 'No books yet. In the Book view, New starts one, or build one from a template here.',
         widgets: 'No widgets yet. Select elements on a page, then More, Save as widget.',
         favorites: 'Nothing starred yet. Tap the star on anything to find it here.',

@@ -26,6 +26,8 @@ export interface SettingsHost {
   book(): Book;
   /** The open book's name: the Library document's. */
   setBookName(name: string): void;
+  /** Whether the page being edited is a cover of a book (Edit here): it is always a cover page, whatever its flag says. */
+  coverLocked(): boolean;
   /** Change the book (with its own undo step) and keep the draft. */
   editBook(change: (book: Book) => void): void;
 }
@@ -107,6 +109,20 @@ export class SettingsDialog {
       if (problem) numberOn.checked = !numberOn.checked;
     };
 
+    // A cover page has no page number and no identity, and row 0 is free to draw on. Turning it on clears the identity; turning it off brings the page number back.
+    const locked = this.host.coverLocked();
+    const coverOn = h('input', { type: 'checkbox', checked: store.page.cover === true || locked, disabled: locked, 'data-key': `settings-cover-${tag}`, 'data-help': 'page-cover' });
+    const coverMsg = message();
+    coverOn.onchange = () => {
+      const problem = edit('page-cover', (p) => {
+        if (coverOn.checked) { delete p.identity; p.page_number = false; p.cover = true; } else { delete p.cover; delete p.page_number; }
+      });
+      say(coverMsg, problem);
+      if (problem) coverOn.checked = !coverOn.checked;
+      else this.show();
+    };
+    numberOn.disabled = store.page.cover === true || locked;
+
     const mirror = h('input', { type: 'checkbox', checked: store.page.mirror_left === true, 'data-key': `settings-mirror-${tag}`, 'data-help': 'page-mirror' });
     mirror.onchange = () => { edit('page-mirror', (p) => { if (mirror.checked) p.mirror_left = true; else delete p.mirror_left; }); };
 
@@ -120,6 +136,7 @@ export class SettingsDialog {
       const bad = tokenProblem(identity.value);
       tokens.replaceChildren(...(bad ? [h('p', { class: 'warn' }, `${bad} – the page can’t be exported until it is fixed.`)] : []));
     };
+    identity.disabled = store.page.cover === true || locked;
     identity.oninput = () => {
       const v = identity.value;
       const problem = edit('page-identity', (p) => { if (v) p.identity = v; else delete p.identity; });
@@ -141,6 +158,9 @@ export class SettingsDialog {
     return [
       ...(heading ? [h('h3', {}, side === 'left' ? 'Left page' : 'Right page')] : []),
       labelled('Name', name),
+      h('label', { class: 'inline' }, coverOn, 'Cover page'),
+      h('p', { class: 'hint' }, locked ? 'This is a cover of the book, so it is always a cover page.' : 'A cover page has no page number and no identity, and row 0 is free to draw on. Turning it on clears the identity.'),
+      coverMsg,
       h('label', { class: 'inline' }, numberOn, 'Print the page number'),
       numberMsg,
       h('label', { class: 'inline' }, mirror, 'Mirror on left pages'),

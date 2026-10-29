@@ -15,7 +15,7 @@ If the browser can't keep documents (no IndexedDB, private mode, a refused first
 This file is only for Dotwork's own backups; journal-system reads the page and
 spread files described in `page-format.md`, which sit inside it unchanged. Books
 (`book-format.md`) and sections are in the same version 1 file. A widget or art entry is `{ name, elements }` (in the store the name is in the entry only); art is a widget of
-exactly one `art` element, and every element must fit the page format wherever the widget is placed.
+exactly one `art` element or one `image` element (a PNG or JPG stored as a data URL, so a backup carries the pixels), and every element must fit the page format wherever the widget is placed.
 
 ```json
 {

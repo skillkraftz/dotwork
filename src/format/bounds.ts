@@ -17,6 +17,7 @@ export function elementArea(el: PageElement, text = el.type === 'text' ? el.text
     case 'shade':
     case 'box':
     case 'art':
+    case 'image':
     case 'generated':
       return { x: el.x, y: el.y, w: el.w, h: el.h };
     case 'rule':
@@ -71,12 +72,19 @@ export const CLOSED_HEADER: Header = { top: 1, corner: null };
 /** The page number sits in this many cells at the outer top corner. */
 export const CORNER_CELLS = 2;
 
-/** Row 0 is the printed header, unless the page has no identity: then it can be drawn on, except the page number's corner. */
-export function headerOf(page: Pick<Page, 'identity' | 'side' | 'page_number'>): Header {
+/** Row 0 is the printed header, unless the page has no identity: then it can be drawn on, except the page number's corner. A cover page has no header at all. */
+export function headerOf(page: Pick<Page, 'identity' | 'side' | 'page_number' | 'cover'>): Header {
+  if (page.cover) return { top: 0, corner: null };
   if (page.identity) return CLOSED_HEADER;
   if (page.page_number === false) return { top: 0, corner: null };
   // The outer corner is away from the spine: the left of a left page, the right of a right (or either) page.
   return { top: 0, corner: { x: page.side === 'left' ? 0 : COLS - CORNER_CELLS, y: 0, w: CORNER_CELLS, h: 1 } };
+}
+
+/** The page as a cover page: no identity and no page number, and row 0 is free (see `headerOf`). */
+export function asCover<T extends Pick<Page, 'identity' | 'page_number' | 'cover'>>(page: T): T {
+  const { identity: _identity, ...rest } = page;
+  return { ...rest, cover: true, page_number: false } as T;
 }
 
 /** Whether an element reaches into the header's page-number corner. */
