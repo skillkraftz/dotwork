@@ -125,9 +125,9 @@ takes an offset), so the last week of November 2026 reads `NOV 29 – NOV 30` an
 (the year `start` is in): the week holding 1 January of that year, counted from the week start, is week 1, so Dec 27 to Jan 2 is week
 53 in a book that starts in December 2026 and week 1 in one that starts in January 2027; `{week+1}` is the next week's number.
 `{months}` of a week or month that spans two months reads `DEC / JAN`. Pages that read nothing (no calendar, a gap page, a block
-outside any span, a day beyond the calendar) and the covers print every token blank, so the date can be written in by hand. The
+outside any span, a day beyond the calendar) print every token blank, so the date can be written in by hand. The four covers read the calendar's first month, as a month page does (`{monthname}` NOVEMBER, `{month}` NOV, `{year}` 2026, offsets in their own unit so `{monthname+1}` is DECEMBER, day tokens the first day inside the calendar); a book without a calendar prints them blank. The
 outline row of a page that prints dates says what its first repeat prints (`reads: SUN NOV 1`, `reads: NOV 1 – NOV 7`). The dates
-reach `pages.pdf`, the print files, `preview.png` and Flip through. See `src/format/calendar.ts` and `layoutOutline`.
+reach `pages.pdf`, the print files, the cover PDFs, `preview.png` and Flip through. See `src/format/calendar.ts` and `layoutOutline`.
 
 **Free pages and the calendar.** Free pages and the designs on them (a page chosen on a free page is stored in the block's `pages`)
 are kept when the calendar changes: free page *i* stays free page *i* while the other blocks' pages move. A stored free page that

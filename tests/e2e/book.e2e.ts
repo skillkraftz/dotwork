@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { PDFDocument } from 'pdf-lib';
-import { hit, libraryItems, missingHelp, nameOpen, open, openDoc, reload, seedDoc, seedLibrary, shot, start, stop, type App, type Device, type Env } from './harness';
+import { confirmAdd, hit, libraryItems, missingHelp, nameOpen, open, openDoc, reload, seedDoc, seedLibrary, shot, start, stop, type App, type Device, type Env } from './harness';
 
 let env: Env;
 beforeAll(async () => { env = await start(); });
@@ -52,6 +52,7 @@ async function add(app: App, tab: 'pages' | 'spreads' | 'blocks', name: string, 
   await app.page.waitForSelector('dialog.picker[open] .design');
   await hit(app, `dialog.picker [data-tab="${tab}"]`);
   await hit(app, `dialog.picker .design[data-name="${name}"]`);
+  await confirmAdd(app);
   await app.page.waitForSelector('dialog.picker', { state: 'hidden' });
 }
 
@@ -98,12 +99,14 @@ async function buildFiftyTwo(app: App, device: Device) {
   await page.waitForSelector('dialog.picker[open] .design');
   await hit(app, 'dialog.picker [data-tab="spreads"]');
   await hit(app, 'dialog.picker .design[data-name="Ideas spread"]');
+  await confirmAdd(app);
   await page.waitForSelector('dialog.picker', { state: 'hidden' });
   await settings(app, '1');
   await hit(app, '[data-block-row="1"] [data-key="outline-add-to-group"]');
   await page.waitForSelector('dialog.picker[open] .design');
   await hit(app, 'dialog.picker [data-tab="pages"]');
   await hit(app, 'dialog.picker .design[data-name="Lined page"]');
+  await confirmAdd(app);
   await page.waitForSelector('dialog.picker', { state: 'hidden' });
   expect(await row(app, '1.0').count()).toBe(1);
   expect(await row(app, '1.1').count()).toBe(1);

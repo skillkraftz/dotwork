@@ -4,7 +4,7 @@ import { expandTokens, readsText, suggestUnit, type Reading } from '../src/forma
 import { emptyPage, type Page } from '../src/format/types';
 import { BUILTIN_PAGES } from '../src/builtin/library';
 import { weeklyReflection } from '../src/builtin/pages';
-import { bookExpand, bookLayout, emptyBook, readBook, type Book } from '../src/book/book';
+import { bookExpand, bookLayout, coverReading, emptyBook, readBook, type Book } from '../src/book/book';
 import { freeBlock, groupBlock, layoutOutline, moveBlock, pageBlock, setFreePage, setRepeat, setShared, spreadBlock, type Block, type Cell, type Child } from '../src/book/outline';
 
 const text = (name: string, identity: string, ...texts: string[]): Page => ({
@@ -216,15 +216,26 @@ describe('dates come from each block’s own repeat', () => {
     expect(mo.cells[1]!.read).toEqual(mo.cells[2]!.read);
   });
 
-  it('prints the dates in the book’s pages, and nothing on its covers or without a calendar', () => {
+  it('prints the dates in the book’s pages, and nothing without a calendar', () => {
     const book: Book = { ...emptyBook(), calendar: NOV, outline: [weeks()] };
     const page = (n: number) => bookExpand(book, n)('{weekday} {month} {day}');
     expect(page(2)).toBe('SUN NOV 1');
     expect(page(38)).toBe('SUN NOV 29');
-    expect(bookExpand(book, 0)('{day}')).toBe('');
     expect(bookExpand(book, 52)('{day}')).toBe(''); // nothing placed
     expect(bookExpand({ ...book, calendar: undefined }, 2)('{day}')).toBe('');
     expect(bookLayout(book)).not.toBe(bookLayout({ ...book, calendar: JAN })); // a new calendar is worked out again
+  });
+
+  it('reads the calendar’s first month on all four covers, and nothing without a calendar', () => {
+    const book: Book = { ...emptyBook(), calendar: NOV, outline: [weeks()] };
+    const tokens = '{monthname} {month} {year} {monthname+1} {month+1} {year+1} {day}';
+    for (const slot of [-1, 0, 53, 54]) expect(bookExpand(book, slot)(tokens)).toBe('NOVEMBER NOV 2026 DECEMBER DEC 2027 1');
+    expect(bookExpand(book, 0)('{months}')).toBe('NOV');
+    // a calendar that starts mid-month reads its first day inside the calendar
+    const part: Book = { ...book, calendar: { start: '2026-11-18', end: '2026-12-31', week_starts: 0 } };
+    expect(bookExpand(part, 0)('{monthname} {day}')).toBe('NOVEMBER 18');
+    expect(bookExpand({ ...book, calendar: undefined }, 0)(tokens)).toBe('      ');
+    expect(coverReading({ ...book, calendar: undefined })).toBeNull();
   });
 });
 

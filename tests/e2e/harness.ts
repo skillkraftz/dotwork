@@ -230,6 +230,9 @@ export async function hit(app: App, selector: string) {
   await app.page.tap(selector);
 }
 
+/** The Add button of the card that is open in the Add… picker, which puts the block where its settings say. */
+export const confirmAdd = (app: App) => hit(app, 'dialog.picker .design.open [data-key="add-confirm"]');
+
 /** Open a top-bar menu ('page' or 'edit') and choose an item in it, by its id. */
 export async function choose(app: App, menu: 'page' | 'edit', item: string) {
   await hit(app, `#menu-${menu}`);

@@ -44,8 +44,8 @@ export function drawer(book: Book, print: Pick<PrintSettings, 'shade_light_pct' 
     page: (out: Item[], n: number, x: number, y: number) => {
       place(out, bookPage(book, n), x, y, book.page_numbers ? String(n) : null, bookExpand(book, n));
     },
-    /** A cover page by its slot (see book.ts): blank if it has no design, and never numbered. */
-    cover: (out: Item[], slot: number, x: number, y: number) => place(out, bookPage(book, slot), x, y, null),
+    /** A cover page by its slot (see book.ts): blank if it has no design, never numbered, and reading the calendar's first month. */
+    cover: (out: Item[], slot: number, x: number, y: number) => place(out, bookPage(book, slot), x, y, null, bookExpand(book, slot)),
   };
 }
 

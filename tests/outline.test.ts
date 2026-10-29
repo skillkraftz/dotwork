@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { bookLayout, bookPage, emptyBook } from '../src/book/book';
 import {
-  addBlock, canAddFree, canFill, duplicateBlock, fillRepeat, freeBlock, groupBlock, layoutOutline, moveBlock, moveIntoGroup, moveOutOfGroup, pageBlock, pagesToHold,
+  addBlock, insertSpots, canAddFree, canFill, duplicateBlock, fillRepeat, freeBlock, groupBlock, layoutOutline, moveBlock, moveIntoGroup, moveOutOfGroup, pageBlock, pagesToHold,
   removeBlock, setDesign, setPin, setRepeat, spreadBlock, totalLine, type Block,
 } from '../src/book/outline';
 import { emptyPage, type Page } from '../src/format/types';
@@ -316,5 +316,42 @@ describe('putting a design in a block', () => {
     const input = week();
     setDesign(input, [0], { page: C });
     expect(JSON.stringify(input)).toBe(before);
+  });
+});
+
+describe('adding where the owner is', () => {
+  const label = (b: Block) => (b.type === 'page' ? b.page?.name ?? 'blank' : b.type === 'group' ? b.name : b.type);
+  const kids = (o: Block[], g: number) => (o[g] as ReturnType<typeof groupBlock>).children.map(label);
+  const base = (): Block[] => [pageBlock(A), groupBlock('G', [pageBlock(B), pageBlock(C)]), freeBlock()];
+
+  it('inserts at an index, at the end without one, and into a group', () => {
+    const o = base();
+    expect(addBlock(o, pageBlock(null), { index: 1 }).map(label)).toEqual(['A', 'blank', 'G', 'free']);
+    expect(addBlock(o, pageBlock(null), { index: 0 }).map(label)).toEqual(['blank', 'A', 'G', 'free']);
+    expect(addBlock(o, pageBlock(null)).map(label)).toEqual(['A', 'G', 'free', 'blank']);
+    expect(addBlock(o, pageBlock(null), { index: 99 }).map(label)).toEqual(['A', 'G', 'free', 'blank']);
+    expect(kids(addBlock(o, pageBlock(null), { group: 1, index: 1 }), 1)).toEqual(['B', 'blank', 'C']);
+    expect(kids(addBlock(o, pageBlock(null), { group: 1 }), 1)).toEqual(['B', 'C', 'blank']);
+    expect(o.map(label)).toEqual(['A', 'G', 'free']); // the old outline is as it was
+  });
+
+  it('takes pages from the free pages, whichever side of them it lands', () => {
+    const o = [pageBlock(A, 2), freeBlock()];
+    expect(layoutOutline(addBlock(o, pageBlock(B, 2), { index: 1 }), 52).rows.map((r) => r.pages)).toEqual([2, 2, 48]);
+    expect(layoutOutline(addBlock(o, pageBlock(B, 2), { index: 1 }), 52).rows[1].first).toBe(3);
+  });
+
+  it('lists the places: after the current block, else before what takes the rest, else the end', () => {
+    const o = base();
+    expect(insertSpots(o, 0).map((s) => [s.id, s.label, s.index])).toEqual([['after', 'After A', 1], ['before', 'Before A', 0], ['start', 'At the start', 0], ['end', 'At the end', 3]]);
+    expect(insertSpots(o, null)[0]).toEqual({ id: 'rest', label: 'Before Free pages', index: 2 });
+    expect(insertSpots([pageBlock(A)], null).map((s) => s.id)).toEqual(['end', 'start']);
+    expect(insertSpots([], null).map((s) => [s.id, s.index])).toEqual([['end', 0]]);
+    // a fill takes the rest too, but a pinned one does not
+    expect(insertSpots([pageBlock(A), fill(pageBlock(B))], null)[0].index).toBe(1);
+    expect(insertSpots([pin(fill(pageBlock(A)), 5), pageBlock(B)], null)[0].id).toBe('end');
+    // inside a group the same within the group
+    expect(insertSpots(o, 1, 1).map((s) => [s.id, s.label, s.index])).toEqual([['after', 'After C', 2], ['before', 'Before C', 1], ['start', 'At the start of the group', 0], ['end', 'At the end of the group', 2]]);
+    expect(insertSpots(o, null, 1)[0]).toEqual({ id: 'end', label: 'At the end of the group', index: 2 });
   });
 });

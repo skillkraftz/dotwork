@@ -211,3 +211,22 @@ describe('page numbers', () => {
     expect(p1.strings.join('|')).toBe('1');
   });
 });
+
+describe('the covers read the calendar’s first month', () => {
+  const tracker: Page = { ...emptyPage(), identity: '', name: 'Tracker', elements: [{ type: 'text', x: 3, y: 10, text: '{monthname} {year}', size: 'heading' }] };
+  const covered = (calendar?: Book['calendar']) => labelledBook(8, (b) => {
+    setCover(b, 0, tracker); setCover(b, -1, tracker); setCover(b, 9, tracker); setCover(b, 10, tracker);
+    b.calendar = calendar;
+  });
+  const coverStrings = async (files: ExportedFile[]) =>
+    (await Promise.all(['cover-outside.pdf', 'cover-inside.pdf'].map((n) => readPdf(file(files, n))))).flatMap((pages) => pages.flatMap((p) => p.strings));
+
+  it('prints NOVEMBER 2026 on all four covers with a November 2026 calendar, and nothing without one', async () => {
+    const dated = await coverStrings(await exportBookFiles(covered({ start: '2026-11-01', end: '2026-11-30', week_starts: 0 }), FLAT, fonts));
+    expect(dated.filter((t) => t.includes('NOVEMBER'))).toHaveLength(4);
+    expect(dated.join(' ')).toContain('NOVEMBER 2026');
+    const undated = await coverStrings(await exportBookFiles(covered(), FLAT, fonts));
+    expect(undated.join(' ')).not.toContain('NOVEMBER');
+    expect(undated.join(' ')).not.toContain('2026');
+  });
+});

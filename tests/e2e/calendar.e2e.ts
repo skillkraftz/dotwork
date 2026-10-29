@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { hit, missingHelp, nameOpen, open, openDoc, shot, start, stop, choose, unzip, type App, type Device, type Env } from './harness';
+import { confirmAdd, hit, missingHelp, nameOpen, open, openDoc, shot, start, stop, choose, unzip, type App, type Device, type Env } from './harness';
 import { readPdf } from '../pdf-text';
 
 let env: Env;
@@ -21,6 +21,7 @@ async function add(app: App, tab: 'pages' | 'spreads' | 'blocks', name: string, 
   await app.page.waitForSelector('dialog.picker[open] .design');
   await hit(app, `dialog.picker [data-tab="${tab}"]`);
   await hit(app, `dialog.picker .design[data-name="${name}"]`);
+  await confirmAdd(app);
   await app.page.waitForSelector('dialog.picker', { state: 'hidden' });
 }
 

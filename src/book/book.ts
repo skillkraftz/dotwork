@@ -1,7 +1,7 @@
 import { emptyPage, type Page } from '../format/types';
 import { readPage } from '../format/read';
-import { expandRead } from '../format/tokens';
-import { calendarProblem, type Calendar } from '../format/calendar';
+import { expandRead, type Reading } from '../format/tokens';
+import { calendarProblem, readingOf, spansOf, type Calendar } from '../format/calendar';
 import { withSide, type SpreadSide } from '../format/spread';
 import { headerOf, hitsCorner } from '../format/bounds';
 import type { ValidationIssue } from '../format/validate';
@@ -122,11 +122,18 @@ export function resizeBook(book: Book, pageCount: number): void {
   if (book.cover.back) book.cover.back = withSide(book.cover.back, 'right');
 }
 
+/** What the four covers read: the calendar's first month (as a month page reads it), or null for an undated book, whose covers print blank. */
+export const coverReading = (book: Book): Reading | null => {
+  const first = book.calendar ? spansOf(book.calendar, 'month')[0] : undefined;
+  return book.calendar && first ? readingOf(book.calendar, first) : null;
+};
+
 /**
  * How a slot turns date tokens into text: by what its block reads (a day, a week or a month of the calendar, see outline.ts). A page
- * with no calendar, a gap page and the covers read nothing, so their tokens print blank and the date can be written in by hand.
+ * with no calendar, a gap page and a page that reads nothing print their tokens blank, so the date can be written in by hand. The
+ * covers read the calendar's first month.
  */
-export const bookExpand = (book: Book, slot: number) => expandRead(isCover(book, slot) ? null : bookLayout(book).cells[slot - 1]?.read ?? null);
+export const bookExpand = (book: Book, slot: number) => expandRead(isCover(book, slot) ? coverReading(book) : bookLayout(book).cells[slot - 1]?.read ?? null);
 
 // ---- reading ---------------------------------------------------------------
 

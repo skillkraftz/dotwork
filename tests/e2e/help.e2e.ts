@@ -307,6 +307,8 @@ describe('every control has a help entry', () => {
       await go('dialog.picker [data-tab="blocks"]');
       expect(await missingHelp(app), `${device} picker other`).toEqual([]);
       await go('dialog.picker [data-key="add-group"]');
+      expect(await missingHelp(app), `${device} picker card open`).toEqual([]);
+      await go('dialog.picker [data-key="add-confirm"]');
       await page.waitForSelector('dialog.picker', { state: 'hidden' });
       if (app.touch) await go('.contents-toggle');
       await go('.orow [data-key="outline-more"]');
@@ -318,6 +320,7 @@ describe('every control has a help entry', () => {
       await go('dialog.picker [data-tab="blocks"]');
       expect(await missingHelp(app), `${device} picker for a group`).toEqual([]);
       await go('dialog.picker [data-key="add-free"]');
+      await go('dialog.picker [data-key="add-confirm"]');
       await page.waitForSelector('dialog.picker', { state: 'hidden' });
       expect(await missingHelp(app), `${device} child row`).toEqual([]);
       if (app.touch) await go('.contents-close');
