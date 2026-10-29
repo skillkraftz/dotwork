@@ -8,7 +8,6 @@
 import { COLS, GRID_X_MM, GRID_Y_MM, PAGE_H_MM, PAGE_W_MM, PITCH_MM as P, ROWS } from '../format/types';
 import { FIRST_SLOT, bookExpand, bookPage, lastSlot, type Book } from '../book/book';
 import { pageOrigin, type PrintSettings, type Signature } from '../book/impose';
-import { blankTokens } from '../format/tokens';
 import { boundsOf, type Item } from './display';
 import { layoutPage } from './layout';
 import { EDGE_MM, LETTER_H_MM, LETTER_W_MM, halfTops, isTwoUp, mapPoint, transformOf, trimZoneBoxes } from './sheets';
@@ -21,7 +20,7 @@ interface Box { x0: number; y0: number; x1: number; y1: number }
 function contentBox(book: Book, slot: number): Box | null {
   const n = slot >= 1 && slot <= book.page_count ? slot : 0;
   const items: Item[] = [];
-  layoutPage(bookPage(book, slot), { x: 0, y: 0, pageNumber: n && book.page_numbers ? String(n) : null, expand: n ? bookExpand(book, n) : blankTokens }, items);
+  layoutPage(bookPage(book, slot), { x: 0, y: 0, pageNumber: n && book.page_numbers ? String(n) : null, expand: bookExpand(book, slot) }, items);
   const b = boundsOf(items);
   if (!b) return null;
   return { x0: Math.max(0, b.x0), y0: Math.max(0, b.y0), x1: Math.min(PAGE_W_MM, b.x1), y1: Math.min(PAGE_H_MM, b.y1) };

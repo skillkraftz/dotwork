@@ -19,8 +19,8 @@ import { isUntitled } from '../documents';
 import { designName, opening, slotLabel } from './labels';
 import {
   addBlock, blockAt, canAddFree, canFill, canMove, canMoveIn, duplicateBlock, fillRepeat, freeBlock, groupBlock, moveBlock, moveIntoGroup, moveOutOfGroup,
-  firstCell, isEach, nameOf, pageBlock, removeBlock, repeatLabel, replaceBlock, setDesign, setFreePage, setPin, setRepeat, setShared, spreadBlock, timesOf, totalLine, MAX_REPEAT,
-  type Block, type Child, type GroupBlock, type Link, type Path, type Repeat, type Row,
+  firstCell, insertSpots, isEach, layoutOutline, nameOf, pageBlock, removeBlock, repeatLabel, replaceBlock, setDesign, setFreePage, setPin, setRepeat, setShared, spreadBlock, timesOf, totalLine, MAX_REPEAT,
+  type Block, type Child, type GroupBlock, type Link, type Path, type Repeat, type Row, type Spot,
 } from './outline';
 
 export interface ArrangerHost {
@@ -149,7 +149,9 @@ export class Arranger {
   private pickerBody = h('div', { class: 'picker-body' });
   private pickerTitle = h('h2', {});
   /** What the picker is choosing: a design for a cover, or a block to add (to a group, or to the end of the outline). */
-  private picking: { for: 'cover' } | { for: 'free'; path: Path; index: number } | { for: 'replace'; path: Path } | { for: 'add'; group: number | null } = { for: 'add', group: null };
+  private picking: { for: 'cover' } | { for: 'free'; path: Path; index: number } | { for: 'replace'; path: Path } | { for: 'add'; group: number | null; /** The block (or, in a group, the child) the owner is on, which the new one goes after. */ current: number | null } = { for: 'add', group: null, current: null };
+  /** The card opened in the Add… picker: what it makes, how often it repeats, and where it goes. */
+  private pending: { key: string; make: (c?: Choice) => Block; choice?: Choice; repeat: Repeat | null; where: Spot['id'] } | null = null;
 
   constructor(root: HTMLElement, private host: ArrangerHost, book: Book) {
     this.book = book;
@@ -588,20 +590,22 @@ export class Arranger {
 
   /** How often the block repeats: a number of times, or for each day, week or month of the calendar (or of the group's span). */
   private repeatSelect(path: Path, block: Exclude<Block, { type: 'free' }>): HTMLElement {
-    const cal = !!this.book.calendar, top = path.length === 1;
-    const parent = top ? null : (this.book.outline[path[0]] as GroupBlock);
-    const spanUnit = parent && isEach(parent.repeat) ? parent.repeat.each : null;
+    const parent = path.length === 1 ? null : (this.book.outline[path[0]] as GroupBlock);
+    return this.repeatChooser(block.repeat, path.length === 1, parent && isEach(parent.repeat) ? parent.repeat.each : null, (next) => this.editOutline((x) => setRepeat(x, path, next)), 'outline-each', 'outline-each');
+  }
+
+  /** The "How often" select. `spanUnit` is the unit a group that repeats by week or month spans, for the blocks inside it. */
+  private repeatChooser(r: Repeat, top: boolean, spanUnit: 'day' | 'week' | 'month' | null, set: (next: Repeat) => void, key: string, help: string): HTMLElement {
+    const cal = !!this.book.calendar;
     const options: [string, string, boolean][] = top
       ? [['times', 'A number of times', true], ...(['day', 'week', 'month'] as const).map((u): [string, string, boolean] => [u, `Each ${u} of the calendar${cal ? '' : ' (set a calendar first)'}`, cal])]
       : [['times', 'A number of times', true], ...(['day', 'week'] as const).map((u): [string, string, boolean] => [`span-${u}`, `Each ${u} of the group’s span${spanUnit ? '' : ' (the group must repeat by week or month)'}`, !!spanUnit])];
-    const r = block.repeat;
     const value = !isEach(r) ? 'times' : 'of' in r ? `span-${r.each}` : r.each;
-    const select = h('select', { 'aria-label': 'How often', 'data-key': 'outline-each', 'data-help': 'outline-each' },
+    const select = h('select', { 'aria-label': 'How often', 'data-key': key, 'data-help': help },
       ...options.map(([v, label, on]) => h('option', { value: v, selected: v === value, disabled: !on && v !== value }, label)));
     commitField(select, () => {
       const v = select.value;
-      const next: Repeat = v === 'times' ? { times: 1 } : v.startsWith('span-') ? { each: v.slice(5) as 'day' | 'week', of: 'span' } : { each: v as 'day' | 'week' | 'month' };
-      this.editOutline((x) => setRepeat(x, path, next));
+      set(v === 'times' ? { times: 1 } : v.startsWith('span-') ? { each: v.slice(5) as 'day' | 'week', of: 'span' } : { each: v as 'day' | 'week' | 'month' });
     });
     return h('div', { class: 'field' }, h('label', {}, 'How often'), select);
   }
@@ -657,9 +661,18 @@ export class Arranger {
 
   // ---- choosing a design ---------------------------------------------------------
 
+  /** The block Add… goes after: the selected row, else the block that owns the page being looked at (a cover or gap page has none). In a group, the selected child. */
+  private currentBlock(group: number | null): number | null {
+    if (group !== null) return this.selected && this.selected.length === 2 && this.selected[0] === group ? this.selected[1] : null;
+    if (this.selected) return this.selected[0];
+    const cell = this.slot >= 1 && this.slot <= this.book.page_count ? bookLayout(this.book).cells[this.slot - 1] : null;
+    return cell && cell.kind !== 'gap' ? cell.block : null;
+  }
+
   private async openAdd(group: number | null) {
     await this.refreshDesigns();
-    this.picking = { for: 'add', group };
+    this.picking = { for: 'add', group, current: this.currentBlock(group) };
+    this.pending = null;
     this.renderPicker();
     this.picker.showModal();
   }
@@ -667,6 +680,7 @@ export class Arranger {
   private async openCoverPicker() {
     await this.refreshDesigns();
     this.picking = { for: 'cover' };
+    this.pending = null;
     this.renderPicker();
     this.picker.showModal();
   }
@@ -674,6 +688,7 @@ export class Arranger {
   private async openReplacePicker(path: Path) {
     await this.refreshDesigns();
     this.picking = { for: 'replace', path };
+    this.pending = null;
     this.renderPicker();
     this.picker.showModal();
   }
@@ -681,6 +696,7 @@ export class Arranger {
   private async openFreePicker(path: Path, index: number) {
     await this.refreshDesigns();
     this.picking = { for: 'free', path, index };
+    this.pending = null;
     this.renderPicker();
     this.picker.showModal();
   }
@@ -698,10 +714,12 @@ export class Arranger {
       const thumb = h('div', { class: 'thumb' });
       const pages = c.kind === 'spread' ? [(c.data as Spread).left, (c.data as Spread).right] : [withSide(c.data ? (c.data as Page) : blankPage(side), side)];
       thumb.innerHTML = thumbnailSvg(pages);
+      const hint = c.kind === 'blank' ? 'Empty page' : c.kind === 'spread' ? 'Spread: two facing pages' : 'Page';
+      if (this.picking.for === 'add') return this.addCard({ key: `${c.kind}:${c.id ?? c.name}`, name: c.name, hint, kind: c.kind, wide: c.kind === 'spread', thumb, make: (ch) => this.blockFromChoice(ch ?? c), choice: c });
       return h('button', {
         type: 'button', class: `design${c.kind === 'spread' ? ' wide' : ''}`, 'data-kind': c.kind, 'data-help': 'picker-design', 'data-name': c.name,
         onclick: () => void this.choose(c),
-      }, thumb, h('span', { class: 'design-title' }, c.name), h('span', { class: 'hint' }, c.kind === 'blank' ? 'Empty page' : c.kind === 'spread' ? 'Spread: two facing pages' : 'Page'));
+      }, thumb, h('span', { class: 'design-title' }, c.name), h('span', { class: 'hint' }, hint));
     };
     const section = (title: string, items: Choice[], empty?: string) => [
       h('h3', {}, title),
@@ -710,11 +728,13 @@ export class Arranger {
     const choice = (kind: 'page' | 'spread', id: (d: never) => string) => (data: Page | Spread): Choice => ({ name: data.name, kind, data, id: id(data as never) });
     const saved = (kind: 'page' | 'spread') => this.saved.filter((i) => i.kind === kind).map((i): Choice => ({ name: i.name, kind, data: { ...(i.data as Page | Spread), name: i.name }, id: i.id }));
     const builtinPage = choice('page', exampleId), builtinSpread = choice('spread', spreadId);
+    const scroll = this.pickerBody.scrollTop; // the card being set redraws the list: stay where it was
+    const body = (items: HTMLElement[]) => { this.pickerBody.replaceChildren(...items); this.pickerBody.scrollTop = scroll; };
     if (tab === 'blocks') {
-      this.pickerBody.replaceChildren(...this.otherBlocks());
+      body(this.otherBlocks());
       return;
     }
-    this.pickerBody.replaceChildren(...(tab === 'pages'
+    body(tab === 'pages'
       ? [
         ...(cover ? [h('div', { class: 'design-list' }, card({ name: 'Blank', kind: 'blank', data: null, id: null }))] : []),
         ...section('Saved pages', saved('page'), 'Nothing saved yet. Pages you save to the Library appear here.'),
@@ -723,23 +743,23 @@ export class Arranger {
       : [
         ...section('Saved spreads', saved('spread'), 'No saved spreads.'),
         ...section('Built-in spreads', BUILTIN_SPREADS.map(builtinSpread)),
-      ]));
+      ]);
   }
 
   /** The Other tab: a blank page, free pages, a new group, and sections (which add a group). */
   private otherBlocks(): HTMLElement[] {
     const inGroup = this.picking.for === 'add' && this.picking.group !== null;
     const thumbOf = (pages: Page[]) => { const t = h('div', { class: 'thumb' }); t.innerHTML = thumbnailSvg(pages); return t; };
-    const card = (name: string, hint: string, key: string, thumb: HTMLElement, run: () => void, disabled = false) =>
-      h('button', { type: 'button', class: 'design', 'data-help': 'picker-design', 'data-key': key, 'data-name': name, disabled, onclick: run }, thumb, h('span', { class: 'design-title' }, name), h('span', { class: 'hint' }, hint));
-    const blank = () => thumbOf([blankPage('right')]);
-    const sectionCard = (s: Section) => card(s.name, `Section: ${plural(s.children.length, 'block')}`, 'add-section', thumbOf([this.sectionFirstPage(s)]), () => this.addBlock(sectionGroup(s)));
+    const card = (name: string, hint: string, key: string, pages: Page[], make: () => Block, disabled = false) =>
+      this.addCard({ key, name, hint, kind: 'other', wide: false, thumb: thumbOf(pages), make, disabled, dataKey: key });
+    const blank = () => [blankPage('right')];
+    const sectionCard = (s: Section) => card(s.name, `Section: ${plural(s.children.length, 'block')}`, 'add-section', [this.sectionFirstPage(s)], () => sectionGroup(s));
     const free = canAddFree(this.book.outline) || inGroup;
     return [
       h('div', { class: 'design-list' },
-        card('Blank page', 'An empty page, repeated as often as you set.', 'add-blank', blank(), () => this.addBlock(pageBlock(null))),
-        card('Free pages', inGroup ? 'A page you fill by hand, in each repeat.' : free ? 'Pages you fill by hand: they take the pages the other blocks leave.' : 'Another block already takes what is left.', 'add-free', blank(), () => this.addBlock(freeBlock(inGroup ? [null] : [])), !free),
-        ...(inGroup ? [] : [card('New group', 'Blocks that repeat together. Add pages and spreads to it after.', 'add-group', blank(), () => this.addBlock(groupBlock('Group')))])),
+        card('Blank page', 'An empty page, repeated as often as you set.', 'add-blank', blank(), () => pageBlock(null)),
+        card('Free pages', inGroup ? 'A page you fill by hand, in each repeat.' : free ? 'Pages you fill by hand: they take the pages the other blocks leave.' : 'Another block already takes what is left.', 'add-free', blank(), () => freeBlock(inGroup ? [null] : []), !free),
+        ...(inGroup ? [] : [card('New group', 'Blocks that repeat together. Add pages and spreads to it after.', 'add-group', blank(), () => groupBlock('Group'))])),
       ...(inGroup ? [] : [
         h('h3', {}, 'Saved sections'), this.savedSections.length ? h('div', { class: 'design-list' }, ...this.savedSections.map(sectionCard)) : h('p', { class: 'hint' }, 'No saved sections.'),
         h('h3', {}, 'Built-in sections'), h('div', { class: 'design-list' }, ...BUILTIN_SECTIONS.map(sectionCard)),
@@ -752,13 +772,30 @@ export class Arranger {
     return !first || first.type === 'free' ? blankPage('right') : first.type === 'spread' ? first.left : withSide(first.page ?? blankPage('right'), 'right');
   }
 
-  private async choose(c: Choice) {
-    if (c.id && !c.id.startsWith('example:') && c.data && isUntitled(c.name)) {
-      const name = await this.host.nameSaved(c.id, c.name, c.kind as 'page' | 'spread');
-      if (name === null) return;
-      c = { ...c, name, data: { ...c.data, name } as Page | Spread };
-      void this.refreshDesigns();
+  /** The block a design makes: a page, or a spread, with the link to the design it came from. */
+  private blockFromChoice(c: Choice): Block {
+    const link = (p: Page | null, q?: Page): Link | undefined => (c.id && p ? { id: c.id, fingerprint: q ? `${fingerprint(p)}/${fingerprint(q)}` : fingerprint(p) } : undefined);
+    if (c.kind === 'spread') {
+      const s = c.data as Spread;
+      return spreadBlock(c.name, s.left, s.right, 1, link(s.left, s.right));
     }
+    return pageBlock(c.kind === 'blank' ? null : (c.data as Page), 1, link(c.data as Page | null));
+  }
+
+  /** A saved design that is still Untitled is named before it is placed. Resolves the choice with its name, or null if that was cancelled. */
+  private async named(c: Choice): Promise<Choice | null> {
+    if (!(c.id && !c.id.startsWith('example:') && c.data && isUntitled(c.name))) return c;
+    const name = await this.host.nameSaved(c.id, c.name, c.kind as 'page' | 'spread');
+    if (name === null) return null;
+    void this.refreshDesigns();
+    return { ...c, name, data: { ...c.data, name } as Page | Spread };
+  }
+
+  /** A design chosen for a cover, a free page, or to replace a block's (adding a block goes through the card's Add button instead). */
+  private async choose(c: Choice) {
+    const named = await this.named(c);
+    if (!named) return;
+    c = named;
     this.picker.close();
     if (this.picking.for === 'cover') {
       const at = this.slot;
@@ -770,21 +807,16 @@ export class Arranger {
       this.editOutline((o) => setFreePage(o, path, index, c.kind === 'blank' ? null : (c.data as Page)));
       return;
     }
-    const link = (p: Page | null, q?: Page): Link | undefined => (c.id && p ? { id: c.id, fingerprint: q ? `${fingerprint(p)}/${fingerprint(q)}` : fingerprint(p) } : undefined);
     if (this.picking.for === 'replace') {
       const { path } = this.picking;
       const old = blockAt(this.book.outline, path);
+      const link = (p: Page | null, q?: Page): Link | undefined => (c.id && p ? { id: c.id, fingerprint: q ? `${fingerprint(p)}/${fingerprint(q)}` : fingerprint(p) } : undefined);
       if (c.kind === 'spread') {
         const s = c.data as Spread;
         this.editOutline((o) => setDesign(o, path, { name: c.name, left: s.left, right: s.right }, link(s.left, s.right) ?? null));
       } else this.editOutline((o) => setDesign(o, path, { page: c.kind === 'blank' ? null : (c.data as Page) }, link(c.data as Page | null) ?? null));
       this.say(`Replaced the design of “${old ? nameOf(old) : 'the block'}” with “${c.name}”. Undo takes it back.`);
-      return;
     }
-    if (c.kind === 'spread') {
-      const s = c.data as Spread;
-      this.addBlock(spreadBlock(c.name, s.left, s.right, 1, link(s.left, s.right)));
-    } else this.addBlock(pageBlock(c.data as Page, 1, link(c.data as Page)));
   }
 
   /**
@@ -800,19 +832,115 @@ export class Arranger {
     return unit === 'day' && parent?.type === 'group' && isEach(parent.repeat) ? { ...block, repeat: { each: 'day', of: 'span' } } : block;
   }
 
-  /** Add a block to the end of the outline (or the end of the group the picker was opened from) and show it. */
-  private addBlock(block: Block) {
+  // ---- the card being set in the Add… picker ----------------------------------------------
+
+  /** The group the picker adds into, or null for the top level. */
+  private addGroup(): number | null { return this.picking.for === 'add' ? this.picking.group : null; }
+
+  private addSpots(): Spot[] { return this.picking.for === 'add' ? insertSpots(this.book.outline, this.picking.current, this.picking.group) : []; }
+
+  /** What the open card makes, with the repeat set on it. */
+  private pendingBlock(p: NonNullable<Arranger['pending']>): Block {
+    const b = p.make(p.choice);
+    return b.type !== 'free' && p.repeat ? { ...b, repeat: p.repeat } : b;
+  }
+
+  /** Tapping a card opens it in place: its repeat (prefilled the way its dates suggest), where it goes, and its own Add. Tapping it again closes it. */
+  private expand(key: string, make: (c?: Choice) => Block, choice?: Choice) {
+    if (this.pending?.key === key) this.pending = null;
+    else {
+      const start = this.withSuggestedRepeat(make(choice), this.addGroup());
+      this.pending = { key, make, choice, repeat: start.type === 'free' ? null : start.repeat, where: this.addSpots()[0]?.id ?? 'end' };
+    }
+    this.renderPicker();
+    this.pickerBody.querySelector('.design.open')?.scrollIntoView?.({ block: 'start' });
+  }
+
+  private addCard(o: { key: string; name: string; hint: string; kind: string; wide: boolean; thumb: HTMLElement; make: (c?: Choice) => Block; choice?: Choice; disabled?: boolean; dataKey?: string }): HTMLElement {
+    const p = this.pending;
+    const attrs = { 'data-kind': o.kind, 'data-name': o.name, 'data-key': o.dataKey ?? null };
+    const title = [o.thumb, h('span', { class: 'design-title' }, o.name), h('span', { class: 'hint' }, o.hint)];
+    if (!p || p.key !== o.key) {
+      return h('button', { type: 'button', class: `design${o.wide ? ' wide' : ''}`, ...attrs, 'data-help': 'picker-design', disabled: o.disabled ?? false, 'aria-expanded': 'false', onclick: () => this.expand(o.key, o.make, o.choice) }, ...title);
+    }
+    return h('div', { class: `design open${o.wide ? ' wide' : ''}`, ...attrs },
+      h('button', { type: 'button', class: 'design-head', 'data-help': 'picker-design-open', 'aria-expanded': 'true', onclick: () => this.expand(o.key, o.make, o.choice) }, ...title),
+      this.addOptions(p));
+  }
+
+  /** The open card's settings: repeat, where, the line that says where it lands, and Add. */
+  private addOptions(p: NonNullable<Arranger['pending']>): HTMLElement {
+    const group = this.addGroup(), o = this.book.outline, top = group === null;
+    const set = (patch: Partial<typeof p>) => { Object.assign(p, patch); this.renderPicker(); };
+    const fields: HTMLElement[] = [];
+    if (p.repeat) {
+      const r = p.repeat, filling = 'fill' in r;
+      const parent = group === null ? null : o[group];
+      const spanUnit = parent?.type === 'group' && isEach(parent.repeat) ? parent.repeat.each : null;
+      if (!filling) {
+        fields.push(this.repeatChooser(r, top, spanUnit, (next) => set({ repeat: next }), 'add-each', 'add-each'));
+        if (!isEach(r)) fields.push(this.stepper('Repeat', 'add-repeat', timesOf(r), 1, MAX_REPEAT, (n) => set({ repeat: { times: n } })));
+      }
+      if (top) {
+        const can = canAddFree(o);
+        fields.push(h('div', { class: 'field' }, h('span', { class: 'field-label' }, 'Fill'),
+          h('button', {
+            type: 'button', 'data-key': 'add-fill', 'data-help': 'add-fill', 'aria-pressed': String(filling), disabled: !filling && !can,
+            title: !filling && !can ? 'Another block already takes what is left' : null, onclick: () => set({ repeat: filling ? { times: 1 } : fillRepeat() }),
+          }, filling ? 'Filling what’s left' : 'Fill what’s left')));
+      }
+    }
+    const spots = this.addSpots(), spot = spots.find((x) => x.id === p.where) ?? spots[0];
+    const where = h('select', { 'aria-label': 'Where', 'data-key': 'add-where', 'data-help': 'add-where' },
+      ...spots.map((x) => h('option', { value: x.id, selected: x.id === spot.id }, x.label)));
+    commitField(where, () => set({ where: where.value as Spot['id'] }));
+    fields.push(h('div', { class: 'field' }, h('label', {}, 'Where'), where));
+    const { text, over } = this.landing(this.pendingBlock(p), group, spot.index);
+    return h('div', { class: 'design-set' }, ...fields,
+      h('p', { class: `lands${over ? ' over' : ''}`, role: 'status', 'data-key': 'add-lands' }, text),
+      h('button', { type: 'button', class: 'primary add-confirm', 'data-key': 'add-confirm', 'data-help': 'add-confirm', onclick: () => void this.confirmAdd() }, 'Add'));
+  }
+
+  /** Where a block would land, worked out by laying the outline out with it: "Lands on p.13–14", or in red that the book would be over. */
+  private landing(block: Block, group: number | null, index: number): { text: string; over: boolean } {
+    const lay = layoutOutline(addBlock(this.book.outline, block, group === null ? { index } : { group, index }), this.book.page_count, this.book.calendar);
+    const slots = group === null
+      ? (lay.rows[index]?.first != null ? lay.cells.flatMap((c, i) => (c && c.block === index && c.kind !== 'gap' ? [i + 1] : [])) : [])
+      : lay.cells.flatMap((c, i) => (c && c.block === group && c.child === index && c.kind !== 'gap' ? [i + 1] : []));
+    const first = slots[0], last = slots[slots.length - 1];
+    const lands = !slots.length
+      ? (block.type === 'group' && !block.children.length ? 'An empty group takes no pages until you add blocks to it.' : 'Takes no pages here.')
+      : `Lands on p.${first}${last !== first ? `–${last}` : ''}${slots.length > 2 ? `, ${plural(slots.length, 'page')}` : ''}`;
+    return lay.over > 0 ? { text: `${lands}. Book would be over by ${plural(lay.over, 'page')}`, over: true } : { text: lands, over: false };
+  }
+
+  /** The card's Add button: put the block where it was set to go. */
+  private async confirmAdd() {
+    const p = this.pending;
+    if (!p) return;
+    if (p.choice) {
+      const named = await this.named(p.choice);
+      if (!named) return;
+      p.choice = named;
+    }
+    const spots = this.addSpots(), spot = spots.find((x) => x.id === p.where) ?? spots[0];
+    this.addBlock(this.pendingBlock(p), spot.index);
+  }
+
+  /** Insert a block at `index` of the outline (or of the group the picker was opened from), select its row and show its first page. */
+  private addBlock(block: Block, index: number) {
     this.picker.close();
-    const group = this.picking.for === 'add' ? this.picking.group : null;
-    block = this.withSuggestedRepeat(block, group);
-    this.editOutline((o) => addBlock(o, block, group !== null ? { group } : undefined), () => {
-      const o = this.book.outline;
-      this.selected = group !== null ? [group, (o[group] as Extract<Block, { type: 'group' }>).children.length - 1] : [o.length - 1];
+    this.pending = null;
+    const group = this.addGroup();
+    const path: Path = group !== null ? [group, index] : [index];
+    this.editOutline((o) => addBlock(o, block, group !== null ? { group, index } : { index }), () => {
+      const o = this.book.outline, lay = bookLayout(this.book);
+      this.selected = path;
       this.openRow = null;
-      const row = bookLayout(this.book).rows[group ?? o.length - 1];
-      if (row?.first) this.slot = row.first;
-      const at = group !== null ? (o[group] as GroupBlock).children[(o[group] as GroupBlock).children.length - 1] : o[o.length - 1];
-      const how = at.type !== 'free' && isEach(at.repeat) ? ` It repeats ${repeatLabel(at, group !== null ? (o[group] as GroupBlock) : undefined)}; change that in its settings.` : '';
+      const first = group !== null ? firstCell(lay, group, index)?.slot : lay.rows[index]?.first;
+      if (first) this.slot = first;
+      const at = blockAt(o, path);
+      const how = at && at.type !== 'free' && isEach(at.repeat) ? ` It repeats ${repeatLabel(at, group !== null ? (o[group] as GroupBlock) : undefined)}; change that in its settings.` : '';
       this.say(`Added “${nameOf(block)}”${group !== null ? ` to ${nameOf(o[group])}` : ''}.${how} Undo takes it back.`);
     });
     this.contents.querySelector('.orow.selected')?.scrollIntoView?.({ block: 'nearest' });
@@ -858,7 +986,7 @@ export class Arranger {
     const slot = at === undefined || first === null ? first : t.kind === 'block' && blockAt(b.outline, t.path)?.type === 'spread' ? opening(at)[0] : at;
     const reads = (first: number, n: number) => Array.from({ length: n }, (_, i) => {
       const at = first + i;
-      return isCover(b, at) ? null : { expand: bookExpand(b, at), pageNumber: b.page_numbers ? String(at) : null };
+      return isCover(b, at) ? (b.calendar ? { expand: bookExpand(b, at), pageNumber: null } : null) : { expand: bookExpand(b, at), pageNumber: b.page_numbers ? String(at) : null };
     });
     const commitWith = (write: (pages: Page[], name: string) => void) => (pages: Page[], name: string) => {
       write(pages, name);
@@ -869,7 +997,7 @@ export class Arranger {
       const label = slotLabel(b, t.slot).toLowerCase();
       return {
         ...common, kind: 'page', pages: [structuredClone(getSlot(b, t.slot) ?? blankPage(slotSide(t.slot)))], where: `the ${label}`,
-        what: 'a cover: changes only this one', preview: [null], commit: commitWith((pages) => setCover(b, t.slot, pages[0])),
+        what: 'a cover: changes only this one', preview: reads(t.slot, 1), commit: commitWith((pages) => setCover(b, t.slot, pages[0])),
       };
     }
     if (t.kind === 'free') {

@@ -526,11 +526,12 @@ describe('the export window', () => {
     await closeDialog(app, 'settings');
     await page.locator('[data-key="book-add"]').click();
     await page.locator('dialog.picker .design', { hasText: 'Lined page' }).first().click();
+    await page.locator('dialog.picker .design.open [data-key="add-confirm"]').click();
 
     const now = await exported();
     const draftBook = await openDoc(app, 'book');
     expect(now.name).toBe('Edited since opening');
-    expect(now.outline.at(-1).page.name).toBe('Lined page');
+    expect(now.outline.some((b: any) => b.page?.name === 'Lined page')).toBe(true);
     expect(now).toEqual(draftBook); // exactly the book on screen, which is what the Library document keeps
     expect(now).not.toEqual(original);
 

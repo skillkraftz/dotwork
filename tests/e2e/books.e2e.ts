@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { choose, hit, libraryItems, missingHelp, open, openDoc, reload, shot, start, stop, waitSaved, type App, type Device, type Env } from './harness';
+import { choose, confirmAdd, hit, libraryItems, missingHelp, open, openDoc, reload, shot, start, stop, waitSaved, type App, type Device, type Env } from './harness';
 import { emptyBook } from '../../src/book/book';
 import { pageBlock } from '../../src/book/outline';
 import { BUILTIN_PAGES } from '../../src/builtin/library';
@@ -25,6 +25,7 @@ async function pickDesign(app: App, name: string) {
   await hit(app, '[data-key="book-add"]');
   await app.page.waitForSelector('dialog.picker[open] .design');
   await hit(app, `dialog.picker .design:has-text("${name}")`);
+  await confirmAdd(app);
   await app.page.waitForSelector('dialog.picker', { state: 'hidden' });
 }
 
@@ -160,7 +161,7 @@ for (const device of ['phone', 'desktop'] as Device[]) {
       await page.waitForFunction((n) => document.querySelector('#doc-name')?.textContent === n, `${builtinName} copy`);
       await waitSaved(app);
       expect(await status(app)).toBe('Saved');
-      expect((await openDoc(app, 'book')).outline.at(-1).page.name).toBe('Lined page');
+      expect((await openDoc(app, 'book')).outline.some((b: any) => b.page?.name === 'Lined page')).toBe(true);
       expect(app.errors).toEqual([]);
     });
 
@@ -185,14 +186,14 @@ for (const device of ['phone', 'desktop'] as Device[]) {
       await waitSaved(app);
       expect(await page.innerText('#doc-name')).toBe('2026 year planner');
       const edited = await openDoc(app, 'book');
-      expect(edited.outline.at(-1).page.name).toBe('Lined page');
+      expect(edited.outline.some((b: any) => b.page?.name === 'Lined page')).toBe(true); // added where the owner was, not at the end
       await shot(app, `books-${device}-template-document`);
 
       await reload(app);
       await page.waitForSelector('.stage-page');
       await page.waitForFunction(() => document.querySelector('#doc-name')?.textContent === '2026 year planner');
       await waitSaved(app);
-      expect((await openDoc(app, 'book')).outline.at(-1).page.name).toBe('Lined page');
+      expect((await openDoc(app, 'book')).outline.some((b: any) => b.page?.name === 'Lined page')).toBe(true);
       expect(app.errors).toEqual([]);
     });
 

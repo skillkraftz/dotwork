@@ -259,11 +259,36 @@ export function replaceBlock(outline: readonly Block[], path: Path, next: Block)
   return copy;
 }
 
-export function addBlock(outline: readonly Block[], block: Block, to?: { group: number }): Block[] {
+/**
+ * Insert a block into the outline, or into a group's children (`group`), at `index` (the end when left out; clamped to the list).
+ * The block that takes what's left keeps doing so wherever the new one goes: the layout works that out.
+ */
+export function addBlock(outline: readonly Block[], block: Block, to: { group?: number; index?: number } = {}): Block[] {
   const copy = clone(outline) as Block[];
-  if (to) (copy[to.group] as GroupBlock).children.push(block as Child);
-  else copy.push(block);
+  const list: Block[] = to.group === undefined ? copy : (copy[to.group] as GroupBlock).children;
+  list.splice(Math.max(0, Math.min(list.length, to.index ?? list.length)), 0, block);
   return copy;
+}
+
+/** One place Add… can put a block: its label and the index it inserts at. */
+export interface Spot { id: 'after' | 'before' | 'rest' | 'start' | 'end'; label: string; index: number }
+
+/**
+ * The places a new block can go, the best first. `current` is the block the owner is on (its index in the list: the outline, or the
+ * group's children): the block goes after it. Without one it goes before the block that takes what's left (top level only), else at
+ * the end.
+ */
+export function insertSpots(outline: readonly Block[], current: number | null, group: number | null = null): Spot[] {
+  const list: readonly Block[] = group === null ? outline : (outline[group] as GroupBlock).children;
+  const near = current !== null && current >= 0 && current < list.length ? current : null;
+  const rest = group === null && near === null ? list.findIndex((b) => pinOf(b) === undefined && takesRest(b)) : -1;
+  const of = group === null ? '' : ' of the group';
+  const start: Spot = { id: 'start', label: `At the start${of}`, index: 0 }, end: Spot = { id: 'end', label: `At the end${of}`, index: list.length };
+  const spots: Spot[] = [];
+  if (near !== null) spots.push({ id: 'after', label: `After ${blockName(list[near])}`, index: near + 1 }, { id: 'before', label: `Before ${blockName(list[near])}`, index: near }, start, end);
+  else if (rest >= 0) spots.push({ id: 'rest', label: `Before ${blockName(list[rest])}`, index: rest }, start, end);
+  else spots.push(end, start);
+  return list.length ? spots : [end];
 }
 
 export function removeBlock(outline: readonly Block[], path: Path): Block[] {
