@@ -378,7 +378,7 @@ export class Arranger {
     const free = this.freeAt(this.slot);
     const target = this.targetAt(this.slot);
     const editPage = target ? h('button', {
-      type: 'button', 'data-key': 'book-edit-page', 'data-help': 'book-edit-page', onclick: () => void this.editHere(target),
+      type: 'button', 'data-key': 'book-edit-page', 'data-help': 'book-edit-page', onclick: () => void this.editHere(target, this.slot),
       title: 'Change this page where it sits in the book (a spread opens both of its pages)',
     }, 'Edit page') : null;
     this.actions.replaceChildren(...([
@@ -839,9 +839,9 @@ export class Arranger {
   }
 
   /** Open the page or spread editor on a copy in the book. The Book view's Undo takes the whole edit back. */
-  private async editHere(t: EditTarget) {
-    if (!this.host.editing(() => void this.editHere(t))) return;
-    const request = this.requestFor(t);
+  private async editHere(t: EditTarget, at?: number) {
+    if (!this.host.editing(() => void this.editHere(t, at))) return;
+    const request = this.requestFor(t, at);
     if (!request) return;
     this.say(null);
     if (await this.host.editHere(request)) {
@@ -850,8 +850,12 @@ export class Arranger {
     }
   }
 
-  private requestFor(t: EditTarget): EditHere | null {
-    const b = this.book, slot = this.slotOf(t);
+  /** `at` is the page being looked at, when Edit here was opened from it; without it the block's first page is used. */
+  private requestFor(t: EditTarget, at?: number): EditHere | null {
+    const b = this.book;
+    const first = this.slotOf(t);
+    // a spread's left page is the even one of the opening that holds the page looked at
+    const slot = at === undefined || first === null ? first : t.kind === 'block' && blockAt(b.outline, t.path)?.type === 'spread' ? opening(at)[0] : at;
     const reads = (first: number, n: number) => Array.from({ length: n }, (_, i) => {
       const at = first + i;
       return isCover(b, at) ? null : { expand: bookExpand(b, at), pageNumber: b.page_numbers ? String(at) : null };
@@ -860,7 +864,7 @@ export class Arranger {
       write(pages, name);
       this.host.changed(b);
     };
-    const common = { slot: slot ?? this.slot, focus: (slot !== null && slotSide(slot) === 'right' ? 1 : 0) as 0 | 1, name: '' };
+    const common = { slot: slot ?? this.slot, focus: ((at ?? slot) !== null && slotSide((at ?? slot)!) === 'right' ? 1 : 0) as 0 | 1, name: '' };
     if (t.kind === 'cover') {
       const label = slotLabel(b, t.slot).toLowerCase();
       return {
@@ -910,7 +914,7 @@ export class Arranger {
   private flip() {
     flipThrough(this.book, (slot, align) => slotSvg(this.book, slot, outlineMark, ` preserveAspectRatio="${align} meet"`), (left) => this.go(left), {
       can: (slot) => this.targetAt(slot) !== null,
-      open: (slot) => { const t = this.targetAt(slot); if (t) { this.go(slot); void this.editHere(t); } },
+      open: (slot) => { const t = this.targetAt(slot); if (t) { this.go(slot); void this.editHere(t, slot); } },
     });
   }
 }

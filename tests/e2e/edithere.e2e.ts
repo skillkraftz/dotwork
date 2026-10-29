@@ -28,6 +28,25 @@ async function blockSettings(app: App, row: string) {
   await hit(app, `[data-block-row="${row}"] [data-key="outline-more"]`);
 }
 
+/** November 2026 starts on a Sunday, so the weeks start on the 1st, 8th, 15th, 22nd and 29th. */
+const thirdWeekFirstDay = 15;
+/** The page number of each week planner: a planner, its days' logs inside the month, and the week's reflection make a week. */
+const weekPlannerSlots = (): number[] => {
+  const slots: number[] = [];
+  const days = [7, 7, 7, 7, 2]; // daily logs in each week, all inside November
+  let at = 1;
+  for (const d of days) { slots.push(at); at += 1 + d + 1; }
+  return slots;
+};
+async function goToPage(app: App, n: number) {
+  for (let guard = 0; guard < 80; guard++) {
+    const label = await app.page.innerText('.book-nav .where strong');
+    const now = Number(label.replace('Page ', ''));
+    if (now === n) return;
+    await hit(app, now < n ? '.nav-step[aria-label="Next page"]' : '.nav-step[aria-label="Previous page"]');
+    await app.page.waitForFunction((was) => document.querySelector('.book-nav .where strong')?.textContent !== was, label);
+  }
+}
 const weekPlanner = (book: any) => book.outline[0].children[0].page;
 const rules = (page: any) => page.elements.filter((e: { type: string }) => e.type === 'rule').length;
 
@@ -52,6 +71,22 @@ for (const device of ['phone', 'desktop'] as Device[]) {
       await hit(app, '#edit-back');
       await page.waitForSelector('#edit-bar', { state: 'hidden' });
       expect(await page.innerText('.book-nav .where strong')).toBe('Page 1');
+
+      // From the third week planner (a week is 9 pages: planner, seven daily logs, reflection): the bar, Preview and Back use that page.
+      const third = weekPlannerSlots()[2];
+      await goToPage(app, third);
+      await hit(app, '[data-key="book-edit-page"]');
+      await page.waitForSelector('#edit-bar:not([hidden])');
+      expect(await page.innerText('#edit-text')).toBe(`Editing p.${third} in NOVEMBER 2026 log · Week planner, ×1: changes all 5`);
+      await choose(app, 'edit', '#mode-preview');
+      const texts = await page.locator('#canvas text').evaluateAll((els) => els.map((e) => e.textContent));
+      expect(texts).toContain(String(thirdWeekFirstDay)); // Nov 15: the third week starts on a Sunday, 15
+      expect(texts).toContain(String(third));
+      await choose(app, 'edit', '#mode-edit');
+      await hit(app, '#edit-back');
+      await page.waitForSelector('#edit-bar', { state: 'hidden' });
+      expect(await page.innerText('.book-nav .where strong')).toBe(`Page ${third}`);
+      await goToPage(app, 1);
 
       // Edit here from the block's settings: add a rule with the normal tools.
       await blockSettings(app, '0.0');
