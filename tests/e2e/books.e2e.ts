@@ -154,7 +154,7 @@ for (const device of ['phone', 'desktop'] as Device[]) {
       expect(await page.innerText('#doc-name')).toBe(`${builtinName} copy`);
       const copy = await openDoc(app, 'book');
       expect(copy.name).toBe(`${builtinName} copy`);
-      expect(copy.outline.at(-1).page.name).toBe('Lined page'); // added after the template's own block
+      expect(copy.outline[0].page.name).toBe('Lined page'); // nothing is picked, so it goes before the template's block that fills the book
 
       await reload(app);
       await page.waitForSelector('.stage-page');

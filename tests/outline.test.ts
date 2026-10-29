@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { bookLayout, bookPage, emptyBook } from '../src/book/book';
 import {
-  addBlock, insertSpots, canAddFree, canFill, duplicateBlock, fillRepeat, freeBlock, groupBlock, layoutOutline, moveBlock, moveIntoGroup, moveOutOfGroup, pageBlock, pagesToHold,
-  removeBlock, setDesign, setPin, setRepeat, spreadBlock, totalLine, type Block,
+  addBlock, insertPoint, canAddFree, canFill, duplicateBlock, duplicateBlocks, fillRepeat, freeBlock, groupBlock, groupBlocks, layoutOutline, moveBlocks, pageBlock, pagesToHold,
+  removeBlock, removeBlocks, ungroupBlock, howOftenOf, howOftenOptions, printsNoDates, repeatOf, setDesign, setPin, setRepeat, spreadBlock, totalLine, type Block, type Child, type GroupBlock, type Repeat,
 } from '../src/book/outline';
 import { emptyPage, type Page } from '../src/format/types';
 import { fingerprint } from '../src/format/fingerprint';
@@ -238,16 +238,8 @@ describe('changing an outline', () => {
   it('leaves the outline it was given as it was', () => {
     const o = base();
     const before = JSON.stringify(o);
-    moveBlock(o, [0], 1); removeBlock(o, [1]); duplicateBlock(o, [1]); setRepeat(o, [0], { times: 3 }); setPin(o, [0], 'last');
+    moveBlocks(o, [[0]], { index: 3 }); groupBlocks(o, [0, 1]); ungroupBlock(o, 2); removeBlock(o, [1]); duplicateBlock(o, [1]); setRepeat(o, [0], { times: 3 }); setPin(o, [0], 'last');
     expect(JSON.stringify(o)).toBe(before);
-  });
-
-  it('moves a block up or down in its list, a child within its group', () => {
-    const o = moveBlock(base(), [0], 1);
-    expect(o.map((b) => (b.type === 'page' ? b.page?.name : b.type))).toEqual(['B', 'A', 'group', 'free']);
-    const g = moveBlock(base(), [2, 1], -1);
-    expect((g[2] as Extract<Block, { type: 'group' }>).children.map((c) => (c.type === 'page' ? c.page?.name : ''))).toEqual(['A', 'C']);
-    expect(moveBlock(base(), [0], -1).map((b) => b.type)).toEqual(base().map((b) => b.type)); // the first can't go up
   });
 
   it('duplicates a block without its pin, and a fill as ×1', () => {
@@ -274,14 +266,117 @@ describe('changing an outline', () => {
     expect(setPin([fill(pageBlock(A))], [0], 4)[0]).toMatchObject({ pin: 4, repeat: { times: 1 } });
   });
 
-  it('moves a block into a group and out of it', () => {
-    const into = moveIntoGroup(base(), [1], 2); // the pinned B goes to the end of G
-    expect(into).toHaveLength(3);
-    const g = into[1] as Extract<Block, { type: 'group' }>;
-    expect(g.children.map((c) => (c.type === 'page' ? c.page?.name : ''))).toEqual(['C', 'A', 'B']);
-    expect('pin' in g.children[2]).toBe(false);
-    const out = moveOutOfGroup(into, [1, 0]);
-    expect(out.map((b) => (b.type === 'page' ? b.page?.name : b.type))).toEqual(['A', 'group', 'C', 'free']);
+  const nameOf = (b: Block): string => (b.type === 'page' ? (b.page?.name ?? '') : b.type === 'group' ? `[${b.children.map(nameOf).join('')}]` : b.type);
+  const order = (o: Block[]) => o.map(nameOf).join(' ');
+
+  it('moves blocks to a place in the outline, before the block now at that index', () => {
+    expect(order(moveBlocks(base(), [[0]], { index: 2 })!.outline)).toBe('B A [CA] free');
+    expect(order(moveBlocks(base(), [[3]], { index: 0 })!.outline)).toBe('free A B [CA]');
+    expect(order(moveBlocks(base(), [[0]], { index: 4 })!.outline)).toBe('B [CA] free A'); // past the end is the end
+    expect(order(moveBlocks(base(), [[0]], { index: 1 })!.outline)).toBe(order(base())); // next to itself: nothing changes
+    expect(moveBlocks(base(), [[3]], { index: 0 })!.moved).toEqual([[0]]);
+  });
+
+  it('moves a set of blocks together, in their order, wherever they were picked', () => {
+    const r = moveBlocks(base(), [[3], [0]], { index: 2 })!;
+    expect(order(r.outline)).toBe('B A free [CA]');
+    expect(r.moved).toEqual([[1], [2]]);
+    // children of a selected group go with it
+    expect(order(moveBlocks(base(), [[2], [2, 0]], { index: 0 })!.outline)).toBe('[CA] A B free');
+  });
+
+  it('moves a block into a group at an index, no longer pinned, filling or following the calendar', () => {
+    const into = moveBlocks(base(), [[1]], { group: 2, index: 1 })!;
+    expect(order(into.outline)).toBe('A [CBA] free');
+    expect(into.moved).toEqual([[1, 1]]);
+    expect('pin' in (into.outline[1] as GroupBlock).children[1]).toBe(false);
+    const dated = moveBlocks([{ ...pageBlock(A), repeat: { each: 'day' } } as Block, groupBlock('G')], [[0]], { group: 1, index: 0 })!;
+    expect((dated.outline[0] as GroupBlock).children[0]).toMatchObject({ repeat: { times: 1 } });
+    const filled = moveBlocks([fill(pageBlock(A)), groupBlock('G')], [[0]], { group: 1, index: 0 })!;
+    expect(canAddFree(filled.outline)).toBe(true); // the fill is no longer one
+    // a block that already follows its group's span keeps it while it moves within the group
+    const week = { ...groupBlock('W', [pageBlock(A), { ...pageBlock(B), repeat: { each: 'day', of: 'span' } } as Child]), repeat: { each: 'week' } } as Block;
+    expect((moveBlocks([week], [[0, 1]], { group: 0, index: 0 })!.outline[0] as GroupBlock).children[0]).toMatchObject({ repeat: { each: 'day', of: 'span' } });
+  });
+
+  it('moves a block out of a group, to any place, and drops the span repeat', () => {
+    const span = { ...pageBlock(B), repeat: { each: 'day', of: 'span' } } as Child;
+    const o: Block[] = [pageBlock(A), { ...groupBlock('G', [pageBlock(C), span]), repeat: { each: 'week' } } as Block];
+    const out = moveBlocks(o, [[1, 1]], { index: 0 })!;
+    expect(order(out.outline)).toBe('B A [C]');
+    expect(out.outline[0]).toMatchObject({ repeat: { times: 1 } });
+    expect(order(moveBlocks(o, [[1, 0]], { index: 2 })!.outline)).toBe('A [B] C');
+  });
+
+  it('does not put a group in a group, or a second block that takes what is left on the top level', () => {
+    expect(moveBlocks(base(), [[2]], { group: 2, index: 0 })).toBeNull();
+    expect(moveBlocks([groupBlock('G'), groupBlock('H')], [[0]], { group: 1, index: 0 })).toBeNull();
+    const two = [freeBlock(), groupBlock('G', [freeBlock([null])])];
+    expect(moveBlocks(two, [[1, 0]], { index: 0 })).toBeNull();
+    expect(moveBlocks(two, [[0]], { group: 1, index: 0 })).not.toBeNull();
+  });
+
+  it('puts top-level blocks in a new group named Group, repeating once, where the first was', () => {
+    const r = groupBlocks(base(), [3, 0])!;
+    expect(order(r.outline)).toBe('[Afree] B [CA]');
+    expect(r.group).toBe(0);
+    expect(r.outline[0]).toMatchObject({ type: 'group', name: 'Group', repeat: { times: 1 } });
+    const b = groupBlocks(base(), [1, 3])!.outline;
+    expect(order(b)).toBe('A [Bfree] [CA]');
+    expect('pin' in (b[1] as GroupBlock).children[0]).toBe(false); // the pin goes
+    expect(groupBlocks(base(), [0, 2])).toBeNull(); // a group can't go in a group
+    expect(groupBlocks(base(), [])).toBeNull();
+  });
+
+  it('takes a group apart: its blocks take its place', () => {
+    const r = ungroupBlock(base(), 2)!;
+    expect(order(r.outline)).toBe('A B C A free');
+    expect([r.first, r.count]).toEqual([2, 2]);
+    const span = { ...pageBlock(B), repeat: { each: 'day', of: 'span' } } as Child;
+    const o: Block[] = [{ ...groupBlock('G', [span]), repeat: { each: 'week' } } as Block];
+    expect(ungroupBlock(o, 0)!.outline[0]).toMatchObject({ repeat: { times: 1 } });
+    expect(ungroupBlock(base(), 0)).toBeNull(); // not a group
+    expect(ungroupBlock([freeBlock(), groupBlock('G', [freeBlock([null])])], 1)).toBeNull(); // two blocks would take what is left
+  });
+
+  it('deletes and duplicates several blocks at once', () => {
+    expect(order(removeBlocks(base(), [[3], [0], [2, 0]]))).toBe('B [A]');
+    expect(order(removeBlocks(base(), [[2], [2, 0]]))).toBe('A B free');
+    const d = duplicateBlocks([pageBlock(A), pageBlock(B), groupBlock('G', [pageBlock(C), pageBlock(A)])], [[0], [2, 0], [1]]);
+    expect(order(d.outline)).toBe('A A B B [CCA]');
+    expect(d.copies).toEqual([[1], [3], [4, 1]]);
+  });
+
+  it('words "How often" plainly, and keeps the data behind it', () => {
+    const labels = (top: boolean, unit: 'week' | 'month' | null, now: Repeat = { times: 1 }) => howOftenOptions(top, unit, true, now).map((o) => o.label);
+    expect(labels(true, null)).toEqual(['Once', 'A number of times', 'Every day (dated)', 'Every week (dated)', 'Every month (dated)']);
+    expect(labels(false, 'week')).toEqual(['Once each week', 'A number of times each week', 'Every day of the week (dated)']);
+    expect(labels(false, 'month')).toEqual(['Once each month', 'A number of times each month', 'Every day of the month (dated)', 'Every week of the month (dated)']);
+    expect(howOftenOptions(true, null, false, { times: 1 }).filter((o) => o.on).map((o) => o.value)).toEqual(['once', 'times']);
+    expect([{ times: 1 }, { times: 5 }, { each: 'week' }, { each: 'day', of: 'span' }, { fill: true }].map((r) => howOftenOf(r as never))).toEqual(['once', 'times', 'week', 'span-day', 'fill']);
+    expect(repeatOf('once', { times: 4 })).toEqual({ times: 1 });
+    expect(repeatOf('times', { times: 1 })).toEqual({ times: 2 });
+    expect(repeatOf('times', { times: 5 })).toEqual({ times: 5 });
+    expect(repeatOf('span-day', { times: 1 })).toEqual({ each: 'day', of: 'span' });
+    expect(repeatOf('month', { times: 1 })).toEqual({ each: 'month' });
+    const weekly = { ...groupBlock('W'), repeat: { each: 'week' } } as GroupBlock;
+    expect([printsNoDates({ times: 3 }, null, true), printsNoDates({ times: 3 }, weekly, true), printsNoDates({ times: 3 }, null, false), printsNoDates({ each: 'day' }, null, true)]).toEqual([true, false, false, false]);
+  });
+
+  it('chooses where Add… puts a block: after the selected row, in its group, else before what takes the rest', () => {
+    const o: Block[] = [pageBlock(A), groupBlock('G', [pageBlock(B), pageBlock(C)]), freeBlock()];
+    const p = pageBlock(null), g = groupBlock('Group');
+    expect(insertPoint(o, [0], p)).toEqual({ index: 1 });
+    expect(insertPoint(o, [1], p)).toEqual({ group: 1, index: 2 }); // a selected group: the end of its children
+    expect(insertPoint(o, [1, 0], p)).toEqual({ group: 1, index: 1 });
+    expect(insertPoint(o, [1], g)).toEqual({ index: 2 }); // groups don't nest
+    expect(insertPoint(o, [1, 0], g)).toEqual({ index: 2 });
+    expect(insertPoint(o, null, p)).toEqual({ index: 2 }); // before the free pages
+    expect(insertPoint([pageBlock(A), { ...pageBlock(B), repeat: { fill: true } } as Block], null, p)).toEqual({ index: 1 });
+    expect(insertPoint([pageBlock(A)], null, p)).toEqual({ index: 1 });
+    expect(insertPoint([{ ...pageBlock(A), repeat: { fill: true }, pin: undefined } as Block, pageBlock(B)], null, freeBlock())).toEqual({ index: 2 });
+    expect(insertPoint([], null, p)).toEqual({ index: 0 });
+    expect(insertPoint(o, [9], p)).toEqual({ index: 2 }); // a row that is gone selects nothing
   });
 
   it('records the link to the design a block was placed from', () => {
@@ -339,19 +434,5 @@ describe('adding where the owner is', () => {
     const o = [pageBlock(A, 2), freeBlock()];
     expect(layoutOutline(addBlock(o, pageBlock(B, 2), { index: 1 }), 52).rows.map((r) => r.pages)).toEqual([2, 2, 48]);
     expect(layoutOutline(addBlock(o, pageBlock(B, 2), { index: 1 }), 52).rows[1].first).toBe(3);
-  });
-
-  it('lists the places: after the current block, else before what takes the rest, else the end', () => {
-    const o = base();
-    expect(insertSpots(o, 0).map((s) => [s.id, s.label, s.index])).toEqual([['after', 'After A', 1], ['before', 'Before A', 0], ['start', 'At the start', 0], ['end', 'At the end', 3]]);
-    expect(insertSpots(o, null)[0]).toEqual({ id: 'rest', label: 'Before Free pages', index: 2 });
-    expect(insertSpots([pageBlock(A)], null).map((s) => s.id)).toEqual(['end', 'start']);
-    expect(insertSpots([], null).map((s) => [s.id, s.index])).toEqual([['end', 0]]);
-    // a fill takes the rest too, but a pinned one does not
-    expect(insertSpots([pageBlock(A), fill(pageBlock(B))], null)[0].index).toBe(1);
-    expect(insertSpots([pin(fill(pageBlock(A)), 5), pageBlock(B)], null)[0].id).toBe('end');
-    // inside a group the same within the group
-    expect(insertSpots(o, 1, 1).map((s) => [s.id, s.label, s.index])).toEqual([['after', 'After C', 2], ['before', 'Before C', 1], ['start', 'At the start of the group', 0], ['end', 'At the end of the group', 2]]);
-    expect(insertSpots(o, null, 1)[0]).toEqual({ id: 'end', label: 'At the end of the group', index: 2 });
   });
 });

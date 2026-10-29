@@ -21,8 +21,9 @@ previews of them). It runs entirely in the browser: no backend, nothing leaves t
   changed, only copied.
 - **Arrange a book.** A book is an **outline**: a list of blocks (a page, a spread, free pages, or a group that repeats its contents), each
   repeated a number of times or filling what is left, and optionally pinned to a page such as the last. The Book view shows the outline as rows
-  with the live total ("48 of 52 pages", red when it is over, with **Make the book N pages**), Up / Down, Duplicate, Delete and moving a block
-  into or out of a group; spreads always start on a left page, with a gap page where needed. It shows the pages it makes one at a time (or an
+  like a layers panel, with the live total ("48 of 52 pages", red when it is over, with **Make the book N pages**): drag rows by their handle
+  to reorder them or move them into or out of a group, pick several (Ctrl+click, or Select on a touch screen) to Group, Duplicate or Delete
+  them, and change the picked row's settings under the list; spreads always start on a left page, with a gap page where needed. It shows the pages it makes one at a time (or an
   opening), covers included, and flips through the result. A book from before the outline is listed in the Library as Old format.
 - **Print.** One zip with `pages.pdf`, the covers (`cover-outside.pdf`, `cover-inside.pdf`), and print-ready files for manual duplex
   (`print-first.pdf` reversed, then `print-second.pdf`; `print-duplex.pdf` for a printer that duplexes itself), on half letter or two books

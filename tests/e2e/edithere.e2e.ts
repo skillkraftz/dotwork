@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { cellToClient, choose, drag, hit, libraryItems, open, openDoc, shot, start, stop, tool, waitSaved, type App, type Device, type Env } from './harness';
+import { cellToClient, choose, drag, hit, libraryItems, open, openDoc, openSettings, shot, start, stop, tool, waitSaved, type App, type Device, type Env } from './harness';
 
 let env: Env;
 beforeAll(async () => { env = await start(); });
@@ -20,12 +20,6 @@ async function monthlyLog(app: App) {
   await hit(app, '[data-key="template-build"]');
   await app.page.waitForSelector('.stage-page');
   await waitSaved(app);
-}
-
-/** The settings of a block row in the outline (the outline is a drawer on a phone). */
-async function blockSettings(app: App, row: string) {
-  if (await app.page.locator('.contents-toggle').isVisible()) await hit(app, '.contents-toggle');
-  await hit(app, `[data-block-row="${row}"] [data-key="outline-more"]`);
 }
 
 /** November 2026 starts on a Sunday, so the weeks start on the 1st, 8th, 15th, 22nd and 29th. */
@@ -89,9 +83,9 @@ for (const device of ['phone', 'desktop'] as Device[]) {
       await goToPage(app, 1);
 
       // Edit here from the block's settings: add a rule with the normal tools.
-      await blockSettings(app, '0.0');
+      await openSettings(app, '0.0');
       await shot(app, `edit-here-${device}-settings`);
-      await hit(app, '[data-block-row="0.0"] [data-key="outline-edit-here"]');
+      await hit(app, '.outline-settings [data-key="outline-edit-here"]');
       await page.waitForSelector('#edit-bar:not([hidden])');
       await page.waitForSelector('#canvas:not([hidden])');
       await tool(app, 'rule');
@@ -122,8 +116,8 @@ for (const device of ['phone', 'desktop'] as Device[]) {
       const app = await open(env, device);
       const { page } = app;
       await monthlyLog(app);
-      await blockSettings(app, '0.0');
-      await hit(app, '[data-block-row="0.0"] [data-key="outline-replace"]');
+      await openSettings(app, '0.0');
+      await hit(app, '.outline-settings [data-key="outline-replace"]');
       await page.waitForSelector('dialog.picker[open] .design');
       await shot(app, `edit-here-${device}-replace`);
       await hit(app, 'dialog.picker[open] .design[data-name="Lined page"]');

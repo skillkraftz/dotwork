@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { confirmAdd, hit, missingHelp, nameOpen, open, openDoc, shot, start, stop, choose, unzip, type App, type Device, type Env } from './harness';
+import { confirmAdd, hit, missingHelp, nameOpen, open, openDoc, openSettings, shot, showOutline, start, stop, choose, togglePick, unzip, type App, type Device, type Env } from './harness';
 import { readPdf } from '../pdf-text';
 
 let env: Env;
@@ -8,11 +8,6 @@ beforeAll(async () => { env = await start(); });
 afterAll(async () => { await stop(env); });
 
 const noOverflow = (app: App) => app.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
-
-async function showOutline(app: App) {
-  if (app.touch && !(await app.page.locator('.book-contents').isVisible())) await hit(app, '.contents-toggle');
-  await app.page.waitForSelector('.book-contents', { state: 'visible' });
-}
 
 /** Add a block: Add…, the tab it is on, and its card (from the group's own button when `from` is given). */
 async function add(app: App, tab: 'pages' | 'spreads' | 'blocks', name: string, from = '[data-key="book-add"]') {
@@ -26,11 +21,8 @@ async function add(app: App, tab: 'pages' | 'spreads' | 'blocks', name: string, 
 }
 
 const row = (app: App, key: string) => app.page.locator(`[data-block-row="${key}"]`);
-async function settings(app: App, key: string) {
-  await showOutline(app);
-  if ((await row(app, key).locator('.orow-settings').count()) === 0) await hit(app, `[data-block-row="${key}"] > .orow-line [data-key="outline-more"]`);
-  await app.page.waitForSelector(`[data-block-row="${key}"] .orow-settings`);
-}
+const settings = openSettings;
+const panel = (app: App, field: string) => app.page.locator(`.outline-settings [data-key="${field}"]`);
 const used = (app: App) => app.page.locator('.book-total [data-key="book-used"]').innerText();
 
 /** Everything one PDF page printed, as one string. */
@@ -61,9 +53,10 @@ async function build(app: App, device: Device) {
   // a group that repeats each week, with a tracker, a daily log for each day of the week, and the weekly reflection
   await add(app, 'blocks', 'New group');
   await settings(app, '0');
-  await row(app, '0').locator('[data-key="outline-each"]').selectOption('week');
-  await page.waitForSelector('[data-block-row="0"] [data-key="outline-each"]');
-  const openAdd = '[data-block-row="0"] [data-key="outline-add-to-group"]';
+  expect(await panel(app, 'outline-each').locator('option').allInnerTexts()).toEqual(['Once', 'A number of times', 'Every day (dated)', 'Every week (dated)', 'Every month (dated)']);
+  await panel(app, 'outline-each').selectOption('week');
+  await page.waitForFunction(() => (document.querySelector('.outline-settings [data-key="outline-each"]') as HTMLSelectElement | null)?.value === 'week');
+  const openAdd = '.outline-settings [data-key="outline-add-to-group"]';
   await add(app, 'pages', 'week tracker checklist', openAdd);
   await settings(app, '0');
   await add(app, 'pages', 'Daily Log', openAdd);
@@ -80,14 +73,15 @@ async function build(app: App, device: Device) {
   expect(await used(app)).toBe('40 of 52 pages'); // 5 weeks × 2 + 30 days
   await shot(app, `${device}-calendar-outline-reads`);
 
-  // free pages take the rest; a closing page is pinned to 52
+  // free pages take the rest (nothing picked: the end); a closing page is pinned to 52
+  await togglePick(app, ['0.2']);
   await add(app, 'blocks', 'Free pages');
   expect(await used(app)).toBe('52 of 52 pages');
   await add(app, 'pages', 'Patterns & takeaways');
   await settings(app, '2');
-  await row(app, '2').locator('[data-key="outline-each"]').selectOption('month');
-  await hit(app, '[data-block-row="2"] [data-key="outline-pin-page"]');
-  const pin = row(app, '2').locator('[data-key="outline-pin-number"]');
+  await panel(app, 'outline-each').selectOption('month');
+  await hit(app, '.outline-settings [data-key="outline-pin-page"]');
+  const pin = panel(app, 'outline-pin-number');
   await pin.fill('52');
   await pin.dispatchEvent('change');
   await app.page.waitForFunction(() => document.querySelector('[data-block-row="2"] .crow-name')?.textContent?.includes('pinned: p.52'));
@@ -98,6 +92,7 @@ async function build(app: App, device: Device) {
   // a design on the first free page: tap the row to go to it, then Choose design
   await hit(app, '[data-block-row="1"] .orow-main');
   expect(await page.locator('.where strong').innerText()).toBe('Page 41');
+  if (app.touch) await hit(app, '.contents-close');
   await hit(app, '[data-key="free-design"]');
   await page.waitForSelector('dialog.picker[open] .design');
   await hit(app, 'dialog.picker .design[data-name="Book notes"]');

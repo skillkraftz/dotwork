@@ -18,9 +18,10 @@ import { flipThrough } from './flip';
 import { isUntitled } from '../documents';
 import { designName, opening, slotLabel } from './labels';
 import {
-  addBlock, blockAt, canAddFree, canFill, canMove, canMoveIn, duplicateBlock, fillRepeat, freeBlock, groupBlock, moveBlock, moveIntoGroup, moveOutOfGroup,
-  firstCell, insertSpots, isEach, layoutOutline, nameOf, pageBlock, removeBlock, repeatLabel, replaceBlock, setDesign, setFreePage, setPin, setRepeat, setShared, spreadBlock, timesOf, totalLine, MAX_REPEAT,
-  type Block, type Child, type GroupBlock, type Link, type Path, type Repeat, type Row, type Spot,
+  addBlock, blockAt, canAddFree, canFill, duplicateBlocks, fillRepeat, freeBlock, groupBlock, groupBlocks, howOftenOf, howOftenOptions, insertPoint, moveBlocks,
+  firstCell, isEach, layoutOutline, nameOf, normalizePaths, pageBlock, printsNoDates, removeBlocks, repeatLabel, repeatOf, replaceBlock, setDesign, setFreePage, setPin, setRepeat, setShared,
+  spreadBlock, timesOf, totalLine, ungroupBlock, MAX_REPEAT,
+  type Block, type Child, type DropTarget, type GroupBlock, type HowOften, type Link, type Path, type Repeat, type Row,
 } from './outline';
 
 export interface ArrangerHost {
@@ -125,9 +126,12 @@ export class Arranger {
   private saved: LibraryItem[] = [];
   private savedSections: Section[] = [];
   private swipe: { x: number; y: number } | null = null;
-  /** The row last tapped, and the row whose settings are open. */
-  private selected: Path | null = null;
-  private openRow: string | null = null;
+  /** The rows picked in the outline; the last is the one Add… goes after. */
+  private sel: Path[] = [];
+  /** Whether tapping a row picks it (a checkbox on each) instead of going to its page. */
+  private selectMode = false;
+  /** Why the last outline change was not made. */
+  private outlineMsg = h('p', { class: 'outline-msg', role: 'status', hidden: true });
 
   private bar = h('div', { class: 'book-bar' });
   private nav = h('div', { class: 'book-nav' });
@@ -149,9 +153,9 @@ export class Arranger {
   private pickerBody = h('div', { class: 'picker-body' });
   private pickerTitle = h('h2', {});
   /** What the picker is choosing: a design for a cover, or a block to add (to a group, or to the end of the outline). */
-  private picking: { for: 'cover' } | { for: 'free'; path: Path; index: number } | { for: 'replace'; path: Path } | { for: 'add'; group: number | null; /** The block (or, in a group, the child) the owner is on, which the new one goes after. */ current: number | null } = { for: 'add', group: null, current: null };
-  /** The card opened in the Add… picker: what it makes, how often it repeats, and where it goes. */
-  private pending: { key: string; make: (c?: Choice) => Block; choice?: Choice; repeat: Repeat | null; where: Spot['id'] } | null = null;
+  private picking: { for: 'cover' } | { for: 'free'; path: Path; index: number } | { for: 'replace'; path: Path } | { for: 'add' } = { for: 'add' };
+  /** The card opened in the Add… picker: what it makes and how often it repeats. */
+  private pending: { key: string; make: (c?: Choice) => Block; choice?: Choice; repeat: Repeat | null } | null = null;
 
   constructor(root: HTMLElement, private host: ArrangerHost, book: Book) {
     this.book = book;
@@ -176,6 +180,15 @@ export class Arranger {
       if (t instanceof HTMLInputElement || t instanceof HTMLSelectElement || t instanceof HTMLTextAreaElement) return;
       if (e.key === 'ArrowLeft') { e.preventDefault(); this.step(-1); } else if (e.key === 'ArrowRight') { e.preventDefault(); this.step(1); }
     });
+    // Delete removes the picked rows. Tapping a row redraws the outline, which drops the focus, so this listens on the whole page.
+    document.addEventListener('keydown', (e) => {
+      const t = e.target as HTMLElement;
+      const typing = t instanceof HTMLInputElement || t instanceof HTMLSelectElement || t instanceof HTMLTextAreaElement;
+      if ((e.key !== 'Delete' && e.key !== 'Backspace') || typing || e.ctrlKey || e.metaKey || e.altKey || !this.picked().length) return;
+      if (root.getClientRects().length === 0 || document.querySelector('dialog[open]')) return; // not in the Book view, or a window is open
+      e.preventDefault();
+      this.deleteSelected();
+    });
     root.replaceChildren(this.bar, h('div', { class: 'book-body' },
       h('div', { class: 'book-main' }, this.nav, this.totalEl, this.stage, this.problemEl, this.msgEl, this.warnEl, this.actions), this.contents));
     this.render();
@@ -187,8 +200,8 @@ export class Arranger {
   setBook(book: Book) {
     this.book = book;
     this.undoStack = [];
-    this.selected = null;
-    this.openRow = null;
+    this.sel = [];
+    this.selectMode = false;
     this.slot = 1;
     this.say(null);
     this.checkBook();
@@ -233,8 +246,7 @@ export class Arranger {
     if (!last) return;
     this.book = JSON.parse(last) as Book;
     this.slot = Math.min(this.slot, lastSlot(this.book));
-    this.selected = null;
-    this.openRow = null;
+    this.sel = [];
     this.say(null);
     this.host.changed(this.book);
     this.checkBook();
@@ -286,7 +298,7 @@ export class Arranger {
     const lay = bookLayout(this.book);
     this.bar.replaceChildren(
       h('button', { type: 'button', disabled: this.undoStack.length === 0, onclick: () => this.undo(), 'data-key': 'book-undo', 'data-help': 'book-undo', title: 'Undo the last change to the book' }, 'Undo'),
-      h('button', { type: 'button', 'data-key': 'book-add', 'data-help': 'book-add', onclick: () => void this.openAdd(null) }, 'Add…'),
+      h('button', { type: 'button', 'data-key': 'book-add', 'data-help': 'book-add', onclick: () => void this.openAdd() }, 'Add…'),
       h('button', { type: 'button', 'data-key': 'book-flip', 'data-help': 'book-flip', onclick: () => this.flip() }, 'Flip through'),
       h('button', {
         type: 'button', class: 'primary', 'data-key': 'book-export', 'data-help': 'book-export', disabled: lay.over > 0,
@@ -402,27 +414,82 @@ export class Arranger {
 
   private renderOutline() {
     const b = this.book, lay = bookLayout(b);
+    const scroll = this.contents.querySelector('.outline-list')?.scrollTop ?? 0;
     const rows: HTMLElement[] = [];
     rows.push(this.coverRow(FIRST_SLOT), this.coverRow(0));
     if (!b.outline.length) rows.push(h('li', { class: 'orow-empty' }, h('p', { class: 'hint', 'data-key': 'outline-empty' }, 'No blocks yet, so every page is blank. Tap Add… to put pages, spreads, free pages or a group in the book.')));
     b.outline.forEach((block, i) => {
       const row = lay.rows[i];
       if (row.gaps.length) rows.push(this.gapRow(row.gaps));
-      rows.push(this.blockRow([i], block, row, b.outline.length));
+      rows.push(this.blockRow([i], block, row));
       if (block.type === 'group') {
-        const kids = block.children.map((c, k) => this.blockRow([i, k], c, null, block.children.length));
+        const kids = block.children.map((c, k) => this.blockRow([i, k], c, null));
         rows.push(h('li', { class: 'orow-kids-item' }, h('ul', { class: 'orows orow-kids' }, ...kids)));
       }
     });
     rows.push(this.coverRow(b.page_count + 1), this.coverRow(lastSlot(b)));
+    const list = h('div', { class: `outline-list${this.selectMode ? ' selecting' : ''}` }, h('ul', { class: 'orows' }, ...rows));
     this.contents.replaceChildren(
       h('header', {}, h('h2', {}, 'Outline'), h('button', { type: 'button', class: 'contents-close', 'data-help': 'outline-close', onclick: () => this.contents.classList.remove('open') }, 'Close')),
       h('div', { class: 'outline-total' }, this.totalView(),
         h('p', { class: 'hint calendar-line', 'data-key': 'outline-calendar' }, b.calendar ? `Calendar: ${b.calendar.start} to ${b.calendar.end}` : 'No calendar: pages print no dates. Set one in Settings.')),
-      h('ul', { class: 'orows' }, ...rows),
-      h('div', { class: 'outline-add' }, h('button', { type: 'button', class: 'primary', 'data-key': 'outline-add', 'data-help': 'book-add', onclick: () => void this.openAdd(null) }, 'Add…')),
+      this.outlineBar(), this.outlineMsg, list, this.settingsPanel(),
+      h('div', { class: 'outline-add' }, h('button', { type: 'button', class: 'primary', 'data-key': 'outline-add', 'data-help': 'book-add', onclick: () => void this.openAdd() }, 'Add…')),
     );
+    list.scrollTop = scroll;
     this.markCurrent();
+  }
+
+  /** The rows picked, in the outline's order, leaving out any that are gone. */
+  private picked(): Path[] { return normalizePaths(this.sel).filter((p) => !!blockAt(this.book.outline, p)); }
+
+  private isPicked(path: Path) { return this.sel.some((p) => keyOf(p) === keyOf(path)); }
+
+  private tell(text: string | null) {
+    this.outlineMsg.textContent = text ?? '';
+    this.outlineMsg.hidden = !text;
+  }
+
+  /** Select, Group and Ungroup, above the list. */
+  private outlineBar(): HTMLElement {
+    const o = this.book.outline, picked = this.picked();
+    const canGroup = picked.length > 0 && picked.every((p) => p.length === 1 && o[p[0]].type !== 'group');
+    const canUngroup = picked.length === 1 && picked[0].length === 1 && o[picked[0][0]].type === 'group';
+    return h('div', { class: 'outline-bar' },
+      h('button', { type: 'button', 'data-key': 'outline-select', 'data-help': 'outline-select', 'aria-pressed': String(this.selectMode), onclick: () => { this.selectMode = !this.selectMode; this.renderOutline(); } }, this.selectMode ? 'Done' : 'Select'),
+      h('button', { type: 'button', 'data-key': 'outline-group', 'data-help': 'outline-group', disabled: !canGroup, title: canGroup ? 'Put the picked rows in a new group' : 'Pick page, spread or free-page rows that are not in a group', onclick: () => this.groupSelected() }, 'Group'),
+      h('button', { type: 'button', 'data-key': 'outline-ungroup', 'data-help': 'outline-ungroup', disabled: !canUngroup, title: canUngroup ? 'Take the picked group apart' : 'Pick one group', onclick: () => this.ungroupSelected() }, 'Ungroup'),
+    );
+  }
+
+  private groupSelected() {
+    const at = this.picked().filter((p) => p.length === 1).map((p) => p[0]);
+    const made = groupBlocks(this.book.outline, at);
+    if (!made) return;
+    this.tell(null);
+    this.editOutline((o) => groupBlocks(o, at)?.outline ?? o, () => { this.sel = [[made.group]]; });
+  }
+
+  private ungroupSelected() {
+    const [p] = this.picked();
+    const made = p ? ungroupBlock(this.book.outline, p[0]) : null;
+    if (!made) { this.tell('Another block already takes what’s left, so this group’s free pages can’t come out.'); return; }
+    this.tell(null);
+    this.editOutline((o) => ungroupBlock(o, p[0])?.outline ?? o, () => { this.sel = Array.from({ length: made.count }, (_, k): Path => [made.first + k]); });
+  }
+
+  private deleteSelected() {
+    const picked = this.picked();
+    if (!picked.length) return;
+    this.tell(null);
+    this.editOutline((o) => removeBlocks(o, picked), () => { this.sel = []; });
+  }
+
+  private duplicateSelected() {
+    const picked = this.picked();
+    let copies: Path[] = [];
+    this.tell(null);
+    this.editOutline((o) => { const r = duplicateBlocks(o, picked); copies = r.copies; return r.outline; }, () => { this.sel = copies; });
   }
 
   private thumbOf(block: Block): string {
@@ -482,51 +549,171 @@ export class Arranger {
     return shown.length ? shown.join(' | ') : null;
   }
 
-  private blockRow(path: Path, block: Block, row: Row | null, siblings: number): HTMLElement {
+  private blockRow(path: Path, block: Block, row: Row | null): HTMLElement {
     const key = keyOf(path), name = nameOf(block);
     const thumb = h('span', { class: 'crow-thumb' });
     thumb.innerHTML = this.thumbOf(block);
-    const open = this.openRow === key;
-    const here = this.selected && keyOf(this.selected) === key;
-    const tool = (help: string, label: string, text: string, disabled: boolean, run: () => void) =>
-      h('button', { type: 'button', class: 'orow-tool', 'data-key': help, 'data-help': help, 'aria-label': `${label}: ${name}`, disabled, onclick: run }, text);
-    const at = path.length === 1 ? path[0] : path[1];
+    const picked = this.isPicked(path);
     const reads = this.readsLine(block, path);
+    const handle = h('button', { type: 'button', class: 'orow-handle', 'data-help': 'outline-handle', 'data-handle': key, 'aria-label': `Drag to move: ${name}`, title: 'Drag to move' }, '⠿');
+    handle.addEventListener('pointerdown', (e) => this.startDrag(e, path));
+    const check = this.selectMode
+      ? h('label', { class: 'orow-check' }, h('input', { type: 'checkbox', checked: picked, 'aria-label': `Pick ${name}`, 'data-key': 'outline-check', 'data-help': 'outline-check', onchange: () => this.pick(path, row, true) }))
+      : null;
     const main = h('button', {
-      type: 'button', class: 'orow-main', 'data-help': 'outline-row', 'data-block': key, 'aria-label': `${name}, ${this.summary(block, row, path)}`,
-      onclick: () => {
-        this.selected = path;
-        const first = row?.first ?? null;
-        if (first !== null) this.go(first);
-        this.renderOutline();
-        this.contents.classList.remove('open'); // on a phone the outline covers the page: show it
-      },
+      type: 'button', class: 'orow-main', 'data-help': 'outline-row', 'data-block': key, 'aria-pressed': String(picked), 'aria-label': `${name}, ${this.summary(block, row, path)}`,
+      onclick: (e: Event) => this.pick(path, row, this.selectMode || (e as MouseEvent).ctrlKey || (e as MouseEvent).metaKey),
     }, thumb, h('span', { class: 'crow-text' }, h('strong', {}, name), h('span', { class: 'crow-name' }, this.summary(block, row, path)),
       reads ? h('span', { class: 'crow-reads', 'data-key': 'row-reads' }, `reads: ${reads}`) : null));
-    return h('li', { class: `orow${here ? ' selected' : ''}${path.length === 2 ? ' child' : ''}`, 'data-block-row': key },
-      h('div', { class: 'orow-line' }, main,
-        h('div', { class: 'orow-tools' },
-          tool('outline-up', 'Move up', '↑', !canMove(this.book.outline, path, -1) || at === 0, () => this.move(path, -1)),
-          tool('outline-down', 'Move down', '↓', !canMove(this.book.outline, path, 1) || at === siblings - 1, () => this.move(path, 1)),
-          h('button', { type: 'button', class: 'orow-tool', 'data-key': 'outline-more', 'data-help': 'outline-more', 'aria-expanded': String(open), 'aria-label': `Settings: ${name}`, onclick: () => { this.openRow = open ? null : key; this.renderOutline(); } }, '⋯'))),
-      open ? this.settings(path, block) : null);
+    return h('li', { class: `orow${picked ? ' selected' : ''}${path.length === 2 ? ' child' : ''}`, 'data-block-row': key }, h('div', { class: 'orow-line' }, handle, check, main));
   }
 
-  private move(path: Path, by: -1 | 1) {
-    const next: Path = path.length === 1 ? [path[0] + by] : [path[0], path[1] + by];
-    this.editOutline((o) => moveBlock(o, path, by), () => {
-      this.selected = next;
-      this.openRow = this.openRow === keyOf(path) ? keyOf(next) : this.openRow;
+  /**
+   * A tap on a row. Plain, it picks just that row and goes to its first page; `add` (Ctrl/Cmd+click, or any tap in Select mode) adds
+   * the row to the picked ones, or takes it off, and stays where it is.
+   */
+  private pick(path: Path, row: Row | null, add: boolean) {
+    this.tell(null);
+    if (add) this.sel = this.isPicked(path) ? this.sel.filter((p) => keyOf(p) !== keyOf(path)) : [...this.sel, path];
+    else {
+      this.sel = [path];
+      const first = path.length === 1 ? row?.first ?? null : firstCell(bookLayout(this.book), path[0], path[1])?.slot ?? null;
+      if (first !== null) this.go(first);
+    }
+    this.renderOutline();
+  }
+
+  // ---- dragging rows -----------------------------------------------------------------
+
+  /**
+   * Every place a drop can land. `y` is where the pointer picks it (the nearest wins), `line` where its line is drawn, and `indent`
+   * whether it is inside a group. The end of a group and the block after it share a boundary: the group's end is picked a little above it.
+   */
+  private dropSlots(intoGroups: boolean): { target: DropTarget; y: number; line: number; indent: boolean }[] {
+    const o = this.book.outline, slots: { target: DropTarget; y: number; line: number; indent: boolean }[] = [];
+    const box = (key: string) => this.contents.querySelector<HTMLElement>(`[data-block-row="${key}"]`)?.getBoundingClientRect();
+    let end = 0;
+    o.forEach((b, i) => {
+      const r = box(String(i));
+      if (!r) return;
+      slots.push({ target: { index: i }, y: r.top, line: r.top, indent: false });
+      end = r.bottom;
+      if (b.type !== 'group') return;
+      const last = box(`${i}.${b.children.length - 1}`);
+      if (last) end = last.bottom;
+      if (!intoGroups) return;
+      if (!b.children.length) slots.push({ target: { group: i, index: 0 }, y: r.top + r.height * 0.6, line: r.bottom, indent: true });
+      b.children.forEach((_, k) => {
+        const kid = box(`${i}.${k}`);
+        if (!kid) return;
+        slots.push({ target: { group: i, index: k }, y: kid.top, line: kid.top, indent: true });
+        if (k === b.children.length - 1) slots.push({ target: { group: i, index: k + 1 }, y: kid.bottom - 14, line: kid.bottom, indent: true });
+      });
     });
+    if (o.length) slots.push({ target: { index: o.length }, y: end, line: end, indent: false });
+    return slots;
   }
 
-  /** The open settings of a row: repeat, pin, duplicate, delete, move into or out of a group. */
+  /**
+   * Drag a row by its handle (mouse or touch). The picked rows move together if this one is among them. A line shows where the drop
+   * would land; letting go there is one undo step, and Escape or a cancelled touch drops nothing.
+   */
+  private startDrag(e: PointerEvent, path: Path) {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    const handle = e.currentTarget as HTMLElement;
+    const list = this.contents.querySelector<HTMLElement>('.outline-list');
+    if (!list) return;
+    const moving = this.isPicked(path) ? this.picked() : [path];
+    const rows = moving.flatMap((p) => this.contents.querySelector<HTMLElement>(`[data-block-row="${keyOf(p)}"]`) ?? []);
+    const intoGroups = moving.every((p) => blockAt(this.book.outline, p)?.type !== 'group');
+    const x0 = e.clientX, y0 = e.clientY;
+    let y = y0, active = false, done = false, target: DropTarget | null = null;
+    const line = h('div', { class: 'orow-drop', hidden: true });
+    const ghost = h('div', { class: 'orow-ghost', hidden: true }, nameOf(blockAt(this.book.outline, moving[0]) ?? pageBlock(null)) + (moving.length > 1 ? ` +${moving.length - 1}` : ''));
+    list.append(line);
+    document.body.append(ghost);
+    e.preventDefault();
+    handle.setPointerCapture(e.pointerId);
+
+    const update = () => {
+      const slots = this.dropSlots(intoGroups);
+      if (!slots.length) return;
+      const best = slots.reduce((a, s) => (Math.abs(s.y - y) < Math.abs(a.y - y) ? s : a));
+      target = best.target;
+      line.style.top = `${best.line - list.getBoundingClientRect().top + list.scrollTop - 2}px`;
+      line.style.left = best.indent ? '30px' : '0';
+      line.dataset.target = JSON.stringify(best.target);
+      line.hidden = false;
+    };
+    const timer = window.setInterval(() => {
+      if (!active) return;
+      const lr = list.getBoundingClientRect(), step = y < lr.top + 48 ? -12 : y > lr.bottom - 48 ? 12 : 0;
+      if (step) { list.scrollTop += step; update(); }
+    }, 30);
+    const onMove = (ev: PointerEvent) => {
+      y = ev.clientY;
+      if (!active) {
+        if (Math.hypot(ev.clientX - x0, y - y0) < 6) return;
+        active = true;
+        ghost.hidden = false;
+        for (const r of rows) r.classList.add('dragging');
+      }
+      ghost.style.left = `${ev.clientX + 14}px`;
+      ghost.style.top = `${y - 22}px`;
+      update();
+    };
+    const finish = (drop: boolean) => {
+      if (done) return;
+      done = true;
+      window.clearInterval(timer);
+      for (const [type, fn] of listeners) handle.removeEventListener(type, fn as EventListener);
+      document.removeEventListener('keydown', onKey);
+      line.remove();
+      ghost.remove();
+      for (const r of rows) r.classList.remove('dragging');
+      if (drop && active && target) this.dropRows(moving, target);
+    };
+    const onKey = (ev: KeyboardEvent) => { if (ev.key === 'Escape') finish(false); };
+    const listeners: [string, (ev: PointerEvent) => void][] = [['pointermove', onMove], ['pointerup', () => finish(true)], ['pointercancel', () => finish(false)], ['lostpointercapture', () => finish(false)]];
+    for (const [type, fn] of listeners) handle.addEventListener(type, fn as EventListener);
+    document.addEventListener('keydown', onKey);
+  }
+
+  /** Drop rows at a place: one undo step. Nothing is done (and a reason given) when the move can't be made, and nothing when it changes nothing. */
+  private dropRows(moving: Path[], to: DropTarget) {
+    const made = moveBlocks(this.book.outline, moving, to);
+    if (!made) { this.tell('That can’t go there: a group can’t go inside a group, and only one block can take what’s left.'); return; }
+    if (JSON.stringify(made.outline) === JSON.stringify(this.book.outline)) return;
+    this.tell(null);
+    let moved: Path[] = made.moved;
+    this.editOutline((o) => { const r = moveBlocks(o, moving, to); if (r) moved = r.moved; return r ? r.outline : o; }, () => { this.sel = moved; });
+  }
+
+  // ---- the settings panel -----------------------------------------------------------
+
+  /** The settings of the picked row, always under the list: one row's full settings, or Group, Duplicate and Delete for several. */
+  private settingsPanel(): HTMLElement {
+    const picked = this.picked();
+    const panel = (...kids: (HTMLElement | null)[]) => h('div', { class: 'outline-settings', 'data-key': 'outline-settings', 'aria-label': 'Settings for the picked rows' }, ...kids);
+    if (!picked.length) return panel(h('p', { class: 'hint settings-empty' }, 'Tap a row to see its settings. Drag a row by ⠿ to move it.'));
+    if (picked.length === 1) return this.settings(picked[0], blockAt(this.book.outline, picked[0])!);
+    const o = this.book.outline;
+    const canGroup = picked.every((p) => p.length === 1 && o[p[0]].type !== 'group');
+    const noCopy = picked.some((p) => p.length === 1 && o[p[0]].type === 'free'); // only one block can take what's left
+    const button = (help: string, label: string, run: () => void, extra: Record<string, unknown> = {}) => h('button', { type: 'button', 'data-key': help, 'data-help': help.replace('-many', ''), onclick: run, ...extra }, label);
+    return panel(h('p', { class: 'settings-title' }, h('strong', {}, `${picked.length} rows picked`)),
+      h('div', { class: 'row' },
+        button('outline-group-many', 'Group', () => this.groupSelected(), { disabled: !canGroup, title: canGroup ? null : 'Pick page, spread or free-page rows that are not in a group' }),
+        button('outline-duplicate-many', 'Duplicate', () => this.duplicateSelected(), { disabled: noCopy, title: noCopy ? 'Only one block can take what is left' : null }),
+        button('outline-delete-many', 'Delete', () => this.deleteSelected())));
+  }
+
+  /** The settings of one row: its name (a group), how often, pin, fill, Edit page, Replace design…, Duplicate and Delete. */
   private settings(path: Path, block: Block): HTMLElement {
     const o = this.book.outline, top = path.length === 1;
-    const key = keyOf(path);
     const button = (help: string, label: string, run: () => void, extra: Record<string, unknown> = {}) =>
       h('button', { type: 'button', 'data-key': help, 'data-help': help, onclick: run, ...extra }, label);
-    const controls: (HTMLElement | null)[] = [];
+    const controls: (HTMLElement | null)[] = [h('p', { class: 'settings-title' }, h('strong', {}, nameOf(block)))];
 
     if (block.type === 'free') {
       controls.push(h('p', { class: 'hint' }, top ? 'Pages you fill by hand. They take whatever pages the other blocks leave.' : 'Pages you fill by hand, for each repeat of the group.'), ...this.freeList(path, block));
@@ -535,7 +722,7 @@ export class Arranger {
       if (!filling) {
         controls.push(this.repeatSelect(path, block));
         if (!isEach(block.repeat)) controls.push(this.stepper('Repeat', 'outline-repeat', timesOf(block.repeat), 1, MAX_REPEAT, (n) => this.editOutline((x) => setRepeat(x, path, { times: n }))));
-        else if (block.type === 'spread') {
+        else if (block.type === 'spread' && isEach(block.repeat)) {
           const unit = block.repeat.each, shared = block.shared ?? unit === 'month';
           controls.push(h('div', { class: 'field' }, h('span', { class: 'field-label' }, 'Pages'),
             button('outline-shared', shared ? `Both pages the same ${unit}` : `One ${unit} for each page`, () => this.editOutline((x) => setShared(x, path, !shared)), { 'aria-pressed': String(shared) })));
@@ -561,53 +748,38 @@ export class Arranger {
       const name = h('input', { type: 'text', value: block.name, maxlength: 80, autocomplete: 'off', 'aria-label': 'Group name', 'data-key': 'outline-group-name', 'data-help': 'outline-group-name' });
       commitField(name, () => this.editOutline((x) => replaceBlock(x, path, { ...(blockAt(x, path) as typeof block), name: name.value.trim() || 'Group' })));
       controls.push(h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Name'), name),
-        button('outline-add-to-group', 'Add to this group…', () => void this.openAdd(path[0])));
+        button('outline-add-to-group', 'Add to this group…', () => void this.openAdd()));
     }
 
+    const noCopy = top && block.type === 'free'; // only one block can take what's left
     const actions: HTMLElement[] = [
       ...(block.type === 'page' || block.type === 'spread' ? [
-        button('outline-edit-here', 'Edit here', () => { this.contents.classList.remove('open'); void this.editHere({ kind: 'block', path }); },
+        button('outline-edit-here', 'Edit page', () => { this.contents.classList.remove('open'); void this.editHere({ kind: 'block', path }); },
           { disabled: !this.slotOf({ kind: 'block', path }), title: this.slotOf({ kind: 'block', path }) ? null : 'This block takes no pages yet, so there is no page to edit' }),
         button('outline-replace', 'Replace design…', () => void this.openReplacePicker(path)),
       ] : []),
-      button('outline-duplicate', 'Duplicate', () => this.editOutline((x) => duplicateBlock(x, path), () => { this.selected = top ? [path[0] + 1] : [path[0], path[1] + 1]; this.openRow = null; })),
-      button('outline-delete', 'Delete', () => this.editOutline((x) => removeBlock(x, path), () => { this.selected = null; this.openRow = null; })),
+      button('outline-duplicate', 'Duplicate', () => this.duplicateSelected(), { disabled: noCopy, title: noCopy ? 'Only one block can take what is left' : null }),
+      button('outline-delete', 'Delete', () => this.deleteSelected()),
     ];
-    if (!top) actions.push(button('outline-out', 'Move out of the group', () => this.editOutline((x) => moveOutOfGroup(x, path as [number, number]), () => { this.selected = [path[0] + 1]; this.openRow = null; })));
-    if (top && canMoveIn(o, path)) {
-      const groups = o.flatMap((b, i) => (b.type === 'group' ? [[i, b.name] as const] : []));
-      const into = h('select', { 'aria-label': 'Move into a group', 'data-key': 'outline-into', 'data-help': 'outline-into' },
-        h('option', { value: '' }, 'Move into a group…'), ...groups.map(([i, n]) => h('option', { value: String(i) }, `${n} (block ${i + 1})`)));
-      commitField(into, () => {
-        if (into.value === '') return;
-        const g = Number(into.value);
-        this.editOutline((x) => moveIntoGroup(x, path, g), () => { this.selected = [g > path[0] ? g - 1 : g]; this.openRow = null; });
-      });
-      actions.push(into);
-    }
-    return h('div', { class: 'orow-settings', 'data-key': `settings-${key}` }, ...controls, h('div', { class: 'row' }, ...actions));
+    return h('div', { class: 'outline-settings', 'data-key': 'outline-settings', 'aria-label': `Settings: ${nameOf(block)}` }, ...controls, h('div', { class: 'row' }, ...actions));
   }
 
-  /** How often the block repeats: a number of times, or for each day, week or month of the calendar (or of the group's span). */
+  /** How often the block repeats: once, a number of times, or every day, week or month of the calendar (or of the group's span). */
   private repeatSelect(path: Path, block: Exclude<Block, { type: 'free' }>): HTMLElement {
     const parent = path.length === 1 ? null : (this.book.outline[path[0]] as GroupBlock);
-    return this.repeatChooser(block.repeat, path.length === 1, parent && isEach(parent.repeat) ? parent.repeat.each : null, (next) => this.editOutline((x) => setRepeat(x, path, next)), 'outline-each', 'outline-each');
+    return this.repeatChooser(block.repeat, parent, (next) => this.editOutline((x) => setRepeat(x, path, next)), 'outline-each', 'outline-each');
   }
 
-  /** The "How often" select. `spanUnit` is the unit a group that repeats by week or month spans, for the blocks inside it. */
-  private repeatChooser(r: Repeat, top: boolean, spanUnit: 'day' | 'week' | 'month' | null, set: (next: Repeat) => void, key: string, help: string): HTMLElement {
+  /** The "How often" select. `parent` is the group the block is in (null at the top level); a group that repeats by week or month gives its blocks the choices of its span. */
+  private repeatChooser(r: Repeat, parent: GroupBlock | null, set: (next: Repeat) => void, key: string, help: string): HTMLElement {
     const cal = !!this.book.calendar;
-    const options: [string, string, boolean][] = top
-      ? [['times', 'A number of times', true], ...(['day', 'week', 'month'] as const).map((u): [string, string, boolean] => [u, `Each ${u} of the calendar${cal ? '' : ' (set a calendar first)'}`, cal])]
-      : [['times', 'A number of times', true], ...(['day', 'week'] as const).map((u): [string, string, boolean] => [`span-${u}`, `Each ${u} of the group’s span${spanUnit ? '' : ' (the group must repeat by week or month)'}`, !!spanUnit])];
-    const value = !isEach(r) ? 'times' : 'of' in r ? `span-${r.each}` : r.each;
+    const unit = parent && isEach(parent.repeat) && parent.repeat.each !== 'day' ? parent.repeat.each : null;
+    const value = howOftenOf(r);
     const select = h('select', { 'aria-label': 'How often', 'data-key': key, 'data-help': help },
-      ...options.map(([v, label, on]) => h('option', { value: v, selected: v === value, disabled: !on && v !== value }, label)));
-    commitField(select, () => {
-      const v = select.value;
-      set(v === 'times' ? { times: 1 } : v.startsWith('span-') ? { each: v.slice(5) as 'day' | 'week', of: 'span' } : { each: v as 'day' | 'week' | 'month' });
-    });
-    return h('div', { class: 'field' }, h('label', {}, 'How often'), select);
+      ...howOftenOptions(parent === null, unit, cal, r).map((o) => h('option', { value: o.value, selected: o.value === value, disabled: !o.on && o.value !== value }, o.label)));
+    commitField(select, () => set(repeatOf(select.value as HowOften, r)));
+    return h('div', { class: 'field' }, h('label', {}, 'How often'), select,
+      printsNoDates(r, parent, cal) ? h('p', { class: 'hint no-dates', 'data-key': `${key}-hint` }, 'Repeats by number print no dates.') : null);
   }
 
   /** The free pages that hold a design or don't fit, each with a way to take it off. */
@@ -661,17 +833,14 @@ export class Arranger {
 
   // ---- choosing a design ---------------------------------------------------------
 
-  /** The block Add… goes after: the selected row, else the block that owns the page being looked at (a cover or gap page has none). In a group, the selected child. */
-  private currentBlock(group: number | null): number | null {
-    if (group !== null) return this.selected && this.selected.length === 2 && this.selected[0] === group ? this.selected[1] : null;
-    if (this.selected) return this.selected[0];
-    const cell = this.slot >= 1 && this.slot <= this.book.page_count ? bookLayout(this.book).cells[this.slot - 1] : null;
-    return cell && cell.kind !== 'gap' ? cell.block : null;
+  /** Where Add… puts a block: after the last picked row (see `insertPoint`). */
+  private addAt(block: Block): { group?: number; index: number } {
+    return insertPoint(this.book.outline, this.picked().at(-1) ?? null, block);
   }
 
-  private async openAdd(group: number | null) {
+  private async openAdd() {
     await this.refreshDesigns();
-    this.picking = { for: 'add', group, current: this.currentBlock(group) };
+    this.picking = { for: 'add' };
     this.pending = null;
     this.renderPicker();
     this.picker.showModal();
@@ -704,7 +873,7 @@ export class Arranger {
   private renderPicker() {
     const cover = this.picking.for !== 'add';
     const replacing = this.picking.for === 'replace' ? blockAt(this.book.outline, this.picking.path) : undefined;
-    const into = this.picking.for === 'add' ? this.picking.group : null;
+    const into = this.picking.for === 'add' ? this.addAt(pageBlock(null)).group ?? null : null;
     this.pickerTitle.textContent = replacing ? `Replace design: ${nameOf(replacing)}` : this.picking.for === 'free' ? `Design for free page ${this.picking.index + 1}` : cover ? `Design for ${slotLabel(this.book, this.slot).toLowerCase()}` : into !== null ? `Add to ${nameOf(this.book.outline[into] ?? groupBlock('the group'))}` : 'Add to the book';
     const tab = replacing?.type === 'spread' ? 'spreads' : cover ? 'pages' : this.pickerTab;
     this.pickerTabs.el.parentElement!.hidden = cover;
@@ -748,7 +917,7 @@ export class Arranger {
 
   /** The Other tab: a blank page, free pages, a new group, and sections (which add a group). */
   private otherBlocks(): HTMLElement[] {
-    const inGroup = this.picking.for === 'add' && this.picking.group !== null;
+    const inGroup = this.picking.for === 'add' && this.addAt(pageBlock(null)).group !== undefined;
     const thumbOf = (pages: Page[]) => { const t = h('div', { class: 'thumb' }); t.innerHTML = thumbnailSvg(pages); return t; };
     const card = (name: string, hint: string, key: string, pages: Page[], make: () => Block, disabled = false) =>
       this.addCard({ key, name, hint, kind: 'other', wide: false, thumb: thumbOf(pages), make, disabled, dataKey: key });
@@ -759,11 +928,9 @@ export class Arranger {
       h('div', { class: 'design-list' },
         card('Blank page', 'An empty page, repeated as often as you set.', 'add-blank', blank(), () => pageBlock(null)),
         card('Free pages', inGroup ? 'A page you fill by hand, in each repeat.' : free ? 'Pages you fill by hand: they take the pages the other blocks leave.' : 'Another block already takes what is left.', 'add-free', blank(), () => freeBlock(inGroup ? [null] : []), !free),
-        ...(inGroup ? [] : [card('New group', 'Blocks that repeat together. Add pages and spreads to it after.', 'add-group', blank(), () => groupBlock('Group'))])),
-      ...(inGroup ? [] : [
-        h('h3', {}, 'Saved sections'), this.savedSections.length ? h('div', { class: 'design-list' }, ...this.savedSections.map(sectionCard)) : h('p', { class: 'hint' }, 'No saved sections.'),
-        h('h3', {}, 'Built-in sections'), h('div', { class: 'design-list' }, ...BUILTIN_SECTIONS.map(sectionCard)),
-      ]),
+        card('New group', 'Blocks that repeat together. Add pages and spreads to it after.', 'add-group', blank(), () => groupBlock('Group'))),
+      h('h3', {}, 'Saved sections'), this.savedSections.length ? h('div', { class: 'design-list' }, ...this.savedSections.map(sectionCard)) : h('p', { class: 'hint' }, 'No saved sections.'),
+      h('h3', {}, 'Built-in sections'), h('div', { class: 'design-list' }, ...BUILTIN_SECTIONS.map(sectionCard)),
     ];
   }
 
@@ -834,11 +1001,6 @@ export class Arranger {
 
   // ---- the card being set in the Add… picker ----------------------------------------------
 
-  /** The group the picker adds into, or null for the top level. */
-  private addGroup(): number | null { return this.picking.for === 'add' ? this.picking.group : null; }
-
-  private addSpots(): Spot[] { return this.picking.for === 'add' ? insertSpots(this.book.outline, this.picking.current, this.picking.group) : []; }
-
   /** What the open card makes, with the repeat set on it. */
   private pendingBlock(p: NonNullable<Arranger['pending']>): Block {
     const b = p.make(p.choice);
@@ -849,8 +1011,9 @@ export class Arranger {
   private expand(key: string, make: (c?: Choice) => Block, choice?: Choice) {
     if (this.pending?.key === key) this.pending = null;
     else {
-      const start = this.withSuggestedRepeat(make(choice), this.addGroup());
-      this.pending = { key, make, choice, repeat: start.type === 'free' ? null : start.repeat, where: this.addSpots()[0]?.id ?? 'end' };
+      const first = make(choice);
+      const start = this.withSuggestedRepeat(first, this.addAt(first).group ?? null);
+      this.pending = { key, make, choice, repeat: start.type === 'free' ? null : start.repeat };
     }
     this.renderPicker();
     this.pickerBody.querySelector('.design.open')?.scrollIntoView?.({ block: 'start' });
@@ -868,17 +1031,15 @@ export class Arranger {
       this.addOptions(p));
   }
 
-  /** The open card's settings: repeat, where, the line that says where it lands, and Add. */
+  /** The open card's settings: how often, the line that says where it lands, and Add. */
   private addOptions(p: NonNullable<Arranger['pending']>): HTMLElement {
-    const group = this.addGroup(), o = this.book.outline, top = group === null;
+    const block = this.pendingBlock(p), at = this.addAt(block), o = this.book.outline, top = at.group === undefined;
     const set = (patch: Partial<typeof p>) => { Object.assign(p, patch); this.renderPicker(); };
     const fields: HTMLElement[] = [];
     if (p.repeat) {
       const r = p.repeat, filling = 'fill' in r;
-      const parent = group === null ? null : o[group];
-      const spanUnit = parent?.type === 'group' && isEach(parent.repeat) ? parent.repeat.each : null;
       if (!filling) {
-        fields.push(this.repeatChooser(r, top, spanUnit, (next) => set({ repeat: next }), 'add-each', 'add-each'));
+        fields.push(this.repeatChooser(r, top ? null : (o[at.group!] as GroupBlock), (next) => set({ repeat: next }), 'add-each', 'add-each'));
         if (!isEach(r)) fields.push(this.stepper('Repeat', 'add-repeat', timesOf(r), 1, MAX_REPEAT, (n) => set({ repeat: { times: n } })));
       }
       if (top) {
@@ -890,12 +1051,7 @@ export class Arranger {
           }, filling ? 'Filling what’s left' : 'Fill what’s left')));
       }
     }
-    const spots = this.addSpots(), spot = spots.find((x) => x.id === p.where) ?? spots[0];
-    const where = h('select', { 'aria-label': 'Where', 'data-key': 'add-where', 'data-help': 'add-where' },
-      ...spots.map((x) => h('option', { value: x.id, selected: x.id === spot.id }, x.label)));
-    commitField(where, () => set({ where: where.value as Spot['id'] }));
-    fields.push(h('div', { class: 'field' }, h('label', {}, 'Where'), where));
-    const { text, over } = this.landing(this.pendingBlock(p), group, spot.index);
+    const { text, over } = this.landing(block, at.group ?? null, at.index);
     return h('div', { class: 'design-set' }, ...fields,
       h('p', { class: `lands${over ? ' over' : ''}`, role: 'status', 'data-key': 'add-lands' }, text),
       h('button', { type: 'button', class: 'primary add-confirm', 'data-key': 'add-confirm', 'data-help': 'add-confirm', onclick: () => void this.confirmAdd() }, 'Add'));
@@ -923,25 +1079,25 @@ export class Arranger {
       if (!named) return;
       p.choice = named;
     }
-    const spots = this.addSpots(), spot = spots.find((x) => x.id === p.where) ?? spots[0];
-    this.addBlock(this.pendingBlock(p), spot.index);
+    const block = this.pendingBlock(p);
+    this.addBlock(block, this.addAt(block));
   }
 
-  /** Insert a block at `index` of the outline (or of the group the picker was opened from), select its row and show its first page. */
-  private addBlock(block: Block, index: number) {
+  /** Insert a block (into a group, or at the top level), select its row and show its first page. */
+  private addBlock(block: Block, at: { group?: number; index: number }) {
     this.picker.close();
     this.pending = null;
-    const group = this.addGroup();
-    const path: Path = group !== null ? [group, index] : [index];
-    this.editOutline((o) => addBlock(o, block, group !== null ? { group, index } : { index }), () => {
+    const { group, index } = at;
+    const path: Path = group !== undefined ? [group, index] : [index];
+    this.tell(null);
+    this.editOutline((o) => addBlock(o, block, group !== undefined ? { group, index } : { index }), () => {
       const o = this.book.outline, lay = bookLayout(this.book);
-      this.selected = path;
-      this.openRow = null;
-      const first = group !== null ? firstCell(lay, group, index)?.slot : lay.rows[index]?.first;
+      this.sel = [path];
+      const first = group !== undefined ? firstCell(lay, group, index)?.slot : lay.rows[index]?.first;
       if (first) this.slot = first;
-      const at = blockAt(o, path);
-      const how = at && at.type !== 'free' && isEach(at.repeat) ? ` It repeats ${repeatLabel(at, group !== null ? (o[group] as GroupBlock) : undefined)}; change that in its settings.` : '';
-      this.say(`Added “${nameOf(block)}”${group !== null ? ` to ${nameOf(o[group])}` : ''}.${how} Undo takes it back.`);
+      const added = blockAt(o, path);
+      const how = added && added.type !== 'free' && isEach(added.repeat) ? ` It repeats ${repeatLabel(added, group !== undefined ? (o[group] as GroupBlock) : undefined)}; change that in its settings.` : '';
+      this.say(`Added “${nameOf(block)}”${group !== undefined ? ` to ${nameOf(o[group])}` : ''}.${how} Undo takes it back.`);
     });
     this.contents.querySelector('.orow.selected')?.scrollIntoView?.({ block: 'nearest' });
   }
@@ -1030,8 +1186,7 @@ export class Arranger {
   /** Back from Edit here: show the Book view again on that page, with the change in the outline and the pages. */
   returnTo(slot: number) {
     this.slot = Math.max(FIRST_SLOT, Math.min(lastSlot(this.book), slot));
-    this.selected = null;
-    this.openRow = null;
+    this.sel = [];
     this.say(null);
     this.checkBook();
     this.render();

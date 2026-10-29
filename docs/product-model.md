@@ -418,7 +418,7 @@ outline) and **Edit the design** (opens the linked design; the book is already s
 **Edit here changes every repeat of that block** (a page that appears 7 times is one copy). To make just one repeat different, **Split out
 this page** turns the row into three: the repeats before, this one as ×1, and the repeats after; the middle one can then be edited.
 
-*Built: Edit here.* It is reached from an **Edit page** button by the page in the Book view, a block's ⋯ settings (inside groups too), a free
+*Built: Edit here.* It is reached from an **Edit page** button by the page in the Book view, a picked block's settings panel (inside groups too), a free
 page, each cover, and Flip through (**Edit this page**). It opens the Page editor (a page block, free page or cover) or the Spread editor
 (a spread block) on the copy, with every tool, Settings, undo and Preview (which shows the slot's own date). A bar replaces the document
 bar: "Editing p.14 in <book> · Week planner, each week: changes all 5", the book's Saved mark, **Save to Library as…** (a new Library

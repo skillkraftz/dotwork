@@ -311,11 +311,13 @@ describe('every control has a help entry', () => {
       await go('dialog.picker [data-key="add-confirm"]');
       await page.waitForSelector('dialog.picker', { state: 'hidden' });
       if (app.touch) await go('.contents-toggle');
-      await go('.orow [data-key="outline-more"]');
-      expect(await missingHelp(app), `${device} row settings`).toEqual([]);
-      await go('[data-key="outline-pin-page"]');
+      expect(await missingHelp(app), `${device} row settings`).toEqual([]); // the added group is picked: its settings and drag handle show
+      await go('[data-key="outline-select"]');
+      expect(await missingHelp(app), `${device} select mode`).toEqual([]);
+      await go('[data-key="outline-select"]');
+      await go('.outline-settings [data-key="outline-pin-page"]');
       expect(await missingHelp(app), `${device} pinned row settings`).toEqual([]);
-      await go('[data-key="outline-add-to-group"]');
+      await go('.outline-settings [data-key="outline-add-to-group"]');
       await page.waitForSelector('dialog.picker[open] .design');
       await go('dialog.picker [data-tab="blocks"]');
       expect(await missingHelp(app), `${device} picker for a group`).toEqual([]);
