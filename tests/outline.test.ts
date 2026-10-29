@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { bookLayout, bookPage, emptyBook } from '../src/book/book';
 import {
   addBlock, canAddFree, canFill, duplicateBlock, fillRepeat, freeBlock, groupBlock, layoutOutline, moveBlock, moveIntoGroup, moveOutOfGroup, pageBlock, pagesToHold,
-  removeBlock, setPin, setRepeat, spreadBlock, totalLine, type Block,
+  removeBlock, setDesign, setPin, setRepeat, spreadBlock, totalLine, type Block,
 } from '../src/book/outline';
 import { emptyPage, type Page } from '../src/format/types';
 import { fingerprint } from '../src/format/fingerprint';
@@ -289,5 +289,32 @@ describe('changing an outline', () => {
     expect(b.from).toEqual({ id: 'abc', fingerprint: fingerprint(A) });
     expect(fingerprint(A)).toBe(fingerprint({ ...A, name: 'Renamed', side: 'left', page_number: false })); // the name, side and number are left out
     expect(fingerprint(A)).not.toBe(fingerprint(B));
+  });
+});
+
+describe('putting a design in a block', () => {
+  const link = { id: 'lib-1', fingerprint: 'old' };
+  const week = (): Block[] => [{ ...pin(pageBlock(A, 3, link), 9), repeat: { each: 'week' } } as Block, groupBlock('G', [spreadBlock('S', A, B, 2, link)])];
+
+  it('keeps the repeat, pin and position, and the link unless told otherwise', () => {
+    const o = setDesign(week(), [0], { page: C });
+    expect(o[0]).toMatchObject({ type: 'page', page: { name: 'C' }, repeat: { each: 'week' }, pin: 9, from: link });
+    expect(o).toHaveLength(2);
+  });
+
+  it('replaces or takes off the link', () => {
+    const next = { id: 'lib-2', fingerprint: 'new' };
+    expect((setDesign(week(), [0], { page: C }, next)[0] as { from?: unknown }).from).toEqual(next);
+    expect('from' in setDesign(week(), [0], { page: null }, null)[0]).toBe(false);
+  });
+
+  it('works inside a group, on a spread, and ignores a design of the other kind', () => {
+    const o = setDesign(week(), [1, 0], { name: 'T', left: C, right: A });
+    expect((o[1] as Extract<Block, { type: 'group' }>).children[0]).toMatchObject({ type: 'spread', name: 'T', left: { name: 'C' }, repeat: { times: 2 }, from: link });
+    expect(JSON.stringify(setDesign(week(), [0], { name: 'T', left: C, right: A }))).toBe(JSON.stringify(week()));
+    const before = JSON.stringify(week());
+    const input = week();
+    setDesign(input, [0], { page: C });
+    expect(JSON.stringify(input)).toBe(before);
   });
 });

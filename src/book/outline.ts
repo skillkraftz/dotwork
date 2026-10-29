@@ -399,6 +399,28 @@ export function setFreePage(outline: readonly Block[], path: Path, index: number
   return replaceBlock(outline, path, { type: 'free', pages });
 }
 
+/** A page or spread block's design: one page (null is blank), or a spread's name and two pages. */
+export type Design = { page: Page | null } | { name: string; left: Page; right: Page };
+
+/**
+ * Put a design in a page or spread block, keeping its repeat, pin, shared setting, position and group. `from` is the link to the
+ * design it came from: left out it stays as it is (editing in place), a link replaces it, null takes it off (a blank page has none).
+ * A design of the other kind than the block changes nothing.
+ */
+export function setDesign(outline: readonly Block[], path: Path, design: Design, from?: Link | null): Block[] {
+  const b = blockAt(outline, path);
+  const link = (old?: Link): { from?: Link } => { const f = from === undefined ? old : from; return f ? { from: f } : {}; };
+  if (b?.type === 'page' && 'page' in design) {
+    const { from: old, ...rest } = clone(b);
+    return replaceBlock(outline, path, { ...rest, page: design.page ? clone(design.page) : null, ...link(old) });
+  }
+  if (b?.type === 'spread' && 'left' in design) {
+    const { from: old, ...rest } = clone(b);
+    return replaceBlock(outline, path, { ...rest, name: design.name, left: clone(design.left), right: clone(design.right), ...link(old) });
+  }
+  return clone(outline) as Block[];
+}
+
 /** Whether a spread's two pages read the same day, week or month. */
 export function setShared(outline: readonly Block[], path: Path, shared: boolean): Block[] {
   const b = blockAt(outline, path);
