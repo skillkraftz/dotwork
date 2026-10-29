@@ -418,6 +418,14 @@ outline) and **Edit the design** (opens the linked design; the book is already s
 **Edit here changes every repeat of that block** (a page that appears 7 times is one copy). To make just one repeat different, **Split out
 this page** turns the row into three: the repeats before, this one as ×1, and the repeats after; the middle one can then be edited.
 
+*Built: Edit here.* It is reached from an **Edit page** button by the page in the Book view, a block's ⋯ settings (inside groups too), a free
+page, each cover, and Flip through (**Edit this page**). It opens the Page editor (a page block, free page or cover) or the Spread editor
+(a spread block) on the copy, with every tool, Settings, undo and Preview (which shows the slot's own date). A bar replaces the document
+bar: "Editing p.14 in <book> · Week planner, each week: changes all 5", the book's Saved mark, **Save to Library as…** (a new Library
+page or spread; the book keeps its copy) and **Back to book**. Each committed change is written into the block and the book saves itself;
+no Library entry is created or changed, and the `from` link stays. Entering takes one book undo snapshot. **Replace design…** in the same
+menu swaps a block's design and its `from` link and keeps its repeat, pin, position and group. *Not built:* Edit the design, Split out.
+
 **Why.** The owner redraws a page once and wants every book to follow, but wants a printed book to stay exactly as designed until he says
 so. A copy plus a link gives both, keeps every book file self-contained, and carrying the link through means one design change needs no
 chain of updates.
@@ -477,8 +485,8 @@ thing: **build November 2026 and print it.** There are three file changes on the
 
 Not scheduled. Each is kept here so it is not forgotten, and none starts before the November book is printed and the owner says which one hurts most.
 
-- **Outline extras:** drag to reorder, Duplicate, Group / Ungroup as separate actions, Collapse, save a group as a section, thumbnails on rows, Make the book N pages, Edit here / Split out.
-- **Links and the updates list:** `from` is used: the update line, the list (Update this book, Choose, Make an updated copy, Keep, edited-here marks), Edit here / Edit the design, sections' own update line. No file change.
+- **Outline extras:** drag to reorder, Duplicate, Group / Ungroup as separate actions, Collapse, save a group as a section, thumbnails on rows, Make the book N pages, Split out.
+- **Links and the updates list:** `from` is used: the update line, the list (Update this book, Choose, Make an updated copy, Keep, edited-here marks), Edit the design, sections' own update line. No file change.
 - **The three areas:** the Design / Plan / Print switcher, Library tabs per area, the Print screen (the PDF tab, Calibrate and Printer), settings per area.
 - **Covers from the book:** the other `generated` kinds (Page index, Month tracker); cover tokens read the calendar; the templates' covers use them. ★ file change.
 - **Book versions** (section 8): later, maybe.

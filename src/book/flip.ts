@@ -24,11 +24,14 @@ export function openings(book: Book): [number | null, number | null][] {
 /** The openings of a book in order: the inside front cover facing page 1, 2 facing 3, … the last page facing the inside back cover. Each is its left slot. */
 export const openingCount = (book: Book) => book.page_count / 2 + 1;
 
+/** "Edit this page": which slots can be edited where they sit, and how to open one. */
+export interface FlipEdit { can(slot: number): boolean; open(slot: number): void }
+
 /**
  * Play the book as a flip-book: every opening in order, dates filled. Tap or Space pauses, then a tap on the opening (or Stop here, or
  * Escape) closes at that opening and calls `onStop` with its left slot. `render` draws one slot as an SVG string.
  */
-export function flipThrough(book: Book, render: (slot: number, align: string) => string, onStop: (leftSlot: number) => void): void {
+export function flipThrough(book: Book, render: (slot: number, align: string) => string, onStop: (leftSlot: number) => void, edit?: FlipEdit): void {
   const all = openings(book), last = all.length - 1;
   let at = 0, playing = true, ms = savedSpeed(), timer = 0;
 
@@ -40,9 +43,12 @@ export function flipThrough(book: Book, render: (slot: number, align: string) =>
   const play = h('button', { type: 'button', 'data-help': 'flip-play', onclick: () => toggle() });
   const speed = h('input', { type: 'range', min: FLIP_MS.min, max: FLIP_MS.max, step: FLIP_MS.step, value: ms, 'aria-label': 'Time per opening', 'data-help': 'flip-speed' });
   const stop = h('button', { type: 'button', class: 'primary', 'data-help': 'flip-stop', onclick: () => dialog.close() }, 'Stop here');
+  const editBar = h('div', { class: 'flip-bar flip-edit' });
+  let editing: number | null = null;
   const dialog = h('dialog', { class: 'library flip', 'aria-label': 'Flip through' },
     h('header', {}, h('h2', {}, 'Flip through'), stop),
     stage,
+    editBar,
     h('div', { class: 'flip-bar' }, prev, h('div', { class: 'where', 'aria-live': 'off' }, where), next),
     h('div', { class: 'flip-bar' }, play, h('label', { class: 'flip-speed' }, speedLabel, speed))) as HTMLDialogElement;
 
@@ -55,6 +61,12 @@ export function flipThrough(book: Book, render: (slot: number, align: string) =>
     }));
     where.textContent = left === null ? 'Outside front cover' : right === null ? 'Outside back cover' : left === 0 ? 'Inside front cover and page 1'
       : left === book.page_count ? `Page ${book.page_count} and inside back cover` : `Pages ${left} and ${left + 1}`;
+    const editable = edit ? [left, right].filter((n): n is number => n !== null && edit.can(n)) : [];
+    editBar.hidden = !editable.length;
+    editBar.replaceChildren(...editable.map((n) => h('button', {
+      type: 'button', 'data-help': 'flip-edit', 'data-key': 'flip-edit',
+      onclick: () => { editing = n; dialog.close(); },
+    }, editable.length === 1 ? 'Edit this page' : `Edit the ${n === left ? 'left' : 'right'} page`)));
     prev.disabled = at <= 0;
     next.disabled = at >= last;
     play.textContent = playing ? 'Pause' : at >= last ? 'Play again' : 'Play';
@@ -87,7 +99,7 @@ export function flipThrough(book: Book, render: (slot: number, align: string) =>
     if (e.key === ' ') { e.preventDefault(); toggle(); } else if (e.key === 'ArrowLeft') { e.preventDefault(); step(-1); } else if (e.key === 'ArrowRight') { e.preventDefault(); step(1); }
   });
   dialog.addEventListener('keyup', (e) => { if (e.key === ' ') e.preventDefault(); }); // a focused button must not also click on Space
-  dialog.addEventListener('close', () => { clearTimeout(timer); dialog.remove(); onStop(all[at][0] ?? all[at][1]!); });
+  dialog.addEventListener('close', () => { clearTimeout(timer); dialog.remove(); onStop(all[at][0] ?? all[at][1]!); if (editing !== null) edit?.open(editing); });
 
   document.body.append(dialog);
   show();

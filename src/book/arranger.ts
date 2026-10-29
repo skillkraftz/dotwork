@@ -2,6 +2,7 @@ import { PAGE_H_MM, PAGE_W_MM } from '../format/types';
 import type { Page } from '../format/types';
 import { withSide, type Spread } from '../format/spread';
 import { fingerprint } from '../format/fingerprint';
+import type { Expander } from '../format/tokens';
 import { readsText, suggestUnit } from '../format/tokens';
 import { pageContent, thumbnailSvg } from '../render';
 import { h, tabBar } from '../panel';
@@ -18,7 +19,7 @@ import { isUntitled } from '../documents';
 import { designName, opening, slotLabel } from './labels';
 import {
   addBlock, blockAt, canAddFree, canFill, canMove, canMoveIn, duplicateBlock, fillRepeat, freeBlock, groupBlock, moveBlock, moveIntoGroup, moveOutOfGroup,
-  firstCell, isEach, nameOf, pageBlock, removeBlock, repeatLabel, replaceBlock, setFreePage, setPin, setRepeat, setShared, spreadBlock, timesOf, totalLine, MAX_REPEAT,
+  firstCell, isEach, nameOf, pageBlock, removeBlock, repeatLabel, replaceBlock, setDesign, setFreePage, setPin, setRepeat, setShared, spreadBlock, timesOf, totalLine, MAX_REPEAT,
   type Block, type Child, type GroupBlock, type Link, type Path, type Repeat, type Row,
 } from './outline';
 
@@ -38,7 +39,35 @@ export interface ArrangerHost {
   nameSaved(id: string, name: string, kind: 'page' | 'spread'): Promise<string | null>;
   /** The printer profile, to warn when the book can't be printed with it. */
   printer(): PrintSettings;
+  /**
+   * Open the page or spread editor on a copy that sits in the book (Edit here). Resolves false when it could not be opened (the
+   * page or spread open before could not be written first), and then nothing has changed.
+   */
+  editHere(request: EditHere): Promise<boolean>;
 }
+
+/** What the page or spread editor needs to edit a copy where it sits in the book. */
+export interface EditHere {
+  kind: 'page' | 'spread';
+  /** Copies to edit: the page, or the spread's left and right. */
+  pages: Page[];
+  /** A spread block's name (a page's is in the page). */
+  name: string;
+  /** Which page to start on, for a spread: 0 left, 1 right. */
+  focus: 0 | 1;
+  /** The bar's two parts: "p.14", and "Week planner, each week: changes all 5". */
+  where: string;
+  what: string;
+  /** The page to come back to in the Book view. */
+  slot: number;
+  /** What Preview shows for each page: the slot's own date and page number (null: sample values). */
+  preview: ({ expand: Expander; pageNumber: string | null } | null)[];
+  /** Write the editor's pages (and a spread's name) into the book. The book autosaves. */
+  commit(pages: Page[], name: string): void;
+}
+
+/** Where a copy sits in the book: a page or spread block (inside a group too), a free page, or a cover. */
+type EditTarget = { kind: 'block'; path: Path } | { kind: 'free'; path: Path; index: number } | { kind: 'cover'; slot: number };
 
 const MAX_UNDO = 30;
 const SPREADS_KEY = 'dotwork.book.spreads';
@@ -120,7 +149,7 @@ export class Arranger {
   private pickerBody = h('div', { class: 'picker-body' });
   private pickerTitle = h('h2', {});
   /** What the picker is choosing: a design for a cover, or a block to add (to a group, or to the end of the outline). */
-  private picking: { for: 'cover' } | { for: 'free'; path: Path; index: number } | { for: 'add'; group: number | null } = { for: 'add', group: null };
+  private picking: { for: 'cover' } | { for: 'free'; path: Path; index: number } | { for: 'replace'; path: Path } | { for: 'add'; group: number | null } = { for: 'add', group: null };
 
   constructor(root: HTMLElement, private host: ArrangerHost, book: Book) {
     this.book = book;
@@ -347,16 +376,23 @@ export class Arranger {
     const here = getSlot(this.book, this.slot);
     const cover = isCover(this.book, this.slot);
     const free = this.freeAt(this.slot);
+    const target = this.targetAt(this.slot);
+    const editPage = target ? h('button', {
+      type: 'button', 'data-key': 'book-edit-page', 'data-help': 'book-edit-page', onclick: () => void this.editHere(target, this.slot),
+      title: 'Change this page where it sits in the book (a spread opens both of its pages)',
+    }, 'Edit page') : null;
     this.actions.replaceChildren(...([
       h('p', { class: 'design-name' }, h('span', { class: 'hint' }, `${slotLabel(this.book, this.slot)}: `), h('strong', {}, designName(here)),
         cover ? null : h('span', { class: 'hint page-origin' }, ` · ${this.origin(this.slot)}`)),
       cover ? h('div', { class: 'row' },
         h('button', { type: 'button', class: 'primary', 'data-help': 'book-choose', onclick: () => void this.openCoverPicker() }, 'Choose design…'),
         h('button', { type: 'button', disabled: !here, 'data-help': 'book-clear', onclick: () => this.edit(() => setCover(this.book, this.slot, null)), title: 'Make this cover blank' }, 'Clear'),
+        editPage,
       ) : free ? h('div', { class: 'row' },
         h('button', { type: 'button', class: 'primary', 'data-key': 'free-design', 'data-help': 'free-design', onclick: () => void this.openFreePicker(free.path, free.index) }, 'Choose design…'),
         h('button', { type: 'button', disabled: !here, 'data-key': 'free-clear', 'data-help': 'free-clear', onclick: () => this.clearFree(free.path, free.index), title: 'Make this free page blank' }, 'Clear'),
-      ) : null,
+        editPage,
+      ) : editPage ? h('div', { class: 'row' }, editPage) : null,
     ].filter(Boolean) as HTMLElement[]));
   }
 
@@ -527,6 +563,11 @@ export class Arranger {
     }
 
     const actions: HTMLElement[] = [
+      ...(block.type === 'page' || block.type === 'spread' ? [
+        button('outline-edit-here', 'Edit here', () => { this.contents.classList.remove('open'); void this.editHere({ kind: 'block', path }); },
+          { disabled: !this.slotOf({ kind: 'block', path }), title: this.slotOf({ kind: 'block', path }) ? null : 'This block takes no pages yet, so there is no page to edit' }),
+        button('outline-replace', 'Replace design…', () => void this.openReplacePicker(path)),
+      ] : []),
       button('outline-duplicate', 'Duplicate', () => this.editOutline((x) => duplicateBlock(x, path), () => { this.selected = top ? [path[0] + 1] : [path[0], path[1] + 1]; this.openRow = null; })),
       button('outline-delete', 'Delete', () => this.editOutline((x) => removeBlock(x, path), () => { this.selected = null; this.openRow = null; })),
     ];
@@ -630,6 +671,13 @@ export class Arranger {
     this.picker.showModal();
   }
 
+  private async openReplacePicker(path: Path) {
+    await this.refreshDesigns();
+    this.picking = { for: 'replace', path };
+    this.renderPicker();
+    this.picker.showModal();
+  }
+
   private async openFreePicker(path: Path, index: number) {
     await this.refreshDesigns();
     this.picking = { for: 'free', path, index };
@@ -639,12 +687,13 @@ export class Arranger {
 
   private renderPicker() {
     const cover = this.picking.for !== 'add';
+    const replacing = this.picking.for === 'replace' ? blockAt(this.book.outline, this.picking.path) : undefined;
     const into = this.picking.for === 'add' ? this.picking.group : null;
-    this.pickerTitle.textContent = this.picking.for === 'free' ? `Design for free page ${this.picking.index + 1}` : cover ? `Design for ${slotLabel(this.book, this.slot).toLowerCase()}` : into !== null ? `Add to ${nameOf(this.book.outline[into] ?? groupBlock('the group'))}` : 'Add to the book';
-    const tab = cover ? 'pages' : this.pickerTab;
+    this.pickerTitle.textContent = replacing ? `Replace design: ${nameOf(replacing)}` : this.picking.for === 'free' ? `Design for free page ${this.picking.index + 1}` : cover ? `Design for ${slotLabel(this.book, this.slot).toLowerCase()}` : into !== null ? `Add to ${nameOf(this.book.outline[into] ?? groupBlock('the group'))}` : 'Add to the book';
+    const tab = replacing?.type === 'spread' ? 'spreads' : cover ? 'pages' : this.pickerTab;
     this.pickerTabs.el.parentElement!.hidden = cover;
     this.pickerTabs.select(tab);
-    const side = cover ? slotSide(this.slot) : 'right';
+    const side = cover && !replacing ? slotSide(this.slot) : 'right';
     const card = (c: Choice) => {
       const thumb = h('div', { class: 'thumb' });
       const pages = c.kind === 'spread' ? [(c.data as Spread).left, (c.data as Spread).right] : [withSide(c.data ? (c.data as Page) : blankPage(side), side)];
@@ -722,6 +771,16 @@ export class Arranger {
       return;
     }
     const link = (p: Page | null, q?: Page): Link | undefined => (c.id && p ? { id: c.id, fingerprint: q ? `${fingerprint(p)}/${fingerprint(q)}` : fingerprint(p) } : undefined);
+    if (this.picking.for === 'replace') {
+      const { path } = this.picking;
+      const old = blockAt(this.book.outline, path);
+      if (c.kind === 'spread') {
+        const s = c.data as Spread;
+        this.editOutline((o) => setDesign(o, path, { name: c.name, left: s.left, right: s.right }, link(s.left, s.right) ?? null));
+      } else this.editOutline((o) => setDesign(o, path, { page: c.kind === 'blank' ? null : (c.data as Page) }, link(c.data as Page | null) ?? null));
+      this.say(`Replaced the design of “${old ? nameOf(old) : 'the block'}” with “${c.name}”. Undo takes it back.`);
+      return;
+    }
     if (c.kind === 'spread') {
       const s = c.data as Spread;
       this.addBlock(spreadBlock(c.name, s.left, s.right, 1, link(s.left, s.right)));
@@ -759,9 +818,103 @@ export class Arranger {
     this.contents.querySelector('.orow.selected')?.scrollIntoView?.({ block: 'nearest' });
   }
 
+  // ---- edit here ---------------------------------------------------------------
+
+  /** Where the page in a slot can be edited: its cover, free page, or block. A gap page, and a page nothing is placed on, have none. */
+  private targetAt(slot: number): EditTarget | null {
+    if (isCover(this.book, slot)) return { kind: 'cover', slot };
+    const free = this.freeAt(slot);
+    if (free) return { kind: 'free', ...free };
+    const cell = bookLayout(this.book).cells[slot - 1];
+    return cell && cell.kind === 'content' ? { kind: 'block', path: cell.child === undefined ? [cell.block] : [cell.block, cell.child] } : null;
+  }
+
+  /** The first page a target is on, or null when it is on none. */
+  private slotOf(t: EditTarget): number | null {
+    if (t.kind === 'cover') return t.slot;
+    const lay = bookLayout(this.book);
+    if (t.kind === 'block') return firstCell(lay, t.path[0], t.path.length === 2 ? t.path[1] : undefined)?.slot ?? null;
+    const at = lay.cells.findIndex((c) => !!c && c.kind === 'free' && c.block === t.path[0] && c.child === (t.path.length === 2 ? t.path[1] : undefined) && c.free === t.index);
+    return at < 0 ? null : at + 1;
+  }
+
+  /** Open the page or spread editor on a copy in the book. The Book view's Undo takes the whole edit back. */
+  private async editHere(t: EditTarget, at?: number) {
+    if (!this.host.editing(() => void this.editHere(t, at))) return;
+    const request = this.requestFor(t, at);
+    if (!request) return;
+    this.say(null);
+    if (await this.host.editHere(request)) {
+      this.undoStack.push(JSON.stringify(this.book));
+      if (this.undoStack.length > MAX_UNDO) this.undoStack.shift();
+    }
+  }
+
+  /** `at` is the page being looked at, when Edit here was opened from it; without it the block's first page is used. */
+  private requestFor(t: EditTarget, at?: number): EditHere | null {
+    const b = this.book;
+    const first = this.slotOf(t);
+    // a spread's left page is the even one of the opening that holds the page looked at
+    const slot = at === undefined || first === null ? first : t.kind === 'block' && blockAt(b.outline, t.path)?.type === 'spread' ? opening(at)[0] : at;
+    const reads = (first: number, n: number) => Array.from({ length: n }, (_, i) => {
+      const at = first + i;
+      return isCover(b, at) ? null : { expand: bookExpand(b, at), pageNumber: b.page_numbers ? String(at) : null };
+    });
+    const commitWith = (write: (pages: Page[], name: string) => void) => (pages: Page[], name: string) => {
+      write(pages, name);
+      this.host.changed(b);
+    };
+    const common = { slot: slot ?? this.slot, focus: ((at ?? slot) !== null && slotSide((at ?? slot)!) === 'right' ? 1 : 0) as 0 | 1, name: '' };
+    if (t.kind === 'cover') {
+      const label = slotLabel(b, t.slot).toLowerCase();
+      return {
+        ...common, kind: 'page', pages: [structuredClone(getSlot(b, t.slot) ?? blankPage(slotSide(t.slot)))], where: `the ${label}`,
+        what: 'a cover: changes only this one', preview: [null], commit: commitWith((pages) => setCover(b, t.slot, pages[0])),
+      };
+    }
+    if (t.kind === 'free') {
+      const block = blockAt(b.outline, t.path);
+      if (block?.type !== 'free' || slot === null) return null;
+      return {
+        ...common, kind: 'page', pages: [structuredClone(block.pages[t.index] ?? blankPage(slotSide(slot)))], where: `p.${slot}`,
+        what: `Free page ${t.index + 1}: changes only this page`, preview: reads(slot, 1),
+        commit: commitWith((pages) => { b.outline = setFreePage(b.outline, t.path, t.index, pages[0]); }),
+      };
+    }
+    const block = blockAt(b.outline, t.path);
+    if (!block || (block.type !== 'page' && block.type !== 'spread') || slot === null) return null;
+    const parent = t.path.length === 2 ? (b.outline[t.path[0]] as GroupBlock) : undefined;
+    const placed = bookLayout(b).cells.filter((c) => !!c && c.kind === 'content' && c.block === t.path[0] && (t.path.length === 1 || c.child === t.path[1])).length;
+    const n = block.type === 'spread' ? Math.ceil(placed / 2) : placed;
+    const what = `${nameOf(block)}, ${repeatLabel(block, parent)}: ${n > 1 ? `changes all ${n}` : `changes this ${block.type}`}`;
+    if (block.type === 'page') {
+      return {
+        ...common, kind: 'page', pages: [structuredClone(block.page ?? blankPage(slotSide(slot)))], where: `p.${slot}`, what, preview: reads(slot, 1),
+        commit: commitWith((pages) => { b.outline = setDesign(b.outline, t.path, { page: pages[0] }); }),
+      };
+    }
+    return {
+      ...common, kind: 'spread', pages: [structuredClone(block.left), structuredClone(block.right)], name: block.name, where: `pp.${slot}–${slot + 1}`, what,
+      preview: reads(slot, 2), commit: commitWith((pages, name) => { b.outline = setDesign(b.outline, t.path, { name, left: pages[0], right: pages[1] }); }),
+    };
+  }
+
+  /** Back from Edit here: show the Book view again on that page, with the change in the outline and the pages. */
+  returnTo(slot: number) {
+    this.slot = Math.max(FIRST_SLOT, Math.min(lastSlot(this.book), slot));
+    this.selected = null;
+    this.openRow = null;
+    this.say(null);
+    this.checkBook();
+    this.render();
+  }
+
   // ---- flip through --------------------------------------------------------------
 
   private flip() {
-    flipThrough(this.book, (slot, align) => slotSvg(this.book, slot, outlineMark, ` preserveAspectRatio="${align} meet"`), (left) => this.go(left));
+    flipThrough(this.book, (slot, align) => slotSvg(this.book, slot, outlineMark, ` preserveAspectRatio="${align} meet"`), (left) => this.go(left), {
+      can: (slot) => this.targetAt(slot) !== null,
+      open: (slot) => { const t = this.targetAt(slot); if (t) { this.go(slot); void this.editHere(t, slot); } },
+    });
   }
 }

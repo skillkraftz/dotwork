@@ -12,6 +12,7 @@ import { addElement, addElements } from './actions';
 import { LongPress } from './longpress';
 import { EDIT_BOX, EDIT_VIEWBOX, FIT_BOX, pageContent } from './render';
 import type { Store } from './store';
+import type { Expander } from './format/tokens';
 import { compactQuery } from './sheet';
 import { keyboardOpen } from './keyboard';
 import { fitView, panBy, pinchOf, revealRect, scaleOf, viewRect, zoomAt, type View } from './viewport';
@@ -60,6 +61,8 @@ export class Canvas {
   private openedAt = 0;
   /** Draw as printed and ignore input (the view of both pages of a spread). */
   readOnly = false;
+  /** What Preview reads while a page is edited where it sits in a book: the slot's own date and page number (null: sample values). */
+  previewAs: { expand: Expander; pageNumber: string | null } | null = null;
 
   private pointers = new Map<number, Pt>();
   private pinch: { dist: number; mid: Pt; view: View } | null = null;
@@ -203,6 +206,7 @@ export class Canvas {
       draft,
       marquee,
       weekPreview: store.weekPreview,
+      ...(preview && this.previewAs ? { expand: this.previewAs.expand, pageNumber: this.previewAs.pageNumber } : {}),
       handleMm: this.handlePx() * this.mmPerPx(),
     });
     if (preview) this.svg.style.cursor = 'default';
