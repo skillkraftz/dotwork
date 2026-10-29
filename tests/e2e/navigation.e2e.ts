@@ -56,11 +56,11 @@ for (const device of ['phone', 'desktop'] as const) {
       noErrors(app);
     });
 
-    it('Edit holds Edit, Preview, Library and New; one menu is open at a time; tapping outside closes it', async () => {
+    it('Edit holds Edit, Preview, Library, New and Darker grays; one menu is open at a time; tapping outside closes it', async () => {
       const app = await open(env, device);
       const { page } = app;
       await hit(app, '#menu-edit');
-      expect(await page.locator('#list-edit button').allInnerTexts()).toEqual(['Edit', 'Preview', 'Library…', 'New']);
+      expect(await page.locator('#list-edit button').allInnerTexts()).toEqual(['Edit', 'Preview', 'Library…', 'New', 'Darker grays on screen']);
       expect(await page.locator('#mode-edit').getAttribute('aria-checked')).toBe('true');
       expect(await smallControls(app, '#list-edit')).toEqual([]);
       await shot(app, `${device}-menu-edit`);
