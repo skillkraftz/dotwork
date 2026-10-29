@@ -12,7 +12,7 @@ import { readOutline } from './outlineread';
 /** A book: a page count, an outline of blocks that makes its pages, and the four cover pages. See docs/book-format.md. */
 export interface Book {
   format: 'dotwork-book';
-  version: 1;
+  version: 2;
   name: string;
   /** Interior pages; a multiple of 4. */
   page_count: number;
@@ -63,7 +63,7 @@ export const roundPageCount = (n: number) => Math.min(MAX_PAGES, Math.max(MIN_PA
 export function emptyBook(pageCount = DEFAULT_PAGE_COUNT): Book {
   return {
     format: 'dotwork-book',
-    version: 1,
+    version: 2,
     name: 'Untitled book',
     page_count: roundPageCount(pageCount),
     page_numbers: true,
@@ -149,7 +149,7 @@ export function readBook(input: unknown): ReadBookResult {
   const fail = (rule: string, path: string, message: string) => issues.push({ rule, path, message });
   if (!isObject(input)) return { ok: false, issues: [{ rule: 'root-object', path: '(file)', message: 'A book file must be a JSON object.' }] };
   if (input.format !== 'dotwork-book') fail('format', 'format', `"format" must be "dotwork-book", got ${JSON.stringify(input.format)}.`);
-  if (input.version !== 1) fail('version', 'version', `Unknown version ${JSON.stringify(input.version)}; this reader understands version 1.`);
+  if (input.version !== 2 && input.version !== 1) fail('version', 'version', `Unknown version ${JSON.stringify(input.version)}; this reader understands version 2.`);
   if (typeof input.name !== 'string') fail('name', 'name', '"name" is required and must be a string.');
   const count = input.page_count;
   const countOk = typeof count === 'number' && Number.isInteger(count) && count >= MIN_PAGES && count <= MAX_PAGES && count % 4 === 0;
@@ -193,7 +193,7 @@ export function readBook(input: unknown): ReadBookResult {
   if (issues.length || !outline) return { ok: false, issues };
   return {
     ok: true,
-    book: { format: 'dotwork-book', version: 1, name: input.name as string, page_count: count as number, page_numbers: input.page_numbers as boolean, print: { signatures }, outline, ...(calendar ? { calendar } : {}), cover },
+    book: { format: 'dotwork-book', version: 2, name: input.name as string, page_count: count as number, page_numbers: input.page_numbers as boolean, print: { signatures }, outline, ...(calendar ? { calendar } : {}), cover },
   };
 }
 

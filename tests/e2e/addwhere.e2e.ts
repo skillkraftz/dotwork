@@ -51,13 +51,12 @@ for (const device of devices) {
       await page.waitForSelector('dialog.picker .design.open');
       expect(await page.locator('dialog.picker .design').count()).toBe(cards);
       expect(await page.locator('dialog.picker [data-key="add-where"]').count()).toBe(0);
-      // Lined page prints a date, so it starts as every day; ask for a number of times instead.
-      expect(await page.locator('dialog.picker [data-key="add-each"]').inputValue()).toBe('day');
-      expect(await page.locator('dialog.picker [data-key="add-each"] option').allInnerTexts()).toEqual(['Once', 'A number of times', 'Every day (dated)', 'Every week (dated)', 'Every month (dated)']);
+      // Lined page prints a date, so it starts as a Day page to the end of the month; ask for a number of times instead.
+      expect(await page.locator('dialog.picker [data-key="add-dates"]').inputValue()).toBe('day');
+      expect(await page.locator('dialog.picker [data-key="add-each"]').inputValue()).toBe('to-month');
+      expect(await page.locator('dialog.picker [data-key="add-each"] option').allInnerTexts()).toEqual(['Once', 'A number of times', 'To the end of the week', 'To the end of the month']);
       await page.selectOption('dialog.picker [data-key="add-each"]', 'times');
       await page.waitForSelector('dialog.picker .design.open [data-key="add-repeat"][value="2"]');
-      await page.waitForSelector('dialog.picker [data-key="add-each-hint"]');
-      expect(await page.locator('dialog.picker [data-key="add-each-hint"]').innerText()).toBe('Repeats by number print no dates.');
       const groupEnd = Number(/p\.\d+–(\d+)/.exec(await summary(app, 0))![1]);
       expect(await page.locator('dialog.picker [data-key="add-lands"]').innerText()).toBe(`Lands on p.${groupEnd + 1}–${groupEnd + 2}`);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

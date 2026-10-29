@@ -5,7 +5,7 @@ import { emptyPage, type Page } from '../src/format/types';
 import { BUILTIN_PAGES } from '../src/builtin/library';
 import { weeklyReflection } from '../src/builtin/pages';
 import { bookExpand, bookLayout, coverReading, emptyBook, readBook, type Book } from '../src/book/book';
-import { freeBlock, groupBlock, layoutOutline, moveBlocks, pageBlock, setFreePage, setRepeat, setShared, spreadBlock, type Block, type Cell, type Child } from '../src/book/outline';
+import { freeBlock, groupBlock, layoutOutline, pageBlock, setFreePage, setShared, spreadBlock, type Block, type Cell, type DateKind, type Repeat } from '../src/book/outline';
 
 const text = (name: string, identity: string, ...texts: string[]): Page => ({
   ...emptyPage(), name, identity, elements: texts.map((t, i) => ({ type: 'text' as const, x: 0, y: 1 + i, text: t })),
@@ -20,9 +20,9 @@ const span = (cal: ReturnType<typeof calendarFor>, kind: 'day' | 'week' | 'month
 
 /** What a cell prints for its identity. */
 const prints = (c: Cell | null) => (c?.page && c.read ? expandTokens(c.page.identity ?? '', c.read) : '');
-const weeksGroup = (children: Child[]): Block => ({ ...groupBlock('Weeks', children), repeat: { each: 'week' } });
-const each = (b: Block, unit: 'day' | 'week' | 'month'): Block => ({ ...b, repeat: { each: unit } }) as Block;
-const ofSpan = (b: Child, unit: 'day' | 'week'): Child => ({ ...b, repeat: { each: unit, of: 'span' } }) as Child;
+const typed = (b: Block, dates: DateKind, repeat?: Repeat): Block => ({ ...b, dates, ...(repeat ? { repeat } : {}) }) as Block;
+/** A group that repeats once for each week of the calendar: the week tracker, a daily page for each day of the week, the week's reflection. */
+const weeksGroup = (n = 5): Block => groupBlock('Weeks', [typed(pageBlock(tracker), 'week'), typed(pageBlock(daily), 'day', { to: 'week' }), typed(pageBlock(reflection), 'week-review')] as never[], n);
 
 describe('the calendar', () => {
   it('has the days of November 2026, five weeks, the last Nov 29-30', () => {
@@ -130,11 +130,10 @@ describe('what a page reads', () => {
   });
 });
 
-describe('dates come from each block’s own repeat', () => {
-  const weeks = (): Block => weeksGroup([pageBlock(tracker), ofSpan(pageBlock(daily), 'day'), pageBlock(reflection)]);
-  const dates = (outline: Block[], cal = NOV, count = 52) => layoutOutline(outline, count, cal).cells.map(prints);
+describe('dates come from page types and order', () => {
+  const weeks = weeksGroup;
 
-  it('gives a group each week its span, and a child each day of the span a page for each day inside the calendar', () => {
+  it('gives a group each week its week, and a day page for each day of the week inside the calendar', () => {
     const l = layoutOutline([weeks()], 52, NOV);
     expect(l.used).toBe(40); // 5 weeks × (tracker + reflection) + 30 days
     expect(l.cells[0]!.read).toMatchObject({ kind: 'week', first: '2026-11-01', last: '2026-11-07' });
@@ -150,71 +149,47 @@ describe('dates come from each block’s own repeat', () => {
   });
 
   it('makes fewer day pages in a partial first and last week', () => {
-    const jan = layoutOutline([weeks()], 52, JAN);
+    const jan = layoutOutline([weeks(6)], 52, JAN);
     expect(jan.used).toBe(43); // 6 weeks × 2 + 31 days
     expect(prints(jan.cells[1])).toBe('FRI JAN 1');
     expect(prints(jan.cells[2])).toBe('SAT JAN 2');
     expect(prints(jan.cells[3])).toBe('WEEK 1  JAN 1-JAN 2');
     expect(prints(jan.cells[41])).toBe('SUN JAN 31');
     expect(prints(jan.cells[42])).toBe('WEEK 6  JAN 31-JAN 31');
-    expect(layoutOutline([weeks()], 52, FEB).used).toBe(38);
+    expect(layoutOutline([weeks(5)], 52, FEB).used).toBe(38);
   });
 
-  it('keeps every block’s dates when it moves', () => {
-    const before = [weeks(), each(pageBlock(review), 'month'), each(pageBlock(daily), 'day')];
-    const moved = moveBlocks(moveBlocks(before, [[2]], { index: 1 })!.outline, [[1]], { index: 0 })!.outline; // the day pages first, then the weeks, then the month review
-    expect(moved.map((b) => b.type)).toEqual(['page', 'group', 'page']);
-    const reads = (outline: Block[]) => layoutOutline(outline, 120, NOV).cells.flatMap((c) => (c && c.read ? [`${c.page?.name} ${c.read.kind} ${c.read.first}..${c.read.last}`] : [])).sort();
-    expect(reads(moved)).toEqual(reads(before));
-    expect(moved[0].type).toBe('page');
-    expect(layoutOutline(moved, 120, NOV).cells[0]!.read!.first).toBe('2026-11-01'); // the first day page, wherever the weeks sit
-  });
-
-  it('puts a plain ×N in a week group on the week, and one outside any span on nothing', () => {
-    const g = weeksGroup([pageBlock(reflection, 2)]);
-    expect(dates([g, pageBlock(daily)]).slice(0, 3)).toEqual(['WEEK 45  NOV 1-NOV 7', 'WEEK 45  NOV 1-NOV 7', 'WEEK 46  NOV 8-NOV 14']);
+  it('reads nothing on a Plain block, and nothing at all without a calendar', () => {
     expect(layoutOutline([pageBlock(daily, 2)], 8, NOV).cells[0]!.read).toBeNull();
-    expect(layoutOutline([pageBlock(daily, 2)], 8).cells[0]!.read).toBeNull(); // no calendar: undated, as before
-  });
-
-  it('is one undated repeat for each week, day or month when the book has no calendar', () => {
+    expect(layoutOutline([typed(pageBlock(daily, 2), 'day')], 8).cells[0]!.read).toBeNull();
     const l = layoutOutline([weeks()], 52);
-    expect(l.used).toBe(3);
+    expect(l.used).toBe(15); // each repeat of the group: the tracker, one undated day page (a run to the end of the week is one copy), the reflection
     expect(l.cells.slice(0, 3).map((c) => c!.read)).toEqual([null, null, null]);
   });
 
-  it('follows the calendar for each day, week or month at the top level', () => {
-    expect(layoutOutline([each(pageBlock(daily), 'day')], 52, NOV).used).toBe(30);
-    expect(layoutOutline([each(pageBlock(reflection), 'week')], 52, JAN).used).toBe(6);
-    expect(layoutOutline([each(pageBlock(review), 'month')], 52, calendarFor(2026, 11, 2)).used).toBe(2);
+  it('runs a Day page to the end of the month, a Week page too, and repeats a Month page by number', () => {
+    expect(layoutOutline([typed(pageBlock(daily), 'day', { to: 'month' })], 52, NOV).used).toBe(30);
+    expect(layoutOutline([typed(pageBlock(reflection), 'week', { to: 'month' })], 52, JAN).used).toBe(6);
+    expect(layoutOutline([typed(pageBlock(review, 2), 'month')], 52, calendarFor(2026, 11, 2)).used).toBe(2);
   });
 
-  it('gives a spread that repeats each day or week two a repeat, or one for both pages', () => {
+  it('gives a spread one date for both pages, or each page its own: two a copy, the left page k and the right page k+1', () => {
     const left = { ...daily, side: 'left' as const }, right = { ...daily, side: 'right' as const };
-    const s = each(spreadBlock('Daily spread', left, right), 'day');
+    const s = typed(spreadBlock('Daily spread', left, right), 'day', { to: 'month' });
     const lead = pageBlock(null); // page 1 is a right page, so the spreads start on page 2
-    const l = layoutOutline([lead, s], 52, NOV);
-    expect(l.used).toBe(31); // 15 spreads of 2 days
-    expect(prints(l.cells[1])).toBe('SUN NOV 1');
-    expect(prints(l.cells[2])).toBe('MON NOV 2');
-    expect(prints(l.cells[3])).toBe('TUE NOV 3');
-    expect(prints(l.cells[30])).toBe('MON NOV 30');
-    const same = layoutOutline([lead, setShared([s], [0], true)[0]], 64, NOV);
+    const same = layoutOutline([lead, s], 64, NOV);
     expect(same.used).toBe(61); // 30 spreads, both pages the same day
     expect([1, 2, 3, 4].map((i) => prints(same.cells[i]))).toEqual(['SUN NOV 1', 'SUN NOV 1', 'MON NOV 2', 'MON NOV 2']);
-    const odd = layoutOutline([lead, each(spreadBlock('S', left, right), 'day')], 52, calendarFor(2026, 12)); // 31 days
+    const own = layoutOutline([lead, setShared([s], [0], false)[0]], 52, NOV);
+    expect(own.used).toBe(31); // 15 spreads of 2 days
+    expect([1, 2, 3, 30].map((i) => prints(own.cells[i]))).toEqual(['SUN NOV 1', 'MON NOV 2', 'TUE NOV 3', 'MON NOV 30']);
+    const odd = layoutOutline([lead, setShared([s], [0], false)[0]], 52, calendarFor(2026, 12)); // 31 days
     expect(odd.used).toBe(33);
-    expect(odd.cells[32]!.read).toBeNull(); // the last right page has no day left
-    // each week: each page its own week, the left page week k and the right page week k+1; the switch makes them share
-    const wk = layoutOutline([lead, each(spreadBlock('W', left, right), 'week')], 52, NOV);
+    expect(odd.cells[32]!.read).toBeNull(); // the last right page has no day left, and that is no problem
+    expect(odd.issues).toEqual([]);
+    const wk = layoutOutline([lead, { ...typed(spreadBlock('W', left, right), 'week', { to: 'month' }), shared: false } as Block], 52, NOV);
     expect(wk.used).toBe(7); // a gap page, then 3 spreads of two weeks (the last right page has no week left)
     expect([1, 2, 3, 4, 5, 6].map((i) => wk.cells[i]!.read?.first)).toEqual(['2026-11-01', '2026-11-08', '2026-11-15', '2026-11-22', '2026-11-29', undefined]);
-    const wkShared = layoutOutline([lead, setShared([each(spreadBlock('W', left, right), 'week')], [0], true)[0]], 52, NOV);
-    expect(wkShared.used).toBe(11);
-    expect(wkShared.cells[1]!.read).toEqual(wkShared.cells[2]!.read);
-    // each month: both pages share the month
-    const mo = layoutOutline([lead, each(spreadBlock('M', left, right), 'month')], 52, NOV);
-    expect(mo.cells[1]!.read).toEqual(mo.cells[2]!.read);
   });
 
   it('prints the dates in the book’s pages, and nothing without a calendar', () => {
@@ -243,12 +218,11 @@ describe('dates come from each block’s own repeat', () => {
 describe('free pages and the calendar', () => {
   const free = (pages: (Page | null)[]) => freeBlock(pages);
   const notes = text('Book notes', 'BOOK NOTES');
-  const outline = (pages: (Page | null)[]): Block[] => [weeksGroup([pageBlock(tracker), ofSpan(pageBlock(daily), 'day'), pageBlock(reflection)]), free(pages), { ...pageBlock(review), repeat: { each: 'month' }, pin: 'last' } as Block];
+  const outline = (pages: (Page | null)[], weeks = 5): Block[] => [weeksGroup(weeks), free(pages), { ...typed(pageBlock(review), 'month-review'), pin: 'last' } as Block];
   const freeAt = (l: ReturnType<typeof layoutOutline>) => l.cells.flatMap((c, i) => (c && c.kind === 'free' ? [`${i + 1}:${c.free}:${c.page?.name ?? '-'}`] : []));
 
   it('take the pages the weeks leave, and keep what is placed when the calendar changes', () => {
-    const o = outline([null, null, notes]);
-    const nov = layoutOutline(o, 52, NOV), jan = layoutOutline(o, 52, JAN);
+    const nov = layoutOutline(outline([null, null, notes]), 52, NOV), jan = layoutOutline(outline([null, null, notes], 6), 52, JAN);
     expect(nov.used).toBe(52);
     expect(nov.rows[1].pages).toBe(11);
     expect(jan.rows[1].pages).toBe(8);
@@ -259,8 +233,8 @@ describe('free pages and the calendar', () => {
   });
 
   it('are kept when they no longer fit, marked, and the book is over', () => {
-    const o = outline([...Array(9).fill(null), notes]); // free page 10 holds a design
-    expect(layoutOutline(o, 52, NOV).over).toBe(0);
+    const o = outline([...Array(9).fill(null), notes], 6); // free page 10 holds a design
+    expect(layoutOutline(outline([...Array(9).fill(null), notes]), 52, NOV).over).toBe(0);
     const jan = layoutOutline(o, 52, JAN); // January leaves 8 pages
     expect(jan.rows[1].beyond).toEqual([8, 9]);
     expect(jan.over).toBe(2);
@@ -280,27 +254,17 @@ describe('free pages and the calendar', () => {
 });
 
 describe('the book file', () => {
-  const book = (calendar: unknown): Book => ({ ...emptyBook(), calendar: calendar as Book['calendar'], outline: [each(pageBlock(daily), 'day')] });
+  const book = (calendar: unknown): Book => ({ ...emptyBook(), calendar: calendar as Book['calendar'], outline: [typed(pageBlock(daily), 'day', { to: 'month' })] });
 
-  it('reads a calendar and the repeats that follow it, and keeps them when read again', () => {
+  it('reads a calendar and the page types, and keeps them when read again', () => {
     const b = book(NOV);
-    b.outline = [weeksGroup([pageBlock(tracker), ofSpan(pageBlock(daily), 'day')]), setShared([each(spreadBlock('S', { ...daily, side: 'left' }, { ...daily, side: 'right' }), 'day')], [0], true)[0]];
+    b.outline = [weeksGroup(), setShared([typed(spreadBlock('S', { ...daily, side: 'left' }, { ...daily, side: 'right' }), 'day', { to: 'week' })], [0], false)[0]];
     const r = readBook(JSON.parse(JSON.stringify(b)));
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.book).toEqual(b);
   });
 
-  it('refuses a calendar that is not real, and a repeat in the wrong place', () => {
+  it('refuses a calendar that is not real', () => {
     expect(readBook(JSON.parse(JSON.stringify(book({ start: '2026-02-30', end: '2026-03-01', week_starts: 0 })))).ok).toBe(false);
-    const inGroup = weeksGroup([each(pageBlock(daily), 'day') as Child]); // each day of the calendar is for top-level blocks
-    expect(readBook(JSON.parse(JSON.stringify({ ...book(NOV), outline: [inGroup] }))).ok).toBe(false);
-    const topSpan = ofSpan(pageBlock(daily), 'day') as Block; // "of the span" needs a group
-    expect(readBook(JSON.parse(JSON.stringify({ ...book(NOV), outline: [topSpan] }))).ok).toBe(false);
-  });
-
-  it('turns a repeat to each week and back', () => {
-    const o = setRepeat([pageBlock(daily)], [0], { each: 'week' });
-    expect(o[0]).toMatchObject({ repeat: { each: 'week' } });
-    expect(setRepeat(o, [0], { times: 3 })[0]).toMatchObject({ repeat: { times: 3 } });
   });
 });

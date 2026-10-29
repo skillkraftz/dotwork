@@ -8,7 +8,7 @@ afterAll(async () => { await stop(env); });
 const noErrors = (app: App) => expect(app.errors).toEqual([]);
 const pageCount = async (app: App) => (await libraryItems(app)).filter((i) => i.kind === 'page').length;
 
-/** The Monthly log for November 2026: week planner, daily logs and a reflection for each of its five weeks. */
+/** The Monthly log for November 2026: the weekly page, daily logs and a reflection for each of its five weeks. */
 async function monthlyLog(app: App) {
   await choose(app, 'edit', '#library');
   await app.page.waitForSelector('dialog.library.browser[open] .lib-card');
@@ -53,14 +53,14 @@ for (const device of ['phone', 'desktop'] as Device[]) {
       const before = await pageCount(app);
       const start = await openDoc(app, 'book');
       expect(start.outline[0].children[0].repeat).toEqual({ times: 1 });
-      expect(start.outline[0].repeat).toEqual({ each: 'week' });
+      expect(start.outline[0].repeat).toEqual({ times: 5 });
       const planned = rules(weekPlanner(start));
 
       // The Edit page button by the page being looked at: page 1 is the first week planner. Back returns to the same page.
       await shot(app, `edit-here-${device}-button`);
       await hit(app, '[data-key="book-edit-page"]');
       await page.waitForSelector('#edit-bar:not([hidden])');
-      expect(await page.innerText('#edit-text')).toBe('Editing p.1 in NOVEMBER 2026 log · Week planner, ×1: changes all 5');
+      expect(await page.innerText('#edit-text')).toBe('Editing p.1 in NOVEMBER 2026 log · Year journal weekly page (dated), ×1: changes all 5');
       expect(await page.locator('#docbar').isHidden()).toBe(true);
       await hit(app, '#edit-back');
       await page.waitForSelector('#edit-bar', { state: 'hidden' });
@@ -71,7 +71,7 @@ for (const device of ['phone', 'desktop'] as Device[]) {
       await goToPage(app, third);
       await hit(app, '[data-key="book-edit-page"]');
       await page.waitForSelector('#edit-bar:not([hidden])');
-      expect(await page.innerText('#edit-text')).toBe(`Editing p.${third} in NOVEMBER 2026 log · Week planner, ×1: changes all 5`);
+      expect(await page.innerText('#edit-text')).toBe(`Editing p.${third} in NOVEMBER 2026 log · Year journal weekly page (dated), ×1: changes all 5`);
       await choose(app, 'edit', '#mode-preview');
       const texts = await page.locator('#canvas text').evaluateAll((els) => els.map((e) => e.textContent));
       expect(texts).toContain(String(thirdWeekFirstDay)); // Nov 15: the third week starts on a Sunday, 15
@@ -124,11 +124,11 @@ for (const device of ['phone', 'desktop'] as Device[]) {
       await waitSaved(app);
       const book = await openDoc(app, 'book');
       expect(book.outline[0].children[0]).toMatchObject({ type: 'page', page: { name: 'Lined page' }, repeat: { times: 1 } });
-      expect(book.outline[0]).toMatchObject({ type: 'group', repeat: { each: 'week' } });
+      expect(book.outline[0]).toMatchObject({ type: 'group', repeat: { times: 5 } });
       if (await page.locator('.contents-toggle').isVisible()) await hit(app, '.contents-close');
       await hit(app, '[data-key="book-undo"]');
       await waitSaved(app);
-      expect((await openDoc(app, 'book')).outline[0].children[0].page.name).toBe('Week planner');
+      expect((await openDoc(app, 'book')).outline[0].children[0].page.name).toBe('Year journal weekly page (dated)');
       noErrors(app);
     });
   });

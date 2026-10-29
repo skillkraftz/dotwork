@@ -1,4 +1,4 @@
-# Dotwork book file, version 1
+# Dotwork book file, version 2
 
 A book is the 52 (or more) interior pages of a pocket notebook plus its four cover pages (inside and outside). It is an
 **outline**: an ordered list of blocks (a page, a spread, free pages or a group), each with how often it repeats. The pages the
@@ -11,7 +11,7 @@ inside is a complete page file exactly as `page-format.md` defines it (version 2
 ```json
 {
   "format": "dotwork-book",
-  "version": 1,
+  "version": 2,
   "name": "Pocket journal",
   "page_count": 52,
   "page_numbers": true,
@@ -45,19 +45,21 @@ inside is a complete page file exactly as `page-format.md` defines it (version 2
 **Old books.** A book from before the outline stored every page in a `pages` list (with `dates` and a `recipe`). It has no
 `outline`, so it is not read and not converted: the Library lists it as **Old format** with Export and Delete.
 
+**Old date settings.** Version 1 books dated pages with `{"each": "day" | "week" | "month"}` and `{"each": …, "of": "span"}` repeats. A book that has them still opens: each such repeat becomes Once (`{"times": 1}`), every block is Plain, and the layout carries one issue, "This book was made with the old date settings; set its page types again." (it goes when the outline is edited). Nothing else of version 1 is converted; the reader accepts version 1 or 2 and the app writes 2.
+
 ## The outline
 
 A **block** is one of:
 
 | `type` | Fields | Meaning |
 |--------|--------|---------|
-| `page` | `page`, `repeat` | A page design, or `null` for a blank page, placed `repeat` times. The design is stored as designed; it is turned to face the side of each page it lands on. |
-| `spread` | `name`, `left`, `right`, `repeat` | A left and a right page that stay together, placed `repeat` times. A spread always starts on a left page (see **Gap pages**). `left` must have `"side": "left"` and `right` `"side": "right"`. |
+| `page` | `page`, `repeat`, `dates` | A page design, or `null` for a blank page, placed `repeat` times. The design is stored as designed; it is turned to face the side of each page it lands on. |
+| `spread` | `name`, `left`, `right`, `repeat`, `dates`, `shared` | A left and a right page that stay together, placed `repeat` times. A spread always starts on a left page (see **Gap pages**). `left` must have `"side": "left"` and `right` `"side": "right"`. |
 | `free` | `pages` | Pages the owner fills by hand. At the top level the block takes every page the other blocks leave; each entry of `pages` is the design kept on that free page (`null` is blank), and the rest are blank. Inside a group it is exactly `pages` (one blank page when empty) for each repeat of the group. |
-| `group` | `name`, `children`, `repeat` | `children` are page, spread and free blocks (groups do not nest) that repeat together: a group's `repeat` repeats its whole contents. Inside a group a block's `repeat` is `{"times": n}` only and it has no `pin`. |
+| `group` | `name`, `children`, `repeat` | `children` are page, spread and free blocks (groups do not nest) that repeat together: a group's `repeat` repeats its whole contents. Inside a group a block's `repeat` is `{"times": n}` or (for a dated block) `{"to": …}`, and it has no `pin`. |
 
-Every page, spread and group block has a `repeat`: `{"times": n}` (1 to 400; the default is 1), `{"each": …}` (follows the calendar,
-see **The calendar** below) or `{"fill": true}`, **fill what is left**: as many repeats as use up the pages the other blocks leave, so the book keeps its page count. Fill is allowed only on a
+Every page, spread and group block has a `repeat`: `{"times": n}` (1 to 400; the default is 1), `{"to": "week" | "month"}` (a dated
+page or spread only: copies to the end of the week or month, see **Page types** below) or `{"fill": true}`, **fill what is left**: as many repeats as use up the pages the other blocks leave, so the book keeps its page count. Fill is allowed only on a
 top-level block. **At most one top-level block takes what is left: one fill, or one `free` block.**
 
 A top-level page, spread or group block can be **pinned** with `"pin": 52` (a page number, 1 to 400) or `"pin": "last"` (the
@@ -104,18 +106,27 @@ a first month, a year and a number of months (default 1) and writes the first an
 may be partial: a page reads only the days of it inside the calendar. January 2027 has six weeks: Fri 1 to Sat 2, four full
 weeks, then Sun 31.
 
-**Repeats that follow the calendar.** At the top level a page, spread or group may repeat `{"each": "day"}`, `"week"` or `"month"`:
-one repeat for each of them, wherever the block sits in the outline, so moving a block never changes its dates. A group that repeats
-each week (or month, or day) gives its children that repeat's **span**. Inside such a group a page or spread repeats
-`{"each": "day", "of": "span"}` (or `"week"`) for each day or week of the span inside the calendar, so a week group makes fewer day
-pages in a partial week; a plain `{"times": n}` child reads the span (a tracker and a reflection in a week group read the week). A
-block that reads a span in a group that does not repeat by the calendar, and any `each` repeat in a book with no calendar, is placed
-once and undated. A spread has an optional `"shared"`: true makes both pages read the same day, week or month; left out, a spread
-that repeats each day or each week gives each page its own (two a repeat, the left page then the right: left page week *k*, right page
-week *k*+1; an odd last one leaves the right page undated) and one that repeats each month gives both pages the one month; false makes
-a month spread read two consecutive months.
+**Page types.** A page or spread block may carry `"dates"`: `"day"`, `"week"`, `"month"`, `"week-review"` or `"month-review"`; left out it is
+**Plain** and reads nothing (groups and free pages have no type). The layout walks the outline in order (a group's children in order,
+each repeat of the group in turn, pinned blocks too: a block's dates come from its place in the outline, not its page number) with
+three counters that start at the calendar's first day, first week and first month. Each copy of a **Day page** reads the next day,
+each copy of a **Week page** the next week (a partial first or last week reads only its days inside the calendar), each copy of a
+**Month page** the next month. A **Week review** reads the week of the last Day page before it in the walk (no Day page yet: the last
+Week page; none: the first week), a **Month review** the month of that day (else the last Month page, else the first month); a review
+uses no counter. A spread is one copy: both pages read the same date. `"shared": false` ("Each page its own date") gives the left page
+one date and the right the next, so a copy takes two (left page week *k*, right page week *k*+1; a last right page past the calendar
+is left undated without an issue). A fill that comes before dated blocks counts the copies it actually gets, so the dates after it
+follow. Without a calendar everything prints blank and a run to the end of a week or month is one copy.
 
-**Tokens.** Each page placed by the outline reads one day, week or month, as the days of it inside the calendar. A day page reads its
+**Runs.** `{"to": "week"}` (Day pages) makes copies until the last day of the week of the next day (the week's last day, or the
+calendar's end); `{"to": "month"}` (Day and Week pages) until the end of the month of the next date (for a week, the month its first
+day is in), or the calendar's end. They make as many copies as there are days or weeks left, so a partial week makes fewer; with
+`"shared": false` a copy takes two. A run that starts after the calendar's end makes none.
+
+**Past the calendar.** A dated copy whose date falls after the calendar's last day prints its tokens blank and the layout reports
+one issue for the block: "Page *N* is past the calendar's last day (Nov 30)." (*N* is the first such page.)
+
+**Tokens.** Each dated page placed by the outline reads one day, week or month, as the days of it inside the calendar. A day page reads its
 day. A week page: `{day}`, `{weekday}`, `{month}`, `{year}` are the **week's** first day (a Sunday with the default week start) and
 `{day+N}` / `{weekday+N}` its Nth day, so day columns never shift; a date token whose day is outside the calendar prints blank
 (`{day}`, `{day+N}`, and `{month}`, `{monthname}`, `{year}` without an offset), while `{weekday}` names always print because they label
@@ -125,7 +136,7 @@ takes an offset), so the last week of November 2026 reads `NOV 29 – NOV 30` an
 (the year `start` is in): the week holding 1 January of that year, counted from the week start, is week 1, so Dec 27 to Jan 2 is week
 53 in a book that starts in December 2026 and week 1 in one that starts in January 2027; `{week+1}` is the next week's number.
 `{months}` of a week or month that spans two months reads `DEC / JAN`. Pages that read nothing (no calendar, a gap page, a block
-outside any span, a day beyond the calendar) print every token blank, so the date can be written in by hand. The four covers read the calendar's first month, as a month page does (`{monthname}` NOVEMBER, `{month}` NOV, `{year}` 2026, offsets in their own unit so `{monthname+1}` is DECEMBER, day tokens the first day inside the calendar); a book without a calendar prints them blank. The
+Plain, a day beyond the calendar) print every token blank, so the date can be written in by hand. The four covers read the calendar's first month, as a month page does (`{monthname}` NOVEMBER, `{month}` NOV, `{year}` 2026, offsets in their own unit so `{monthname+1}` is DECEMBER, day tokens the first day inside the calendar); a book without a calendar prints them blank. The
 outline row of a page that prints dates says what its first repeat prints (`reads: SUN NOV 1`, `reads: NOV 1 – NOV 7`). The dates
 reach `pages.pdf`, the print files, the cover PDFs, `preview.png` and Flip through. See `src/format/calendar.ts` and `layoutOutline`.
 
@@ -136,7 +147,7 @@ the design on it (blank pages at the end of `pages` are dropped) takes it out.
 
 **Validation.** A reader rejects the whole file, and says which rule failed and where, if the format or version is wrong,
 `page_count` is not a multiple of 4, `outline` is missing or not a list, a block has an unknown `type`, a `repeat` or `pin` is out of
-range, a `fill` is on a pinned block or inside a group, an `each` is in the wrong place or a `calendar` is not real, a group is inside a group, a spread's pages are on the wrong sides, more than
+range, a `fill` is on a pinned block or inside a group, a `dates` or `to` does not fit (a `to` needs a type that suits it) or a `calendar` is not real, a group is inside a group, a spread's pages are on the wrong sides, more than
 one top-level block takes what is left, a `from` is not `{id, fingerprint}`, or a page breaks the page rules. The page-number corner
 rule is not applied to the covers.
 

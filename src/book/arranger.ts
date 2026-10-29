@@ -18,10 +18,10 @@ import { flipThrough } from './flip';
 import { isUntitled } from '../documents';
 import { designName, opening, slotLabel } from './labels';
 import {
-  addBlock, blockAt, canAddFree, canFill, duplicateBlocks, fillRepeat, freeBlock, groupBlock, groupBlocks, howOftenOf, howOftenOptions, insertPoint, moveBlocks,
-  firstCell, isEach, layoutOutline, nameOf, normalizePaths, pageBlock, printsNoDates, removeBlocks, repeatLabel, repeatOf, replaceBlock, setDesign, setFreePage, setPin, setRepeat, setShared,
+  addBlock, blockAt, canAddFree, DATE_KIND_LABELS, DATE_KINDS, datesCovered, fitsTo, canFill, duplicateBlocks, fillRepeat, freeBlock, groupBlock, groupBlocks, howOftenOf, howOftenOptions, insertPoint, moveBlocks,
+  firstCell, isTo, layoutOutline, nameOf, normalizePaths, pageBlock, removeBlocks, repeatLabel, repeatOf, replaceBlock, setDesign, setFreePage, setDates, setPin, setRepeat, setShared,
   spreadBlock, timesOf, totalLine, ungroupBlock, MAX_REPEAT,
-  type Block, type Child, type DropTarget, type GroupBlock, type HowOften, type Link, type Path, type Repeat, type Row,
+  type Block, type DateKind, type DropTarget, type HowOften, type Link, type Path, type Repeat, type Row,
 } from './outline';
 
 export interface ArrangerHost {
@@ -110,9 +110,6 @@ function commitField(field: HTMLInputElement | HTMLSelectElement, commit: () => 
 /** A path as an attribute value: "2" or "2.1". */
 const keyOf = (path: Path) => path.join('.');
 
-/** The pages a child takes in one repeat of its group (not counting any gap pages); for a child that follows the calendar, in all. */
-const childPages = (c: Child, all: number) => (c.type === 'free' ? Math.max(1, c.pages.length) : isEach(c.repeat) ? all : (c.type === 'spread' ? 2 : 1) * timesOf(c.repeat));
-
 /**
  * The book: its pages one at a time (or as spreads), and the outline that makes them. The outline is a list of blocks (a page,
  * a spread, free pages or a group) with a repeat and, if wanted, a page to pin to. The covers are designed on their own.
@@ -155,7 +152,7 @@ export class Arranger {
   /** What the picker is choosing: a design for a cover, or a block to add (to a group, or to the end of the outline). */
   private picking: { for: 'cover' } | { for: 'free'; path: Path; index: number } | { for: 'replace'; path: Path } | { for: 'add' } = { for: 'add' };
   /** The card opened in the Add… picker: what it makes and how often it repeats. */
-  private pending: { key: string; make: (c?: Choice) => Block; choice?: Choice; repeat: Repeat | null } | null = null;
+  private pending: { key: string; make: (c?: Choice) => Block; choice?: Choice; repeat: Repeat | null; dates?: DateKind } | null = null;
 
   constructor(root: HTMLElement, private host: ArrangerHost, book: Book) {
     this.book = book;
@@ -514,20 +511,25 @@ export class Arranger {
         h('span', { class: 'crow-text' }, h('strong', {}, plural(slots.length, 'gap page')), h('span', { class: 'crow-name' }, `${slots.length === 1 ? `Page ${slots[0]}` : `Pages ${slots.join(', ')}`}: keeps the spread on a left page`))));
   }
 
-  /** What a block row says under its name: "×10 · 10 pages · p.1–10 · pinned: last page". */
+  /** What a block row says under its name: "×10 · Day page · 10 pages · p.1–10 · Nov 1–10 · pinned: last page". */
   private summary(block: Block, row: Row | null, path: Path): string {
-    const parent = path.length === 2 ? (this.book.outline[path[0]] as GroupBlock) : undefined;
+    const lay = bookLayout(this.book);
     const parts: string[] = [];
     if (block.type === 'free') parts.push(row ? 'takes what’s left' : 'free pages');
-    else parts.push(repeatLabel(block, parent));
+    else parts.push(repeatLabel(block));
+    if (block.type !== 'free' && block.type !== 'group' && block.dates && this.book.calendar) parts.push(DATE_KIND_LABELS[block.dates]);
     if (row) {
       parts.push(plural(row.pages, 'page'));
       if (row.first !== null) parts.push(row.last !== row.first ? `p.${row.first}–${row.last}` : `p.${row.first}`);
       if (row.innerGaps) parts.push(plural(row.innerGaps, 'gap page'));
       if (row.beyond.length) parts.push(`${row.beyond.length} ${row.beyond.length === 1 ? 'doesn’t' : 'don’t'} fit`);
     } else if (block.type !== 'group') {
-      const all = parent ? bookLayout(this.book).cells.filter((c) => c && c.block === path[0] && c.child === path[1]).length : 0;
-      parts.push(plural(childPages(block, all), 'page') + (block.type !== 'free' && isEach(block.repeat) ? ' in all' : ''));
+      const n = lay.cells.filter((c) => c && c.kind !== 'gap' && c.block === path[0] && c.child === path[1]).length;
+      parts.push(plural(n, 'page') + ((lay.rows[path[0]]?.repeats ?? 1) > 1 ? ' in all' : ''));
+    }
+    if (block.type !== 'free' && block.type !== 'group' && block.dates) {
+      const covered = datesCovered(lay.cells.filter((c) => c && c.block === path[0] && (path.length === 1 || c.child === path[1])), this.book.calendar);
+      if (covered) parts.push(covered);
     }
     if (block.type === 'group') parts.push(plural(block.children.length, 'block'));
     if (block.type !== 'free' && block.pin !== undefined) parts.push(block.pin === 'last' ? 'pinned: last page' : `pinned: p.${block.pin}`);
@@ -538,10 +540,8 @@ export class Arranger {
   private readsLine(block: Block, path: Path): string | null {
     if (block.type === 'group' || block.type === 'free') return null;
     const lay = bookLayout(this.book);
-    // With a calendar, a block that doesn't follow it (a plain ×N, a fill) reads nothing; say so rather than "outside the calendar".
-    const parent = path.length === 2 ? this.book.outline[path[0]] : null;
-    const follows = isEach(block.repeat) || (parent !== null && parent.type === 'group' && isEach(parent.repeat));
-    const cal: boolean | 'unplaced' = this.book.calendar ? (follows ? true : 'unplaced') : false;
+    // With a calendar, a Plain block reads nothing; say so rather than "outside the calendar".
+    const cal: boolean | 'unplaced' = this.book.calendar ? (block.dates ? true : 'unplaced') : false;
     const first = firstCell(lay, path[0], path.length === 2 ? path[1] : undefined);
     const pages = block.type === 'spread' ? [block.left, block.right] : [block.page];
     const reads = pages.map((p, i) => readsText(p, first ? (lay.cells[first.slot - 1 + i]?.read ?? null) : null, cal));
@@ -719,14 +719,15 @@ export class Arranger {
       controls.push(h('p', { class: 'hint' }, top ? 'Pages you fill by hand. They take whatever pages the other blocks leave.' : 'Pages you fill by hand, for each repeat of the group.'), ...this.freeList(path, block));
     } else {
       const filling = 'fill' in block.repeat;
+      if (block.type !== 'group' && this.book.calendar) controls.push(this.datesSelect(path, block));
       if (!filling) {
         controls.push(this.repeatSelect(path, block));
-        if (!isEach(block.repeat)) controls.push(this.stepper('Repeat', 'outline-repeat', timesOf(block.repeat), 1, MAX_REPEAT, (n) => this.editOutline((x) => setRepeat(x, path, { times: n }))));
-        else if (block.type === 'spread' && isEach(block.repeat)) {
-          const unit = block.repeat.each, shared = block.shared ?? unit === 'month';
-          controls.push(h('div', { class: 'field' }, h('span', { class: 'field-label' }, 'Pages'),
-            button('outline-shared', shared ? `Both pages the same ${unit}` : `One ${unit} for each page`, () => this.editOutline((x) => setShared(x, path, !shared)), { 'aria-pressed': String(shared) })));
-        }
+        if (!isTo(block.repeat)) controls.push(this.stepper('Repeat', 'outline-repeat', timesOf(block.repeat), 1, MAX_REPEAT, (n) => this.editOutline((x) => setRepeat(x, path, { times: n }))));
+      }
+      if (block.type === 'spread' && block.dates && block.dates !== 'week-review' && block.dates !== 'month-review') {
+        const own = block.shared === false;
+        controls.push(h('div', { class: 'field' }, h('span', { class: 'field-label' }, 'Pages'),
+          button('outline-shared', 'Each page its own date', () => this.editOutline((x) => setShared(x, path, own)), { 'aria-pressed': String(own) })));
       }
       if (top) {
         controls.push(h('div', { class: 'field' }, h('span', { class: 'field-label' }, 'Fill'),
@@ -764,22 +765,33 @@ export class Arranger {
     return h('div', { class: 'outline-settings', 'data-key': 'outline-settings', 'aria-label': `Settings: ${nameOf(block)}` }, ...controls, h('div', { class: 'row' }, ...actions));
   }
 
-  /** How often the block repeats: once, a number of times, or every day, week or month of the calendar (or of the group's span). */
-  private repeatSelect(path: Path, block: Exclude<Block, { type: 'free' }>): HTMLElement {
-    const parent = path.length === 1 ? null : (this.book.outline[path[0]] as GroupBlock);
-    return this.repeatChooser(block.repeat, parent, (next) => this.editOutline((x) => setRepeat(x, path, next)), 'outline-each', 'outline-each');
+  /** The block's page type: Plain, or the dates it reads (only in a book with a calendar). */
+  private datesSelect(path: Path, block: Extract<Block, { type: 'page' | 'spread' }>): HTMLElement {
+    return this.datesChooser(block.dates, (next) => this.editOutline((x) => setDates(x, path, next)), 'outline-dates', 'outline-dates');
   }
 
-  /** The "How often" select. `parent` is the group the block is in (null at the top level); a group that repeats by week or month gives its blocks the choices of its span. */
-  private repeatChooser(r: Repeat, parent: GroupBlock | null, set: (next: Repeat) => void, key: string, help: string): HTMLElement {
-    const cal = !!this.book.calendar;
-    const unit = parent && isEach(parent.repeat) && parent.repeat.each !== 'day' ? parent.repeat.each : null;
+  private datesChooser(dates: DateKind | undefined, set: (next: DateKind | null) => void, key: string, help: string): HTMLElement {
+    const select = h('select', { 'aria-label': 'Page type', 'data-key': key, 'data-help': help },
+      h('option', { value: '', selected: !dates }, 'Plain'),
+      ...DATE_KINDS.map((k) => h('option', { value: k, selected: k === dates }, DATE_KIND_LABELS[k])));
+    commitField(select, () => set((select.value || null) as DateKind | null));
+    return h('div', { class: 'field' }, h('label', {}, 'Page type'), select);
+  }
+
+  /** How often the block repeats: once, a number of times, or (for a Day or Week page) to the end of the week or month. */
+  private repeatSelect(path: Path, block: Exclude<Block, { type: 'free' }>): HTMLElement {
+    return this.repeatChooser(block.repeat, 'dates' in block ? block.dates : undefined, (next) => this.editOutline((x) => setRepeat(x, path, next)), 'outline-each', 'outline-each');
+  }
+
+  /** The "How often" select. The choices to the end of the week or month are there for the page types they suit. */
+  private repeatChooser(r: Repeat, dates: DateKind | undefined, set: (next: Repeat) => void, key: string, help: string): HTMLElement {
     const value = howOftenOf(r);
+    const options = howOftenOptions(dates);
+    if (value !== 'fill' && !options.some((o) => o.value === value)) options.push({ value, label: value === 'to-week' ? 'To the end of the week' : 'To the end of the month' });
     const select = h('select', { 'aria-label': 'How often', 'data-key': key, 'data-help': help },
-      ...howOftenOptions(parent === null, unit, cal, r).map((o) => h('option', { value: o.value, selected: o.value === value, disabled: !o.on && o.value !== value }, o.label)));
+      ...options.map((o) => h('option', { value: o.value, selected: o.value === value }, o.label)));
     commitField(select, () => set(repeatOf(select.value as HowOften, r)));
-    return h('div', { class: 'field' }, h('label', {}, 'How often'), select,
-      printsNoDates(r, parent, cal) ? h('p', { class: 'hint no-dates', 'data-key': `${key}-hint` }, 'Repeats by number print no dates.') : null);
+    return h('div', { class: 'field' }, h('label', {}, 'How often'), select);
   }
 
   /** The free pages that hold a design or don't fit, each with a way to take it off. */
@@ -987,16 +999,16 @@ export class Arranger {
   }
 
   /**
-   * A page or spread that prints dates is placed to repeat the way its tokens suggest (docs/product-model.md, D13): each day, week or
-   * month of the calendar, or, in a group that repeats by week or month, each day of its span. Anything else stays ×1.
+   * A page or spread that prints dates is placed as the page type its tokens suggest (docs/product-model.md, D13), in a book with a
+   * calendar: a Day page runs to the end of the month (in a group, of the week), a Week page too (in a group, once), a Month page is once.
+   * Anything else stays Plain, once.
    */
-  private withSuggestedRepeat(block: Block, group: number | null): Block {
-    if (block.type !== 'page' && block.type !== 'spread') return block;
+  private withSuggestedDates(block: Block, group: number | null): Block {
+    if ((block.type !== 'page' && block.type !== 'spread') || !this.book.calendar) return block;
     const unit = block.type === 'page' ? suggestUnit(block.page) : suggestUnit(block.left, block.right);
     if (!unit) return block;
-    if (group === null) return this.book.calendar ? { ...block, repeat: { each: unit } } : block;
-    const parent = this.book.outline[group];
-    return unit === 'day' && parent?.type === 'group' && isEach(parent.repeat) ? { ...block, repeat: { each: 'day', of: 'span' } } : block;
+    const repeat: Repeat = unit === 'month' ? { times: 1 } : group === null ? { to: 'month' } : unit === 'day' ? { to: 'week' } : { times: 1 };
+    return { ...block, dates: unit, repeat };
   }
 
   // ---- the card being set in the Add… picker ----------------------------------------------
@@ -1004,7 +1016,10 @@ export class Arranger {
   /** What the open card makes, with the repeat set on it. */
   private pendingBlock(p: NonNullable<Arranger['pending']>): Block {
     const b = p.make(p.choice);
-    return b.type !== 'free' && p.repeat ? { ...b, repeat: p.repeat } : b;
+    if (b.type === 'free' || !p.repeat) return b;
+    if (b.type === 'group') return { ...b, repeat: p.repeat };
+    const { dates: _old, ...rest } = b;
+    return { ...rest, repeat: p.repeat, ...(p.dates ? { dates: p.dates } : {}) };
   }
 
   /** Tapping a card opens it in place: its repeat (prefilled the way its dates suggest), where it goes, and its own Add. Tapping it again closes it. */
@@ -1012,8 +1027,8 @@ export class Arranger {
     if (this.pending?.key === key) this.pending = null;
     else {
       const first = make(choice);
-      const start = this.withSuggestedRepeat(first, this.addAt(first).group ?? null);
-      this.pending = { key, make, choice, repeat: start.type === 'free' ? null : start.repeat };
+      const start = this.withSuggestedDates(first, this.addAt(first).group ?? null);
+      this.pending = { key, make, choice, repeat: start.type === 'free' ? null : start.repeat, dates: start.type === 'page' || start.type === 'spread' ? start.dates : undefined };
     }
     this.renderPicker();
     this.pickerBody.querySelector('.design.open')?.scrollIntoView?.({ block: 'start' });
@@ -1038,9 +1053,12 @@ export class Arranger {
     const fields: HTMLElement[] = [];
     if (p.repeat) {
       const r = p.repeat, filling = 'fill' in r;
+      if (block.type !== 'group' && this.book.calendar) {
+        fields.push(this.datesChooser(p.dates, (dates) => set({ dates: dates ?? undefined, repeat: isTo(r) && !fitsTo(dates ?? undefined, r.to) ? { times: 1 } : r }), 'add-dates', 'add-dates'));
+      }
       if (!filling) {
-        fields.push(this.repeatChooser(r, top ? null : (o[at.group!] as GroupBlock), (next) => set({ repeat: next }), 'add-each', 'add-each'));
-        if (!isEach(r)) fields.push(this.stepper('Repeat', 'add-repeat', timesOf(r), 1, MAX_REPEAT, (n) => set({ repeat: { times: n } })));
+        fields.push(this.repeatChooser(r, p.dates, (next) => set({ repeat: next }), 'add-each', 'add-each'));
+        if (!isTo(r)) fields.push(this.stepper('Repeat', 'add-repeat', timesOf(r), 1, MAX_REPEAT, (n) => set({ repeat: { times: n } })));
       }
       if (top) {
         const can = canAddFree(o);
@@ -1096,7 +1114,7 @@ export class Arranger {
       const first = group !== undefined ? firstCell(lay, group, index)?.slot : lay.rows[index]?.first;
       if (first) this.slot = first;
       const added = blockAt(o, path);
-      const how = added && added.type !== 'free' && isEach(added.repeat) ? ` It repeats ${repeatLabel(added, group !== undefined ? (o[group] as GroupBlock) : undefined)}; change that in its settings.` : '';
+      const how = added && (added.type === 'page' || added.type === 'spread') && added.dates ? ` It is a ${DATE_KIND_LABELS[added.dates]}, ${repeatLabel(added)}; change that in its settings.` : '';
       this.say(`Added “${nameOf(block)}”${group !== undefined ? ` to ${nameOf(o[group])}` : ''}.${how} Undo takes it back.`);
     });
     this.contents.querySelector('.orow.selected')?.scrollIntoView?.({ block: 'nearest' });
@@ -1167,10 +1185,9 @@ export class Arranger {
     }
     const block = blockAt(b.outline, t.path);
     if (!block || (block.type !== 'page' && block.type !== 'spread') || slot === null) return null;
-    const parent = t.path.length === 2 ? (b.outline[t.path[0]] as GroupBlock) : undefined;
     const placed = bookLayout(b).cells.filter((c) => !!c && c.kind === 'content' && c.block === t.path[0] && (t.path.length === 1 || c.child === t.path[1])).length;
     const n = block.type === 'spread' ? Math.ceil(placed / 2) : placed;
-    const what = `${nameOf(block)}, ${repeatLabel(block, parent)}: ${n > 1 ? `changes all ${n}` : `changes this ${block.type}`}`;
+    const what = `${nameOf(block)}, ${repeatLabel(block)}: ${n > 1 ? `changes all ${n}` : `changes this ${block.type}`}`;
     if (block.type === 'page') {
       return {
         ...common, kind: 'page', pages: [structuredClone(block.page ?? blankPage(slotSide(slot)))], where: `p.${slot}`, what, preview: reads(slot, 1),

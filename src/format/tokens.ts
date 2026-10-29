@@ -202,6 +202,6 @@ export function readingLabel(r: Reading): string {
  */
 export function readsText(page: Page | null, read: Reading | null, calendar: boolean | 'unplaced'): string | null {
   if (!page || !usesDates(page)) return null;
-  if (!read) return calendar === 'unplaced' ? 'blank: not repeated by the calendar' : calendar ? 'outside the calendar' : 'blank, no calendar';
+  if (!read) return calendar === 'unplaced' ? 'blank: the page type is Plain' : calendar ? 'outside the calendar' : 'blank, no calendar';
   return page.identity && hasTokens(page.identity) ? expandTokens(page.identity, read) : readingLabel(read);
 }

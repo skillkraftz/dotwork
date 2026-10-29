@@ -1,6 +1,6 @@
 import { emptyBook, resizeBook, setCover, type Book } from '../book/book';
-import { fillRepeat, freeBlock, groupBlock, pageBlock, spreadBlock, type Block, type Child } from '../book/outline';
-import { calendarFor, type Calendar } from '../format/calendar';
+import { fillRepeat, freeBlock, groupBlock, pageBlock, spreadBlock, type Block, type DateKind, type PageBlock } from '../book/outline';
+import { calendarFor, spansOf, type Calendar } from '../format/calendar';
 import { addDays, weekStart } from '../format/dates';
 import { buildSpread } from '../format/spread';
 import type { Page } from '../format/types';
@@ -43,10 +43,12 @@ const ideaSpreads = (): Block => {
   return { ...spreadBlock(s.name, s.left, s.right), repeat: fillRepeat() };
 };
 
-/** A page that repeats for each day, week or month of the calendar. */
-const each = (page: Page, unit: 'day' | 'week' | 'month'): Block => ({ ...pageBlock(page), repeat: { each: unit } });
-/** A page in a week group that repeats for each day of the group's week. */
-const eachDayOfWeek = (page: Page): Child => ({ ...pageBlock(page), repeat: { each: 'day', of: 'span' } });
+/** A page of a page type (it reads the next day, week or month; a review reads the week or month of the day pages before it), once. */
+const typed = (page: Page, dates: DateKind): PageBlock => ({ ...pageBlock(page), dates });
+/** Daily pages up to the end of each week: the first and last week are partial, so they make fewer. */
+const dailyWeek = (page: Page): PageBlock => ({ ...typed(page, 'day'), repeat: { to: 'week' } });
+/** One group repeat for each week of the calendar. */
+const weekGroup = (cal: Calendar, children: PageBlock[]): Block => groupBlock('Weeks', children, spansOf(cal, 'week').length);
 
 /** Notes pages pinned to the last pages of the book. */
 const closingNotes = (n: number): Block => ({ ...pageBlock(notesPage(), n), pin: 'last' });
@@ -66,24 +68,26 @@ const monthlyJournal: BookTemplate = {
   build(a = {}) {
     const year = a.year ?? YEAR.value, month = a.month ?? 1;
     const layout = monthlyLayout(year, month);
-    // Each week of the month: a daily page for each day of it inside the month, then the week's reflection. Dates come from the calendar.
-    const weeks: Block = { ...groupBlock('Weeks', [eachDayOfWeek(example('Daily Log')), pageBlock(weeklyReflection())]), repeat: { each: 'week' } };
-    const outline: Block[] = [weeks, each(patternsPage(), 'month'), each(questionsPage(), 'month'), ideaSpreads(), closingNotes(3)];
-    return assemble(`${MONTH_NAMES[month - 1]} ${year} journal`, outline, monthlyTracker(year, month), monthlyPageIndex(layout.map((s) => s.note ?? null)), calendarFor(year, month));
+    // Each week of the month: a daily page for each day of it inside the month, then the week's reflection (a Week review). The month's pages after them are Month reviews: they read the month of the last day.
+    const calendar = calendarFor(year, month);
+    const weeks = weekGroup(calendar, [dailyWeek(example('Daily Log')), typed(weeklyReflection(), 'week-review')]);
+    const outline: Block[] = [weeks, typed(patternsPage(), 'month-review'), typed(questionsPage(), 'month-review'), ideaSpreads(), closingNotes(3)];
+    return assemble(`${MONTH_NAMES[month - 1]} ${year} journal`, outline, monthlyTracker(year, month), monthlyPageIndex(layout.map((s) => s.note ?? null)), calendar);
   },
 };
 
 const monthlyLog: BookTemplate = {
   id: 'monthly-log',
   name: 'Monthly log',
-  description: 'One month, week by week: a week planner (its days outside the month become lined space), a daily log for each day of the week inside the month, and the weekly reflection. Free pages take the rest of the book, and the month review is the last page. The book has the month as its calendar, so every page prints its day, week or month.',
-  uses: ['Week planner', ...DAILY_BOOK.slice(0, 1)],
+  description: 'One month, week by week: the weekly page (its days outside the month print blank), a daily log for each day of the week inside the month, and the weekly reflection. Free pages take the rest of the book, and the month review is the last page. The book has the month as its calendar, so every page prints its day, week or month.',
+  uses: DAILY_BOOK.slice(0, 1),
   fields: [YEAR, { key: 'month', label: 'Month', min: 1, max: 12, value: new Date().getMonth() + 1, hint: (v) => MONTH_NAMES[v - 1] ?? '' }],
   build(a = {}) {
     const year = a.year ?? YEAR.value, month = a.month ?? 1;
-    const weeks: Block = { ...groupBlock('Weeks', [pageBlock(example('Week planner')), eachDayOfWeek(example('Daily Log')), pageBlock(weeklyReflection())]), repeat: { each: 'week' } };
-    const review: Block = { ...pageBlock(patternsPage()), repeat: { each: 'month' }, pin: 'last' };
-    return assemble(`${MONTH_NAMES[month - 1]} ${year} log`, [weeks, freeBlock(), review], purposeCover(), plainIndex(), calendarFor(year, month));
+    const calendar = calendarFor(year, month);
+    const weeks = weekGroup(calendar, [typed(weeklyPage('left', true), 'week'), dailyWeek(example('Daily Log')), typed(weeklyReflection(), 'week-review')]);
+    const review: Block = { ...typed(patternsPage(), 'month-review'), pin: 'last' };
+    return assemble(`${MONTH_NAMES[month - 1]} ${year} log`, [weeks, freeBlock(), review], purposeCover(), plainIndex(), calendar);
   },
 };
 
@@ -101,15 +105,15 @@ const yearPlanner: BookTemplate = {
     const year = a.year ?? YEAR.value, first = a.first ?? 1, last = Math.max(first, a.last ?? 52);
     // The weeks you chose, kept inside the year so the calendar (and so the week numbers) are the year's.
     const jan1 = `${String(year).padStart(4, '0')}-01-01`, dec31 = `${String(year).padStart(4, '0')}-12-31`;
-    const weeks = last - first + 1;
     const open = weekStart(year, first), close = addDays(weekStart(year, last), 6);
     const calendar: Calendar = { start: open > jan1 ? open : jan1, end: close < dec31 ? close : dec31, week_starts: 0 };
-    // The Weekly spread (the day strip on the outer edge of both pages) repeats each week, a week on each page: the left page week k, the right page k+1.
+    // The Weekly spread (the day strip on the outer edge of both pages) is a Week page with each page its own date: the left page week k, the right page k+1.
     const weekly = buildSpread('Weekly spread', weeklyPage('left', true), weeklyPage('right', true));
-    const outline: Block[] = [{ ...spreadBlock(weekly.name, weekly.left, weekly.right), repeat: { each: 'week' } }, ideaSpreads()];
+    const spreads = Math.ceil(spansOf(calendar, 'week').length / 2);
+    const outline: Block[] = [{ ...spreadBlock(weekly.name, weekly.left, weekly.right, spreads), dates: 'week', shared: false }, ideaSpreads()];
     const book = assemble(`${year} year planner`, outline, yearGoals(year), yearIndex(year), calendar);
     // Page 1 is a right page, so the spreads start on page 2 (page 1 is a gap page): a whole year of weeks needs more than 52 pages.
-    resizeBook(book, Math.max(BOOK_PAGES, 1 + 2 * Math.ceil(weeks / 2)));
+    resizeBook(book, Math.max(BOOK_PAGES, 1 + 2 * spreads));
     return book;
   },
 };
