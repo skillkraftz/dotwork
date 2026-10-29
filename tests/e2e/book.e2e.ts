@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { PDFDocument } from 'pdf-lib';
-import { confirmAdd, hit, libraryItems, missingHelp, nameOpen, open, openDoc, reload, seedDoc, seedLibrary, shot, start, stop, type App, type Device, type Env } from './harness';
+import { confirmAdd, dragRow, hit, libraryItems, missingHelp, nameOpen, open, openDoc, openSettings, pickRow, reload, seedDoc, seedLibrary, shot, showOutline, start, stop, togglePick, type App, type Device, type Env } from './harness';
 
 let env: Env;
 beforeAll(async () => { env = await start(); });
@@ -39,12 +39,6 @@ async function openBook(app: App) {
   await app.page.waitForSelector('.stage-page');
 }
 
-/** The outline sheet is closed on a phone until the Outline button opens it; beside the page on a desktop it is always there. */
-async function showOutline(app: App) {
-  if (app.touch && !(await app.page.locator('.book-contents').isVisible())) await hit(app, '.contents-toggle');
-  await app.page.waitForSelector('.book-contents', { state: 'visible' });
-}
-
 /** Add a block: Add…, the tab it is on, and its card. */
 async function add(app: App, tab: 'pages' | 'spreads' | 'blocks', name: string, from = '[data-key="book-add"]') {
   if (app.touch && (await app.page.locator('.book-contents').isVisible())) await hit(app, '.contents-close');
@@ -57,16 +51,13 @@ async function add(app: App, tab: 'pages' | 'spreads' | 'blocks', name: string, 
 }
 
 const row = (app: App, key: string) => app.page.locator(`[data-block-row="${key}"]`);
-/** Open a row's settings, if they are not open. */
-async function settings(app: App, key: string) {
-  await showOutline(app);
-  if ((await row(app, key).locator('.orow-settings').count()) === 0) await hit(app, `[data-block-row="${key}"] > .orow-line [data-key="outline-more"]`);
-  await app.page.waitForSelector(`[data-block-row="${key}"] .orow-settings`);
-}
+/** The row's settings, in the panel under the list. */
+const settings = openSettings;
+const panel = (app: App, field: string) => app.page.locator(`.outline-settings [data-key="${field}"]`);
 /** Type a number into a row's stepper, as a person does, and leave the field. */
 async function setNumber(app: App, key: string, field: string, value: string) {
   await settings(app, key);
-  const input = row(app, key).locator(`[data-key="${field}"]`);
+  const input = panel(app, field);
   await input.fill(value);
   await input.dispatchEvent('change');
 }
@@ -95,14 +86,14 @@ async function buildFiftyTwo(app: App, device: Device) {
   // a group of an idea spread and a lined page, ×6
   await add(app, 'blocks', 'New group');
   await settings(app, '1');
-  await hit(app, '[data-block-row="1"] [data-key="outline-add-to-group"]');
+  await hit(app, '.outline-settings [data-key="outline-add-to-group"]');
   await page.waitForSelector('dialog.picker[open] .design');
   await hit(app, 'dialog.picker [data-tab="spreads"]');
   await hit(app, 'dialog.picker .design[data-name="Ideas spread"]');
   await confirmAdd(app);
   await page.waitForSelector('dialog.picker', { state: 'hidden' });
   await settings(app, '1');
-  await hit(app, '[data-block-row="1"] [data-key="outline-add-to-group"]');
+  await hit(app, '.outline-settings [data-key="outline-add-to-group"]');
   await page.waitForSelector('dialog.picker[open] .design');
   await hit(app, 'dialog.picker [data-tab="pages"]');
   await hit(app, 'dialog.picker .design[data-name="Lined page"]');
@@ -117,12 +108,13 @@ async function buildFiftyTwo(app: App, device: Device) {
   expect(await page.locator('.orow.gap').first().innerText()).toContain('1 gap page');
   await shot(app, `${device}-outline-group`);
 
-  // free pages for the rest, and a closing page pinned to the last page
+  // free pages for the rest (nothing picked, so they go before what takes the rest, else at the end), and a closing page pinned to the last page
+  await togglePick(app, ['1']);
   await add(app, 'blocks', 'Free pages');
   expect(await used(app)).toBe('52 of 52 pages'); // they take the 18 pages left
   await add(app, 'pages', 'Notes');
   await settings(app, '3');
-  await hit(app, '[data-block-row="3"] [data-key="outline-pin-last"]');
+  await hit(app, '.outline-settings [data-key="outline-pin-last"]');
   expect(await used(app)).toBe('52 of 52 pages');
   expect(await page.locator('.book-total .over-by').count()).toBe(0);
   await showOutline(app);
@@ -144,22 +136,25 @@ async function buildFiftyTwo(app: App, device: Device) {
   expect(book.outline[3]).toMatchObject({ pin: 'last' });
   expect('pages' in book || 'dates' in book || 'recipe' in book).toBe(false);
 
-  // tapping a row goes to its first page: the idea spread's left page, after the gap page
-  await showOutline(app);
-  await hit(app, '[data-block-row="1"] .orow-main');
+  // tapping a row picks it and goes to its first page: the idea spread's left page, after the gap page
+  await pickRow(app, '1');
   expect(await page.locator('.where strong').innerText()).toBe('Page 12');
   expect(await page.locator('.design-name strong').innerText()).toBe('Idea page');
   expect(await page.locator('.design-name .page-origin').innerText()).toContain('From block 2');
 
-  // move the group down: the free pages now come before it, and the book still fits
-  await showOutline(app);
-  await hit(app, '[data-block-row="1"] > .orow-line [data-key="outline-down"]');
+  // drag the group below the free pages: they now come before it, and the book still fits
+  await togglePick(app, ['1']); // nothing picked, so the settings are short and the whole list shows
+  await dragRow(app, '1', { after: '2' });
   expect(await outlineTypes(app)).toEqual(['page', 'free', 'group', 'page']);
   expect(await used(app)).toBe('51 of 52 pages'); // the group no longer needs a gap page before it
-  await hit(app, '[data-block-row="2"] > .orow-line [data-key="outline-up"]');
+  await page.waitForSelector('[data-block-row="2"].selected'); // the moved row stays picked
+  await togglePick(app, ['2']);
+  await dragRow(app, '2', { before: '1' });
   expect(await outlineTypes(app)).toEqual(['page', 'group', 'free', 'page']);
   expect(await used(app)).toBe('52 of 52 pages');
-  await hit(app, '[data-block-row="1"] > .orow-line [data-key="outline-down"]'); // and Undo takes a move back
+  await togglePick(app, ['1']);
+  await dragRow(app, '1', { after: '2' }); // and Undo takes a move back
+  expect(await outlineTypes(app)).toEqual(['page', 'free', 'group', 'page']);
   if (app.touch) await hit(app, '.contents-close');
   await hit(app, '.book-bar [data-key="book-undo"]');
   expect(await outlineTypes(app)).toEqual(['page', 'group', 'free', 'page']);
@@ -181,7 +176,7 @@ async function buildFiftyTwo(app: App, device: Device) {
 
 for (const device of ['phone', 'desktop'] as Device[]) {
   describe(`the outline on a ${device}`, () => {
-    it('builds a 52-page book from blocks, moves a row, and prints it', async () => {
+    it('builds a 52-page book from blocks, drags a row, and prints it', async () => {
       await buildFiftyTwo(await open(env, device), device);
     });
 
@@ -227,7 +222,7 @@ for (const device of ['phone', 'desktop'] as Device[]) {
       });
       await add(app, 'blocks', 'Blank page');
       await settings(app, '0');
-      const repeat = () => row(app, '0').locator('[data-key="outline-repeat"]');
+      const repeat = () => panel(app, 'outline-repeat');
       await repeat().click();
       await repeat().fill('7');
       await page.keyboard.press('Enter');
@@ -238,7 +233,7 @@ for (const device of ['phone', 'desktop'] as Device[]) {
       await page.waitForFunction(() => document.querySelector('[data-key="book-used"]')?.textContent === '9 of 52 pages');
       await add(app, 'blocks', 'New group');
       await settings(app, '1');
-      const name = row(app, '1').locator('[data-key="outline-group-name"]');
+      const name = panel(app, 'outline-group-name');
       await name.click();
       await name.fill('Ideas');
       await page.keyboard.press('Enter');

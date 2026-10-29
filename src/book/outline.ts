@@ -270,45 +270,27 @@ export function addBlock(outline: readonly Block[], block: Block, to: { group?: 
   return copy;
 }
 
-/** One place Add… can put a block: its label and the index it inserts at. */
-export interface Spot { id: 'after' | 'before' | 'rest' | 'start' | 'end'; label: string; index: number }
-
 /**
- * The places a new block can go, the best first. `current` is the block the owner is on (its index in the list: the outline, or the
- * group's children): the block goes after it. Without one it goes before the block that takes what's left (top level only), else at
- * the end.
+ * Where Add… puts a block, given the selected row (the last of the selection, or null): right after it, inside its group if it is
+ * a child; at the end of a selected group's children; with nothing selected, before the block that takes what's left, else at the end.
+ * A group (which can't nest) goes after the selected group or child's group instead. A block that itself takes what's left goes at the end.
  */
-export function insertSpots(outline: readonly Block[], current: number | null, group: number | null = null): Spot[] {
-  const list: readonly Block[] = group === null ? outline : (outline[group] as GroupBlock).children;
-  const near = current !== null && current >= 0 && current < list.length ? current : null;
-  const rest = group === null && near === null ? list.findIndex((b) => pinOf(b) === undefined && takesRest(b)) : -1;
-  const of = group === null ? '' : ' of the group';
-  const start: Spot = { id: 'start', label: `At the start${of}`, index: 0 }, end: Spot = { id: 'end', label: `At the end${of}`, index: list.length };
-  const spots: Spot[] = [];
-  if (near !== null) spots.push({ id: 'after', label: `After ${blockName(list[near])}`, index: near + 1 }, { id: 'before', label: `Before ${blockName(list[near])}`, index: near }, start, end);
-  else if (rest >= 0) spots.push({ id: 'rest', label: `Before ${blockName(list[rest])}`, index: rest }, start, end);
-  else spots.push(end, start);
-  return list.length ? spots : [end];
+export function insertPoint(outline: readonly Block[], selected: Path | null, block: Block): { group?: number; index: number } {
+  const at = selected && blockAt(outline, selected) ? selected : null;
+  if (!at) {
+    const rest = outline.findIndex((b) => pinOf(b) === undefined && takesRest(b));
+    return { index: rest >= 0 && !takesRest(block) ? rest : outline.length };
+  }
+  const [g, k] = at;
+  const here = outline[g];
+  if (block.type === 'group') return { index: g + 1 };
+  if (at.length === 2) return { group: g, index: k! + 1 };
+  return here.type === 'group' ? { group: g, index: here.children.length } : { index: g + 1 };
 }
 
 export function removeBlock(outline: readonly Block[], path: Path): Block[] {
   const copy = clone(outline) as Block[];
   listOf(copy, path).splice(indexIn(path), 1);
-  return copy;
-}
-
-/** Whether a block can move one place up (-1) or down (1) in its list. */
-export function canMove(outline: readonly Block[], path: Path, by: -1 | 1): boolean {
-  const list = path.length === 1 ? outline : (outline[path[0]] as GroupBlock).children;
-  const to = indexIn(path) + by;
-  return to >= 0 && to < list.length;
-}
-
-export function moveBlock(outline: readonly Block[], path: Path, by: -1 | 1): Block[] {
-  if (!canMove(outline, path, by)) return clone(outline) as Block[];
-  const copy = clone(outline) as Block[];
-  const list = listOf(copy, path), at = indexIn(path);
-  [list[at], list[at + by]] = [list[at + by], list[at]];
   return copy;
 }
 
@@ -323,29 +305,116 @@ export function duplicateBlock(outline: readonly Block[], path: Path): Block[] {
   return copy;
 }
 
-/** Whether a top-level page, spread or free-pages block can go into a group. */
-export const canMoveIn = (outline: readonly Block[], path: Path): boolean => path.length === 1 && outline[path[0]]?.type !== 'group' && outline.some((b) => b.type === 'group');
+/** A block that is no longer pinned, filling or following the calendar: what it becomes inside a group. */
+function intoGroup<T extends Block>(block: T): T {
+  if (block.type === 'free') return block;
+  delete block.pin;
+  if ('fill' in block.repeat || (isEach(block.repeat) && !('of' in block.repeat))) block.repeat = { times: 1 };
+  return block;
+}
 
-/** Move a top-level block to the end of a group. It repeats once there, and is no longer pinned or filling. */
-export function moveIntoGroup(outline: readonly Block[], path: Path, group: number): Block[] {
+/** What a block becomes outside its group: "each … of the group's span" means nothing there. */
+function outOfGroup<T extends Block>(block: T): T {
+  if (block.type !== 'free' && isEach(block.repeat) && 'of' in block.repeat) block.repeat = { times: 1 };
+  return block;
+}
+
+/** The paths with duplicates and children of selected groups taken out, in the order of the outline. */
+export function normalizePaths(paths: readonly Path[]): Path[] {
+  const tops = new Set(paths.filter((p) => p.length === 1).map((p) => p[0]));
+  const seen = new Set<string>();
+  return paths
+    .filter((p) => !(p.length === 2 && tops.has(p[0])))
+    .filter((p) => { const k = p.join('.'); if (seen.has(k)) return false; seen.add(k); return true; })
+    .sort((a, b) => a[0] - b[0] || (a[1] ?? -1) - (b[1] ?? -1)) as Path[];
+}
+
+/** Where a drop lands: the top level, or inside a group, before the block at `index` of that list as it is now (the end when past it). */
+export interface DropTarget { group?: number; index: number }
+
+const pathsOf = (outline: readonly Block[], blocks: readonly Block[]): Path[] =>
+  blocks.map((b): Path => {
+    const top = outline.indexOf(b);
+    if (top >= 0) return [top];
+    const g = outline.findIndex((x) => x.type === 'group' && x.children.includes(b as Child));
+    return [g, (outline[g] as GroupBlock).children.indexOf(b as Child)];
+  });
+
+/** Only one top-level block may take what is left. */
+const restOk = (outline: readonly Block[]) => outline.filter(takesRest).length <= 1;
+
+/**
+ * Move a set of blocks together, in their order, to a place in the outline or in a group. Dropping next to a block that is itself
+ * being moved lands it where that block was. A block that goes into a group is no longer pinned or following the calendar; one that
+ * comes out loses "of the group's span". Returns the new outline and where the moved blocks are now, or null when it can't be done
+ * (a group dropped into a group, or a second block that takes what's left at the top level).
+ */
+export function moveBlocks(outline: readonly Block[], paths: readonly Path[], to: DropTarget): { outline: Block[]; moved: Path[] } | null {
   const copy = clone(outline) as Block[];
-  const [block] = copy.splice(path[0], 1) as Child[];
-  if (block.type !== 'free') {
-    delete block.pin;
-    if ('fill' in block.repeat || isEach(block.repeat)) block.repeat = { times: 1 };
+  const blocks = normalizePaths(paths).map((p) => blockAt(copy, p));
+  if (!blocks.length || blocks.some((b) => !b)) return null;
+  const moving = blocks as Block[];
+  const target = to.group === undefined ? null : (copy[to.group] as GroupBlock | undefined);
+  if (to.group !== undefined && (target?.type !== 'group' || moving.some((b) => b.type === 'group'))) return null;
+  const list: Block[] = target ? target.children : copy;
+  const anchor = list.slice(Math.max(0, to.index)).find((b) => !moving.includes(b));
+  const origin = new Map(moving.map((b) => [b, copy.find((g) => g.type === 'group' && g.children.includes(b as Child)) ?? null]));
+  for (const l of [copy, ...copy.flatMap((b) => (b.type === 'group' ? [b.children as Block[]] : []))]) {
+    for (let i = l.length - 1; i >= 0; i--) if (moving.includes(l[i])) l.splice(i, 1);
   }
-  const target = group > path[0] ? group - 1 : group;
-  (copy[target] as GroupBlock).children.push(block);
+  for (const b of moving) {
+    if (origin.get(b) === target) continue; // moved within its own list
+    if (target) intoGroup(b); else outOfGroup(b);
+  }
+  list.splice(anchor ? list.indexOf(anchor) : list.length, 0, ...moving);
+  return restOk(copy) ? { outline: copy, moved: pathsOf(copy, moving) } : null;
+}
+
+/** Delete several blocks at once. */
+export function removeBlocks(outline: readonly Block[], paths: readonly Path[]): Block[] {
+  const copy = clone(outline) as Block[];
+  const doomed = normalizePaths(paths).map((p) => blockAt(copy, p));
+  for (const l of [copy, ...copy.flatMap((b) => (b.type === 'group' ? [b.children as Block[]] : []))]) {
+    for (let i = l.length - 1; i >= 0; i--) if (doomed.includes(l[i])) l.splice(i, 1);
+  }
   return copy;
 }
 
-/** Move a block out of its group to just after it. */
-export function moveOutOfGroup(outline: readonly Block[], path: [number, number]): Block[] {
+/** Duplicate several blocks, each right after itself. Returns the new outline and where the copies are. */
+export function duplicateBlocks(outline: readonly Block[], paths: readonly Path[]): { outline: Block[]; copies: Path[] } {
+  let out = clone(outline) as Block[];
+  const sorted = normalizePaths(paths);
+  for (const p of [...sorted].reverse()) out = duplicateBlock(out, p);
+  // Each copy sits right after its block, pushed on by the copies made before it (in the outline, or in the same group).
+  const copies = sorted.map((p, i): Path => {
+    const earlier = sorted.slice(0, i), tops = earlier.filter((q) => q.length === 1).length;
+    return p.length === 1 ? [p[0] + tops + 1] : [p[0] + tops, p[1] + earlier.filter((q) => q.length === 2 && q[0] === p[0]).length + 1];
+  });
+  return { outline: out, copies };
+}
+
+/**
+ * Put top-level page, spread and free-pages blocks into a new group named "Group" that repeats once, where the first of them was.
+ * They are no longer pinned, filling or following the calendar. Returns null when a group is among them or nothing is.
+ */
+export function groupBlocks(outline: readonly Block[], indexes: readonly number[]): { outline: Block[]; group: number } | null {
+  const at = [...new Set(indexes)].sort((a, b) => a - b);
+  if (!at.length || at.some((i) => !outline[i] || outline[i].type === 'group')) return null;
   const copy = clone(outline) as Block[];
-  const [block] = (copy[path[0]] as GroupBlock).children.splice(path[1], 1);
-  if (block.type !== 'free' && isEach(block.repeat)) block.repeat = { times: 1 }; // "of the group's span" means nothing outside it
-  copy.splice(path[0] + 1, 0, block);
-  return copy;
+  const children = at.map((i) => intoGroup(copy[i]) as Child);
+  for (let k = at.length - 1; k >= 0; k--) copy.splice(at[k], 1);
+  copy.splice(at[0], 0, groupBlock('Group', children));
+  return { outline: copy, group: at[0] };
+}
+
+/** Take a group apart: its blocks take its place, each repeating as it did (null when that would give two blocks that take what's left). */
+export function ungroupBlock(outline: readonly Block[], index: number): { outline: Block[]; first: number; count: number } | null {
+  const g = outline[index];
+  if (g?.type !== 'group') return null;
+  const copy = clone(outline) as Block[];
+  const kids = (copy[index] as GroupBlock).children.map(outOfGroup);
+  copy.splice(index, 1, ...kids);
+  return restOk(copy) ? { outline: copy, first: index, count: kids.length } : null;
 }
 
 /** Change a block's repeat. A fill replaces any other fill or free pages at the top level (the caller checks `canFill`) and drops the pin. */
@@ -403,6 +472,37 @@ export function repeatLabel(b: Block, parent?: GroupBlock): string {
   const span = parent && isEach(parent.repeat) ? parent.repeat.each : null;
   return `each ${r.each} of ${span ? `the ${span}` : 'the group’s span'}`;
 }
+
+/** The answers to "How often": a plain number (once, or a number of times), or every day, week or month of the calendar (or of a group's span). */
+export type HowOften = 'once' | 'times' | 'day' | 'week' | 'month' | 'span-day' | 'span-week';
+
+export const howOftenOf = (r: Repeat): HowOften | 'fill' =>
+  'fill' in r ? 'fill' : !isEach(r) ? (r.times === 1 ? 'once' : 'times') : 'of' in r ? `span-${r.each}` : r.each;
+
+/**
+ * The choices for "How often", in plain words. At the top level: Once, A number of times, Every day / week / month (dated). Inside a
+ * group that repeats by week or month (`spanUnit`): the same with "each week", and Every day of the week (dated), and for a month also
+ * Every week of the month. The dated ones are off without a calendar, or outside such a group; the choice already made is always listed.
+ */
+export function howOftenOptions(top: boolean, spanUnit: Unit | null, calendar: boolean, now: Repeat): { value: HowOften; label: string; on: boolean }[] {
+  const each = spanUnit ? ` each ${spanUnit}` : '';
+  const options: { value: HowOften; label: string; on: boolean }[] = [{ value: 'once', label: `Once${each}`, on: true }, { value: 'times', label: `A number of times${each}`, on: true }];
+  if (top) for (const u of ['day', 'week', 'month'] as const) options.push({ value: u, label: `Every ${u} (dated)${calendar ? '' : ': set a calendar first'}`, on: calendar });
+  else if (spanUnit === 'week' || spanUnit === 'month') for (const u of spanUnit === 'month' ? (['day', 'week'] as const) : (['day'] as const)) options.push({ value: `span-${u}`, label: `Every ${u} of the ${spanUnit} (dated)`, on: true });
+  const have = howOftenOf(now);
+  if (have !== 'fill' && !options.some((o) => o.value === have)) options.push({ value: have, label: have.startsWith('span-') ? `Every ${have.slice(5)} of the group’s span (dated)` : `Every ${have} (dated)`, on: false });
+  return options;
+}
+
+/** The repeat a "How often" answer makes (a number of times starts at 2: Once is 1). */
+export function repeatOf(answer: HowOften, now: Repeat): Repeat {
+  if (answer === 'once') return { times: 1 };
+  if (answer === 'times') return { times: isEach(now) || 'fill' in now ? 2 : Math.max(2, now.times) };
+  return answer.startsWith('span-') ? { each: answer.slice(5) as 'day' | 'week', of: 'span' } : { each: answer as Unit };
+}
+
+/** Whether a repeat by a plain number in a book with a calendar prints no dates: not inside a group that follows the calendar, where it reads the group's span. */
+export const printsNoDates = (r: Repeat, parent: GroupBlock | null, calendar: boolean): boolean => calendar && 'times' in r && !(parent && isEach(parent.repeat));
 
 /** The first page a block (or a child of a group) lands on, or null when it takes none. */
 export const firstCell = (layout: Layout, block: number, child?: number): { slot: number; cell: Cell } | null => {

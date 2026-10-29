@@ -5,7 +5,7 @@ import { emptyPage, type Page } from '../src/format/types';
 import { BUILTIN_PAGES } from '../src/builtin/library';
 import { weeklyReflection } from '../src/builtin/pages';
 import { bookExpand, bookLayout, coverReading, emptyBook, readBook, type Book } from '../src/book/book';
-import { freeBlock, groupBlock, layoutOutline, moveBlock, pageBlock, setFreePage, setRepeat, setShared, spreadBlock, type Block, type Cell, type Child } from '../src/book/outline';
+import { freeBlock, groupBlock, layoutOutline, moveBlocks, pageBlock, setFreePage, setRepeat, setShared, spreadBlock, type Block, type Cell, type Child } from '../src/book/outline';
 
 const text = (name: string, identity: string, ...texts: string[]): Page => ({
   ...emptyPage(), name, identity, elements: texts.map((t, i) => ({ type: 'text' as const, x: 0, y: 1 + i, text: t })),
@@ -162,7 +162,8 @@ describe('dates come from each block’s own repeat', () => {
 
   it('keeps every block’s dates when it moves', () => {
     const before = [weeks(), each(pageBlock(review), 'month'), each(pageBlock(daily), 'day')];
-    const moved = moveBlock(moveBlock(before, [2], -1), [1], -1); // the day pages first, then the month review, then the weeks
+    const moved = moveBlocks(moveBlocks(before, [[2]], { index: 1 })!.outline, [[1]], { index: 0 })!.outline; // the day pages first, then the weeks, then the month review
+    expect(moved.map((b) => b.type)).toEqual(['page', 'group', 'page']);
     const reads = (outline: Block[]) => layoutOutline(outline, 120, NOV).cells.flatMap((c) => (c && c.read ? [`${c.page?.name} ${c.read.kind} ${c.read.first}..${c.read.last}`] : [])).sort();
     expect(reads(moved)).toEqual(reads(before));
     expect(moved[0].type).toBe('page');

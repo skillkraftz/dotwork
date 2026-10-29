@@ -341,3 +341,83 @@ export function unzip(bytes: Buffer): Map<string, Buffer> {
   }
   return out;
 }
+
+// ---- the Book view's outline ---------------------------------------------------------
+
+/** The outline: a sheet on a phone or tablet (opened by Outline), beside the page on a desktop. */
+export async function showOutline(app: App) {
+  if (app.touch && !(await app.page.locator('.book-contents').isVisible())) await hit(app, '.contents-toggle');
+  await app.page.waitForSelector('.book-contents', { state: 'visible' });
+}
+
+const rowMain = (key: string) => `[data-block-row="${key}"] > .orow-line .orow-main`;
+
+/** Pick one row with a plain tap or click (the outline stays open). */
+export async function pickRow(app: App, key: string) {
+  await showOutline(app);
+  await hit(app, rowMain(key));
+  await app.page.waitForSelector(`[data-block-row="${key}"].selected`);
+}
+
+/** Show the settings of a row: pick it unless it is the one picked row. */
+export async function openSettings(app: App, key: string) {
+  await showOutline(app);
+  const picked = await app.page.locator('.orow.selected').evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.blockRow));
+  if (picked.length !== 1 || picked[0] !== key) await pickRow(app, key);
+  await app.page.waitForSelector('.outline-settings [data-key]');
+}
+
+/** Add rows to the picked ones, or take them off: Ctrl+click on a desktop, Select mode on a touch device. */
+export async function togglePick(app: App, keys: string[]) {
+  await showOutline(app);
+  if (!app.touch) {
+    for (const k of keys) await app.page.click(rowMain(k), { modifiers: ['Control'] });
+    return;
+  }
+  await hit(app, '[data-key="outline-select"]');
+  for (const k of keys) await hit(app, rowMain(k));
+  await hit(app, '[data-key="outline-select"]'); // Done
+}
+
+/**
+ * Drag a row by its handle to the line before another row (`before`) or after it and its children (`after`). The pointer goes there in
+ * steps and `onLine` runs while it is held on the line, before it lets go.
+ */
+export async function dragRow(app: App, from: string, to: { before: string } | { after: string }, onLine?: () => Promise<void>) {
+  await showOutline(app);
+  const handle = app.page.locator(`[data-handle="${from}"]`);
+  const key = 'before' in to ? to.before : to.after;
+  const target = app.page.locator(`[data-block-row="${key}"]`);
+  await target.scrollIntoViewIfNeeded();
+  await handle.scrollIntoViewIfNeeded(); // both on screen at once, in the order that leaves both there
+  // Keep the line clear of the list's edges, where it scrolls by itself.
+  await app.page.evaluate((k) => {
+    const list = document.querySelector<HTMLElement>('.outline-list')!, row = document.querySelector<HTMLElement>(`[data-block-row="${k}"]`)!;
+    const lr = list.getBoundingClientRect(), rr = row.getBoundingClientRect();
+    if (rr.top - lr.top < 70) list.scrollTop -= 70 - (rr.top - lr.top);
+    else if (lr.bottom - rr.bottom < 70) list.scrollTop += 70 - (lr.bottom - rr.bottom);
+  }, key);
+  const h = (await handle.boundingBox())!;
+  const t = (await target.boundingBox())!;
+  let y = 'before' in to ? t.y : t.y + t.height;
+  if ('after' in to) {
+    const kids = await target.evaluate((el) => { const n = el.nextElementSibling as HTMLElement | null; return n?.classList.contains('orow-kids-item') ? n.getBoundingClientRect().bottom : null; });
+    if (kids) y = kids;
+  }
+  const a = { x: h.x + h.width / 2, y: h.y + h.height / 2 }, b = { x: a.x, y: y + 1 };
+  if (!app.touch) {
+    await app.page.mouse.move(a.x, a.y);
+    await app.page.mouse.down();
+    for (let i = 1; i <= 8; i++) await app.page.mouse.move(a.x + ((b.x - a.x) * i) / 8, a.y + ((b.y - a.y) * i) / 8);
+    await app.page.waitForTimeout(60);
+    await onLine?.();
+    await app.page.mouse.up();
+    return;
+  }
+  await touch(app, 'touchStart', [a]);
+  for (let i = 1; i <= 8; i++) await touch(app, 'touchMove', [{ x: a.x + ((b.x - a.x) * i) / 8, y: a.y + ((b.y - a.y) * i) / 8 }]);
+  await app.page.waitForTimeout(100); // the browser delivers touch moves with the next frame
+  await onLine?.();
+  await touch(app, 'touchEnd', []);
+  await settle(app);
+}
