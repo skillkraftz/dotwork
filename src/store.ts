@@ -66,6 +66,7 @@ export class Store {
   private emit() {
     this.syncGroup();
     if (this.movePictureId !== null && !this.movingPicture) this.movePictureId = null; // it ends when something else is selected
+    if (this.centeringId !== null && !this.ids.includes(this.centeringId)) this.centeringId = null; // the text is gone
 
     this.listeners.forEach((fn) => fn());
   }
@@ -107,6 +108,26 @@ export class Store {
 
   get canUndo() { return this.undoStack.length > 0; }
   get canRedo() { return this.redoStack.length > 0; }
+
+  /** The id of the text waiting to be centered in the next element tapped ("Center in…"), if any. */
+  private centeringId: number | null = null;
+
+  /** Index of the text waiting to be centered in the next element tapped, or null. */
+  get centering(): number | null {
+    const i = this.centeringId === null ? -1 : this.ids.indexOf(this.centeringId);
+    return i < 0 ? null : i;
+  }
+
+  startCentering(index: number) {
+    this.centeringId = this.ids[index] ?? null;
+    this.emit();
+  }
+
+  endCentering() {
+    if (this.centeringId === null) return;
+    this.centeringId = null;
+    this.emit();
+  }
 
   /** Whether "Move picture" is on for the one picture that is selected. */
   get movingPicture(): boolean {

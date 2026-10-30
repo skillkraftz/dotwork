@@ -135,7 +135,10 @@ const docSession = (): Session => sessions[view];
 const noticeEl = $('notice');
 /** A notice with its own way out (a bad draft) stays until one of its buttons is used, whatever else asks to clear the notice. */
 let stickyNotice = false;
+/** The "Center in…" message is on screen (dismissing it cancels the mode). */
+let centerShown = false;
 function dismissNotice() {
+  if (centerShown) { centerShown = false; all.forEach((s) => s.endCentering()); }
   stickyNotice = false;
   noticeEl.hidden = true;
   noticeEl.replaceChildren();
@@ -359,6 +362,20 @@ panel.saveWidget = () => void saveWidget();
 panel.pickIcon = (pick) => picker.pickIcon(pick);
 panel.widgetList = () => [...BUILTIN_WIDGETS, ...widgets.list().filter((w) => !isArtWidget(w))];
 
+/** "Center in…" waits for an element to be tapped; the message says so and has the way out. */
+panel.centerIn = (index) => {
+  cur().startCentering(index);
+  if (isCompact()) sheet.set('closed');
+};
+function syncCenterNotice() {
+  const waiting = all.some((s) => s.centering !== null);
+  if (waiting === centerShown) return;
+  if (!waiting) { dismissNotice(); return; }
+  show([h('p', {}, 'Tap the element to center this text in'),
+    h('button', { type: 'button', 'data-help': 'center-cancel', onclick: () => all.forEach((s) => s.endCentering()) }, 'Cancel')], false);
+  centerShown = true;
+}
+
 for (const key of ['page', 'left', 'right'] as const) {
   let last = stores[key].page;
   let lastSelected = stores[key].selected;
@@ -378,6 +395,7 @@ for (const key of ['page', 'left', 'right'] as const) {
     }
     refresh();
     followSelection();
+    syncCenterNotice();
   });
 }
 refresh();
@@ -991,7 +1009,9 @@ addEventListener('keydown', (e) => {
   } else if (e.key.toLowerCase() in TOOL_KEYS && !e.shiftKey) {
     setTools(TOOL_KEYS[e.key.toLowerCase()]);
   }
-  if (e.key === 'Escape') {
+  if (e.key === 'Escape' && centerShown) {
+    all.forEach((s) => s.endCentering());
+  } else if (e.key === 'Escape') {
     Object.values(canvases).forEach((c) => c.cancel());
     setTools('select');
     store.select(null);

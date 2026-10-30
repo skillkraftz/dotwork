@@ -38,8 +38,39 @@ export function elementArea(el: PageElement, text = el.type === 'text' ? el.text
   }
 }
 
+/** Courier Prime's capital height as a fraction of the font size (OS/2 sCapHeight 1187 of 2048). */
+export const CAP_HEIGHT_EM = 1187 / 2048;
+/** Where the baseline sits in the text's one-cell band, mm from the top of the band (see render.ts). */
+const BASELINE_FROM_TOP_MM = PITCH_MM - 0.6;
+
+/** The anchor (cells, fractions allowed) that puts the middle of a text's capitals at the middle of `area`, for text centered along its line. */
+export function centeredAnchor(el: Text, area: Area): { x: number; y: number } {
+  const size = TEXT_SIZE_MM[el.size ?? DEFAULTS.textSize];
+  // Distance across the band from its edge to the middle of the capitals.
+  const mid = BASELINE_FROM_TOP_MM - (CAP_HEIGHT_EM * size) / 2;
+  const cx = area.x + area.w / 2, cy = area.y + area.h / 2;
+  switch (el.rotate ?? DEFAULTS.rotate) {
+    case 90: return { x: cx - mid / PITCH_MM, y: cy };
+    case 270: return { x: cx + mid / PITCH_MM, y: cy };
+    default: return { x: cx, y: cy - mid / PITCH_MM };
+  }
+}
+
+/** The text as it is drawn: when centered in an area, anchored at the middle of it with center alignment; otherwise as stored. */
+export function drawnText(el: Text): Text {
+  return el.center_in ? { ...el, ...centeredAnchor(el, el.center_in), align: 'center' } : el;
+}
+
+/** The text centered in `area`: it keeps the area, and its stored anchor is the nearest half cell to the centre, so clearing it later leaves it close by. */
+export function centered(el: Text, area: Area, top = 1): Text {
+  const at = centeredAnchor(el, area);
+  const half = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, Math.round(v * 2) / 2));
+  return { ...el, x: half(at.x, 0, COLS), y: half(at.y, top, ROWS - 1), align: 'center', center_in: { ...area } };
+}
+
 /** Where a text element's glyphs fall, in cells. */
-function textArea(el: Text, text: string): Area {
+function textArea(stored: Text, text: string): Area {
+  const el = drawnText(stored);
   const fontMm = TEXT_SIZE_MM[el.size ?? DEFAULTS.textSize];
   const len = (text.length * GLYPH_EM * fontMm) / PITCH_MM;
   const inset = TEXT_INSET_MM / PITCH_MM;

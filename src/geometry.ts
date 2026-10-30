@@ -66,6 +66,8 @@ export function hitElement(el: PageElement, p: Pt, tol: number): boolean {
 export function translate<T extends PageElement>(el: T, dx: number, dy: number): T {
   const out = { ...el } as PageElement;
   if (out.type === 'rule') { out.x1 += dx; out.x2 += dx; out.y1 += dy; out.y2 += dy; } else { out.x += dx; out.y += dy; }
+  // Text centered in an area keeps its place in it when moved along with others.
+  if (out.type === 'text' && out.center_in) out.center_in = { ...out.center_in, x: out.center_in.x + dx, y: out.center_in.y + dy };
   return out as T;
 }
 
@@ -83,9 +85,21 @@ export function boundsOf(els: readonly PageElement[]): Area {
   return { x, y, w: Math.max(...areas.map((a) => a.x + a.w)) - x, h: Math.max(...areas.map((a) => a.y + a.h)) - y };
 }
 
-/** Move elements together by (dx, dy) cells, keeping their positions relative to each other: the group stops at the grid edge and the header row as one. */
-export function moveGroup<T extends PageElement>(els: readonly T[], dx: number, dy: number, header: Header = CLOSED_HEADER): T[] {
+/** A text no longer centered in an area: it stays where it is drawn, snapped to the grid (`step` is 1, or 0.5 for half cells). */
+export function uncenter<T extends PageElement>(el: T, step = 1): T {
+  if (el.type !== 'text' || !el.center_in) return el;
+  const { center_in: _area, ...rest } = el;
+  const snap = (v: number) => Math.round(v / step) * step;
+  return { ...rest, x: snap(el.x), y: snap(el.y) } as T;
+}
+
+/**
+ * Move elements together by (dx, dy) cells, keeping their positions relative to each other: the group stops at the grid edge and the header row as one.
+ * A text centered in an area that is moved by itself comes loose and snaps to the grid; moved with others it keeps its place in the area.
+ */
+export function moveGroup<T extends PageElement>(els: readonly T[], dx: number, dy: number, header: Header = CLOSED_HEADER, step = 1): T[] {
   if (!els.length) return [];
+  if (els.length === 1 && (dx !== 0 || dy !== 0)) els = [uncenter(els[0], step)];
   const a = groupArea(els);
   dx = Math.max(-a.x, Math.min(COLS - (a.x + a.w), dx));
   const place = (top: number) => els.map((el) => translate(el, dx, Math.max(top - a.y, Math.min(ROWS - (a.y + a.h), dy))));

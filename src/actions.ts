@@ -1,8 +1,8 @@
-import type { Page, PageElement } from './format/types';
+import type { Area, Page, PageElement } from './format/types';
 import { isPicture, panTo, resetView, tidyView, type PictureView } from './format/picture';
-import { headerOf } from './format/bounds';
-import { canMove, cycleHit, moveGroup } from './geometry';
-import { dropLoneGroups, newGroupId, regroup } from './groups';
+import { centered, headerOf } from './format/bounds';
+import { boundsOf, canMove, cycleHit, moveGroup } from './geometry';
+import { dropLoneGroups, membersOf, newGroupId, regroup } from './groups';
 import { convertWeek } from './format/week';
 import type { Store } from './store';
 
@@ -94,12 +94,30 @@ export function duplicateElement(store: Store, index: number) {
   duplicateElements(store, targets(store, index));
 }
 
+/** The area "Center in…" centers in when `target` is tapped: the element's area, or for a grouped element the area of the whole group (without the text itself). */
+export function centerTarget(store: Store, textIndex: number, target: number): Area {
+  const els = store.page.elements;
+  const g = els[target].group;
+  const members = g === undefined ? [target] : membersOf(els, g).filter((i) => i !== textIndex);
+  return boundsOf((members.length ? members : [target]).map((i) => els[i]));
+}
+
+/** Center the text at `textIndex` in the area of the element at `target`: one undo step. Returns false if it can't be done. */
+export function centerTextIn(store: Store, textIndex: number, target: number): boolean {
+  const text = store.page.elements[textIndex];
+  if (text?.type !== 'text' || textIndex === target || !store.page.elements[target] || store.isLocked(textIndex)) return false;
+  const next = clone(store.page);
+  next.elements[textIndex] = centered(text, centerTarget(store, textIndex, target), headerOf(store.page).top);
+  store.commit(next);
+  return true;
+}
+
 /** Move elements together by whole or half cells; they stop at the grid edge as a group. */
 export function nudgeElements(store: Store, indexes: readonly number[], dx: number, dy: number) {
   const src = indexes.map((i) => store.page.elements[i]).filter(Boolean);
   if (!src.length || indexes.some((i) => store.isLocked(i)) || !canMove(src, dx, dy, headerOf(store.page))) return;
   const next = clone(store.page);
-  moveGroup(src, dx, dy, headerOf(store.page)).forEach((el, k) => { next.elements[indexes[k]] = el; });
+  moveGroup(src, dx, dy, headerOf(store.page), nudgeStep(store)).forEach((el, k) => { next.elements[indexes[k]] = el; });
   store.commit(next, `nudge:${indexes.map((i) => store.idAt(i)).join(',')}`);
 }
 
