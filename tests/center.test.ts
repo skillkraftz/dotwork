@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CAP_HEIGHT_EM, centered, centeredAnchor, drawnText, elementArea } from '../src/format/bounds';
+import { CAP_HEIGHT_EM, centered, drawnText, elementArea } from '../src/format/bounds';
 import { mirrorElement } from '../src/format/mirror';
 import { moveGroup, uncenter } from '../src/geometry';
 import { readPage } from '../src/format/read';
