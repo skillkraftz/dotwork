@@ -5,7 +5,7 @@ import { validatePage } from './format/validate';
 import { calendarFor, calendarMonths } from './format/calendar';
 import { parts } from './format/dates';
 import { LAYOUT_LIMITS, MAX_PAGES, MIN_PAGES, PRINT_LIMITS, resizeBook, roundPageCount, type Book } from './book/book';
-import { DEFAULT_PRINT, EDGE_NAMES, LAYOUT_NAMES, METHOD_NAMES, PAPER_NAMES, PAPER_SETS, PRINT_METHODS, SHEET_LAYOUTS, methodOf, profileOf, type LayoutProfile, type PaperSet, type PrintMethod, type PrintSettings, type SheetLayout } from './book/impose';
+import { DEFAULT_PRINT, EDGE_NAMES, LAYOUT_NAMES, METHOD_NAMES, METHOD_SHORT, PAPER_NAMES, PAPER_SETS, PRINT_METHODS, SHEET_LAYOUTS, methodOf, profileOf, type LayoutProfile, type PaperSet, type PrintMethod, type PrintSettings, type SheetLayout } from './book/impose';
 import type { Store } from './store';
 import type { SpreadSide } from './format/spread';
 
@@ -342,13 +342,13 @@ export function layoutPicker(printer: () => PrintSettings, edit: EditPrinter, re
 }
 
 /** Picks how the selected layout's paper is flipped: by the printer (auto duplex) or by hand. It is the printer's setting, kept per layout; each method has its own offsets. */
-export function methodPicker(printer: () => PrintSettings, edit: EditPrinter, redraw: () => void): HTMLElement {
+export function methodPicker(printer: () => PrintSettings, edit: EditPrinter, redraw: () => void, hint = true): HTMLElement {
   const layout = printer().sheet_layout;
   const select = h('select', { 'data-key': 'print-method', 'data-help': 'print-method', 'aria-label': 'Print method' },
     ...PRINT_METHODS.map((m) => h('option', { value: m, selected: m === methodOf(printer()) }, METHOD_NAMES[m])));
   select.onchange = () => { edit((p) => { p.print_method[layout] = select.value as PrintMethod; }); redraw(); };
   return h('div', {}, h('label', { class: 'compact wide' }, 'Print method', select),
-    h('p', { class: 'hint' }, 'Auto duplex: the printer prints both sides itself (print-duplex.pdf). By hand: you print one side, put the stack back and print the other (print-first.pdf, then print-second.pdf). A printer places the back differently in the two, so each method has its own offsets.'));
+    ...(!hint ? [] : [h('p', { class: 'hint' }, 'Auto duplex: the printer prints both sides itself (print-duplex.pdf). By hand: you print one side, put the stack back and print the other (print-first.pdf, then print-second.pdf). A printer places the back differently in the two, so each method has its own offsets.')]));
 }
 
 /** Picks which paper's offsets, scale and rotation are shown and changed: the inside paper's or the cover stock's (heavier paper is placed differently). */
@@ -361,14 +361,14 @@ export function paperPicker(redraw: () => void): HTMLElement {
 
 /** One line saying which set of offsets the fields below read and write: the layout, the print method and the paper. */
 export const setLine = (print: PrintSettings): HTMLElement =>
-  h('p', { class: 'hint set-line', 'data-key': 'print-set' }, 'Showing and changing: ', h('strong', {}, `${LAYOUT_NAMES[print.sheet_layout]}, ${METHOD_NAMES[methodOf(print)].toLowerCase()}, ${PAPER_NAMES[shownPaper].toLowerCase()}`), '.');
+  h('p', { class: 'hint set-line', 'data-key': 'print-set' }, 'Showing and changing: ', h('strong', {}, `${LAYOUT_NAMES[print.sheet_layout]}, ${METHOD_SHORT[methodOf(print)]}, ${PAPER_NAMES[shownPaper].toLowerCase()}`), '.');
 
 /**
  * "Reset these offsets to defaults": a button that first shows what each setting of the selected layout, method and paper is now and what the default is, and
  * changes nothing until it is confirmed. `redraw` runs after a reset, to show the new values.
  */
 export function resetLayout(printer: () => PrintSettings, edit: EditPrinter, redraw: () => void): HTMLElement {
-  const layout = printer().sheet_layout, method = methodOf(printer()), paper = shownPaper, name = `${LAYOUT_NAMES[layout]}, ${METHOD_NAMES[method].toLowerCase()}, ${PAPER_NAMES[paper].toLowerCase()}`, box = h('div', { class: 'reset-layout' });
+  const layout = printer().sheet_layout, method = methodOf(printer()), paper = shownPaper, name = `${LAYOUT_NAMES[layout]}, ${METHOD_SHORT[method]}, ${PAPER_NAMES[paper].toLowerCase()}`, box = h('div', { class: 'reset-layout' });
   const ask = () => {
     const now = printer().layouts[layout][method][paper], defaults = DEFAULT_PRINT.layouts[layout][method][paper];
     const keys = Object.keys(LAYOUT_LIMITS) as (keyof LayoutProfile)[];

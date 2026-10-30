@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { DEFAULT_PRINT } from '../../src/book/impose';
+import { DEFAULT_PRINT, everywhere } from '../../src/book/impose';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PDFDocument } from 'pdf-lib';
 import { hit, missingHelp, open, openDoc, seedDoc, shot, start, stop, type App, type Env } from './harness';
@@ -43,7 +43,9 @@ const progress = (app: App) => app.page.locator('dialog.calibrate .cal-progress'
 /** The saved printer profile as the app reads it: a layout left at the defaults is not stored, so it is filled in from them. */
 const profile = async (app: App) => {
   const stored = await app.page.evaluate(() => JSON.parse(localStorage.getItem('dotwork.printer') ?? 'null'));
-  return stored && { ...stored, layouts: { ...DEFAULT_PRINT.layouts, ...stored.layouts } };
+  // A seeded legacy profile (one set per layout) is read by the app as the inside paper's for both methods; do the same here.
+  const norm = (l: Record<string, unknown> | undefined, d: unknown) => (l === undefined ? d : 'hand' in l ? l : everywhere(l as never));
+  return stored && { ...stored, layouts: { half_letter: norm(stored.layouts?.half_letter, DEFAULT_PRINT.layouts.half_letter), letter_two_up: norm(stored.layouts?.letter_two_up, DEFAULT_PRINT.layouts.letter_two_up) } };
 };
 /** The open book exactly as the Library holds it: no setting of the printer may ever change a byte of it. */
 const bookDraft = (app: App) => openDoc(app, 'book');
@@ -141,8 +143,8 @@ for (const device of ['phone', 'desktop'] as const) {
 
       // ---- step 2: creep and cover
       expect(await progress(app)).toBe('Step 2 of 3: Creep and cover');
-      expect(await page.locator('dialog.calibrate').innerText()).toContain('pages 1 and 2');
-      expect(await page.locator('dialog.calibrate').innerText()).toContain('then pages 3 and 4');
+      expect(await page.locator('dialog.calibrate').innerText()).toContain('pages 1 to 2');
+      expect(await page.locator('dialog.calibrate').innerText()).toContain('then pages 3 to 4');
       // The page count is the book's (52: 13 sheets, so 11 blank sheets of padding), editable before the download.
       expect(await page.locator('[data-key="calibrate-pages"]').inputValue()).toBe('52');
       expect(await page.locator('[data-key="calibrate-padding"]').innerText()).toContain('52 pages is 13 sheets');

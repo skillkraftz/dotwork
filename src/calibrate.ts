@@ -8,7 +8,7 @@ import { SPINE_WARN_MM, creepPages, creepResult, innermostSpineMargin, predicted
 import { FOLD_HOW, NO_READINGS, foldTwist, scaleCaptions, sheetResult, twistText, type SheetReadings } from './book/alignment';
 import { GRID_Y_MM } from './format/types';
 import { PRINT_LIMITS, type Book } from './book/book';
-import { EDGE_NAMES, LAYOUT_NAMES, METHOD_NAMES, PAPER_NAMES, PAPER_SETTINGS, methodOf, profileOf, type LayoutProfile, type PrintSettings } from './book/impose';
+import { EDGE_NAMES, LAYOUT_NAMES, METHOD_SHORT, PAPER_NAMES, PAPER_SETTINGS, methodOf, profileOf, type LayoutProfile, type PrintSettings } from './book/impose';
 import { coverHow, creepHow, sheetHow } from './print/instructions';
 import { methodPicker, paperPicker, paperShown, printField, type PrintFieldKey } from './settings';
 import { slug } from './slug';
@@ -128,12 +128,13 @@ export class CalibrateDialog {
     change.onclick = () => this.dialog.close();
     const print = this.host.printer.get();
     const redraw = () => { this.keepReadings(); this.go(this.step); };
-    return h('div', { class: 'cal-layout-line' },
-      h('p', { class: 'hint', 'data-key': 'calibrate-layout' }, 'Calibrating: ', h('strong', {}, LAYOUT_NAMES[this.layout]), ` (${PAPER_SETTINGS[this.layout]}).`),
-      change,
-      methodPicker(() => this.host.printer.get(), (c) => this.change(c), redraw),
+    return h('div', { class: 'cal-layout-stack' },
+      h('div', { class: 'cal-layout-line' },
+        h('p', { class: 'hint', 'data-key': 'calibrate-layout' }, 'Calibrating: ', h('strong', {}, LAYOUT_NAMES[this.layout]), ` (${PAPER_SETTINGS[this.layout]}).`),
+        change),
+      methodPicker(() => this.host.printer.get(), (c) => this.change(c), redraw, false),
       paperPicker(redraw),
-      h('p', { class: 'hint', 'data-key': 'calibrate-set' }, 'Reading and writing: ', h('strong', {}, `${LAYOUT_NAMES[print.sheet_layout]}, ${METHOD_NAMES[methodOf(print)].toLowerCase()}, ${PAPER_NAMES[paperShown()].toLowerCase()}`), '. The creep test uses the inside paper’s set and the cover test the cover paper’s; the book’s files use the inside paper’s set for the pages and the cover paper’s for the covers.'));
+      h('p', { class: 'hint', 'data-key': 'calibrate-set' }, 'Reading and writing: ', h('strong', {}, `${LAYOUT_NAMES[print.sheet_layout]}, ${METHOD_SHORT[methodOf(print)]}, ${PAPER_NAMES[paperShown()].toLowerCase()}`), '. The creep test uses the inside paper’s set, the cover test the cover paper’s.'));
   }
 
   /** Change the printer profile (it is kept). A browser that won't store it is told, with its reason (returned, and shown). */

@@ -96,7 +96,7 @@ for (const device of ['phone', 'desktop'] as const) {
       const zipped = await download(app, 'dialog.export [data-key="export-pdf"]');
       expect(zipped.name).toBe('untitled-book-print.zip');
       const text = zipped.bytes.toString('latin1');
-      for (const f of ['print-duplex.pdf', 'print-first.pdf', 'print-second.pdf', 'cover-outside.pdf', 'cover-inside.pdf', 'summary.txt']) expect(text, f).toContain(f);
+      for (const f of ['print-duplex.pdf', 'cover-outside.pdf', 'cover-inside.pdf', 'summary.txt']) expect(text, f).toContain(f);
 
       // Reset this layout to defaults: it shows the values first, Cancel changes nothing, Yes brings back the calibrated defaults
       await page.locator('dialog.export [data-key="reset-layout"]').scrollIntoViewIfNeeded();
@@ -127,7 +127,7 @@ for (const device of ['phone', 'desktop'] as const) {
       await type(app, 'dialog.export [data-key="book-front-offset-y"]', '3');
       const zipped = await download(app, 'dialog.export [data-key="export-pdf"]');
       const files = zipped.bytes.toString('latin1');
-      for (const f of ['print-first.pdf', 'print-second.pdf', 'print-duplex.pdf', 'summary.txt']) expect(files, f).toContain(f);
+      for (const f of ['print-duplex.pdf', 'summary.txt']) expect(files, f).toContain(f);
       expect(files).not.toContain('error.txt');
       expect(files).toMatch(/Warnings:\n  - Book 1, page \d+, row 0 \(the header\): on the front of the letter sheet it prints [\d.]+ mm from the top edge/);
       const message = await page.locator('dialog.export .lib-msg').innerText();

@@ -37,7 +37,7 @@ const seed = async (app: App) => {
 
 const select = (app: App, scope: string, key: string, value: string) => app.page.locator(`${scope} [data-key="${key}"]`).selectOption(value);
 
-for (const device of ['phone', 'desktop'] as const) {
+for (const device of ['phone', 'tablet', 'desktop'] as const) {
   describe(`the print method and the paper set (${device})`, () => {
     it('follows the method in the creep test’s page order, and keeps the cover paper’s numbers apart from the inside paper’s', async () => {
       const app = await open(env, device);
@@ -57,25 +57,26 @@ for (const device of ['phone', 'desktop'] as const) {
       await select(app, 'dialog.export', 'paper-set', 'inside');
       expect(await page.locator('dialog.export [data-key="book-front-offset-x"]').inputValue()).toBe('1.7');
       expect(await missingHelp(app)).toEqual([]);
+      await page.locator('dialog.export [data-key="print-method"]').scrollIntoViewIfNeeded();
       await shot(app, `${device}-print-settings-method`);
 
       // Calibrate: the same choices at the top, and the set being read and written.
       await hit(app, 'dialog.export [data-key="calibrate-open"]');
       await page.waitForSelector('dialog.calibrate[open]');
-      expect(await page.locator('dialog.calibrate [data-key="calibrate-set"]').innerText()).toContain('I flip the paper by hand, inside paper');
+      expect(await page.locator('dialog.calibrate [data-key="calibrate-set"]').innerText()).toContain('by hand, inside paper');
       await select(app, 'dialog.calibrate', 'paper-set', 'cover');
       expect(await page.locator('dialog.calibrate [data-key="calibrate-set"]').innerText()).toContain('cover paper');
       await shot(app, `${device}-calibrate-paper-set`);
       await select(app, 'dialog.calibrate', 'paper-set', 'inside');
       await select(app, 'dialog.calibrate', 'print-method', 'auto');
-      expect(await page.locator('dialog.calibrate [data-key="calibrate-set"]').innerText()).toContain('auto duplex), inside paper');
+      expect(await page.locator('dialog.calibrate [data-key="calibrate-set"]').innerText()).toContain('auto duplex, inside paper');
       expect(await page.locator('dialog.calibrate .cal-how').innerText()).toContain('auto duplex');
       expect(await missingHelp(app)).toEqual([]);
       await shot(app, `${device}-calibrate-method`);
 
       // Step 2: the creep test follows the method. Auto duplex: the outermost sheet's front and back, then the innermost's.
       await hit(app, 'dialog.calibrate [data-key="calibrate-next"]');
-      expect(await page.locator('dialog.calibrate .cal-how').innerText()).toContain('each sheet’s front then its back');
+      expect(await page.locator('dialog.calibrate .cal-how').innerText()).toContain('each sheet\'s front then its back');
       const auto = unzip(await download(app, 'dialog.calibrate [data-key="calibrate-download-creep"]'));
       const label = (strings: string[]) => `${strings.find((s) => /^SHEET \d+ OF 13/.test(s))!.match(/\d+/)![0]} ${strings.find((s) => /^(FRONT|BACK), left/.test(s))!.split(',')[0]}`;
       expect((await readPdf(auto.get('creep-test.pdf')!)).map((p) => label(p.strings))).toEqual(['1 FRONT', '1 BACK', '13 FRONT', '13 BACK']);

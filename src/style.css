@@ -258,6 +258,7 @@ dialog.calibrate { width: min(640px, calc(100% - 28px)); }
 .cal-step { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--gray-2); padding-top: 4px; }
 .cal-progress { margin: 0; padding: 8px 14px 0; font-weight: bold; }
 .cal-layout { flex: none; padding: 4px 14px 0; }
+.cal-layout-stack { display: flex; flex-direction: column; gap: 6px; }
 .cal-layout-line { display: flex; align-items: center; gap: 10px; }
 .cal-layout-line p { flex: 1; margin: 0; }
 .cal-layout label.compact, .settings-body label.compact.wide { display: flex; justify-content: space-between; align-items: center; gap: 8px; color: var(--gray-4); }

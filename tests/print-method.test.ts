@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { emptyBook, setCover, type Book } from '../src/book/book';
 import { emptyPage, type Page } from '../src/format/types';
 import { withPages } from './books';
-import { DEFAULT_PRINT, clonePrint, everywhere, printOrder, profileOf, type PrintSettings } from '../src/book/impose';
+import { DEFAULT_PRINT, clonePrint, everywhere, printOrder, type PrintSettings } from '../src/book/impose';
 import { COVER_FILE, CREEP_FILE, SHEET_FILE, calibrationText, creepFiles, creepTestOrder, sheetFile } from '../src/print/calibrate';
 import { exportBookFiles, type ExportedFile } from '../src/print/export';
 import { madeFor } from '../src/print/settingstext';
