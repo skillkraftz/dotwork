@@ -10,7 +10,7 @@ import { mapPoint, transformOf, type SheetTransform } from '../src/print/sheets'
 import { sheetFile } from '../src/print/calibrate';
 import { readPdf, segments } from './pdf-text';
 import { FLAT, flatTwoUp } from './flat';
-import { clonePrint } from '../src/book/impose';
+import { clonePrint, everywhere } from '../src/book/impose';
 
 const fontBytes = { regular: readFileSync('src/fonts/CourierPrime-Regular.ttf'), bold: readFileSync('src/fonts/CourierPrime-Bold.ttf') };
 const W = SHEET_W_MM;
@@ -27,7 +27,7 @@ const r1 = (v: number) => Math.round(v * 10) / 10; // a person reads a scale to 
  * back (mirrored left to right), and the back's own marks (the zero of each scale and ruler).
  */
 function paper(layout: SheetLayout, profile: LayoutProfile, pr: Printer) {
-  const H = sheetHeight(layout), print = { ...clonePrint(FLAT), sheet_layout: layout, layouts: { ...clonePrint(FLAT).layouts, [layout]: profile } };
+  const H = sheetHeight(layout), print = { ...clonePrint(FLAT), sheet_layout: layout, layouts: { ...clonePrint(FLAT).layouts, [layout]: everywhere(profile) } };
   const tf = transformOf(print, 'front'), tb = transformOf(print, 'back');
   const onFront = (p: { x: number; y: number }) => mapPoint(asTransform(pr.front), W, H, mapPoint(tf, W, H, p));
   const onBack = (p: { x: number; y: number }) => mapPoint(asTransform(pr.back), W, H, mapPoint(tb, W, H, p));
@@ -187,7 +187,7 @@ describe('the PDF is drawn under the same transform the model uses', () => {
     for (const layout of layouts) {
       const flat = clonePrint(layout === 'letter_two_up' ? flatTwoUp() : FLAT);
       const print = clonePrint(flat);
-      Object.assign(print.layouts[layout], { back_rotation_deg: 0.35, scale_x_pct: 100.4, scale_y_pct: 99.7, back_offset_x_mm: 0.6, back_offset_y_mm: -0.4 });
+      Object.assign(print.layouts[layout].hand.inside, { back_rotation_deg: 0.35, scale_x_pct: 100.4, scale_y_pct: 99.7, back_offset_x_mm: 0.6, back_offset_y_mm: -0.4 });
       const [, before] = await readPdf((await sheetFile(emptyBook(52), flat, fontBytes)).bytes);
       const [, after] = await readPdf((await sheetFile(emptyBook(52), print, fontBytes)).bytes);
       const H = sheetHeight(layout), t = transformOf(print, 'back');

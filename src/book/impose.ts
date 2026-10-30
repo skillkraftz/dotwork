@@ -31,6 +31,23 @@ export type SheetLayout = 'half_letter' | 'letter_two_up';
 export const SHEET_LAYOUTS: readonly SheetLayout[] = ['half_letter', 'letter_two_up'];
 export const LAYOUT_NAMES: Record<SheetLayout, string> = { half_letter: 'Half letter', letter_two_up: 'Letter, two-up' };
 
+/**
+ * How the sheet is turned for its second side. Auto duplex: the printer flips the paper itself (print-duplex.pdf, each sheet's front then its
+ * back). By hand: the owner prints one side, puts the stack back and prints the other (print-first.pdf, then print-second.pdf). A printer places
+ * the back differently in the two, so each has its own offsets. Chosen per layout.
+ */
+export type PrintMethod = 'auto' | 'hand';
+export const PRINT_METHODS: readonly PrintMethod[] = ['auto', 'hand'];
+export const METHOD_NAMES: Record<PrintMethod, string> = { auto: 'Printer flips the paper (auto duplex)', hand: 'I flip the paper by hand' };
+/** The method as it reads in a footer or a sentence. */
+export const METHOD_SHORT: Record<PrintMethod, string> = { auto: 'auto duplex', hand: 'by hand' };
+export const DEFAULT_METHOD: Record<SheetLayout, PrintMethod> = { half_letter: 'hand', letter_two_up: 'auto' };
+
+/** The paper a file is printed on: the book's interior pages, or the (heavier) cover stock, which a printer places differently. */
+export type PaperSet = 'inside' | 'cover';
+export const PAPER_SETS: readonly PaperSet[] = ['inside', 'cover'];
+export const PAPER_NAMES: Record<PaperSet, string> = { inside: 'Inside paper', cover: 'Cover paper' };
+
 /** The paper's edges as the owner knows them: the 8.5 in edge is the sheet's top and bottom edge as the PDF is drawn, the other its left and right. Calibrate names its readings by these, never by across and down. */
 export const EDGE_NAMES: Record<SheetLayout, { x: string; y: string }> = { half_letter: { x: '8.5 in', y: '5.5 in' }, letter_two_up: { x: '8.5 in', y: '11 in' } };
 
@@ -62,6 +79,15 @@ export interface LayoutProfile {
   line_weight_x_pct: number;
 }
 
+/** One layout's profiles: by print method, then by paper. */
+export type LayoutSets = Record<PrintMethod, Record<PaperSet, LayoutProfile>>;
+
+/** The same profile for every method and both papers (copies): what a profile saved before the methods and papers existed means. */
+export const everywhere = (p: LayoutProfile): LayoutSets => ({
+  auto: { inside: { ...p }, cover: { ...p } },
+  hand: { inside: { ...p }, cover: { ...p } },
+});
+
 /** What the printer and paper need: the printer profile. It lives in the browser, never in a book. The defaults are the owner's measured printer and paper. */
 export interface PrintSettings {
   /**
@@ -78,8 +104,10 @@ export interface PrintSettings {
   target_fore_edge_margin_mm: number;
   /** The sheet layout the files are made for. */
   sheet_layout: SheetLayout;
-  /** The offsets and the scale of each layout: a printer places and sizes each paper size and mode differently. */
-  layouts: Record<SheetLayout, LayoutProfile>;
+  /** How each layout's sheets are turned for the second side. */
+  print_method: Record<SheetLayout, PrintMethod>;
+  /** The offsets and the scale of each layout, for each print method and each paper: a printer places and sizes each paper size, mode and paper differently. */
+  layouts: Record<SheetLayout, LayoutSets>;
   /**
    * How dark the printed PDFs draw the light, medium and dark shade tones and the gray text, as a percent of black
    * (0 is white, 100 is black). The editor and PNGs keep the fixed grays; see src/print/tones.ts.
@@ -98,9 +126,10 @@ export interface PrintSettings {
 export const DEFAULT_PRINT: PrintSettings = {
   creep_per_sheet_mm: 0.30, fore_edge_shift_mm: 2.0, cover_fore_edge_shift_mm: 2.2, target_fore_edge_margin_mm: 3.5,
   sheet_layout: 'half_letter',
+  print_method: { ...DEFAULT_METHOD },
   layouts: {
-    half_letter: { front_offset_x_mm: 1.7, front_offset_y_mm: -0.05, back_offset_x_mm: 1.5, back_offset_y_mm: 0.05, scale_x_pct: 100, scale_y_pct: 100, back_rotation_deg: 0, line_weight_x_pct: 100 },
-    letter_two_up: { front_offset_x_mm: -0.25, front_offset_y_mm: -1.55, back_offset_x_mm: -0.4, back_offset_y_mm: 1, scale_x_pct: 100, scale_y_pct: 101.01, back_rotation_deg: -0.183, line_weight_x_pct: 100 },
+    half_letter: everywhere({ front_offset_x_mm: 1.7, front_offset_y_mm: -0.05, back_offset_x_mm: 1.5, back_offset_y_mm: 0.05, scale_x_pct: 100, scale_y_pct: 100, back_rotation_deg: 0, line_weight_x_pct: 100 }),
+    letter_two_up: everywhere({ front_offset_x_mm: -0.25, front_offset_y_mm: -1.55, back_offset_x_mm: -0.4, back_offset_y_mm: 1, scale_x_pct: 100, scale_y_pct: 101.01, back_rotation_deg: -0.183, line_weight_x_pct: 100 }),
   },
   shade_light_pct: 6.3, shade_medium_pct: 13.7, shade_dark_pct: 25.9, gray_text_pct: 49.8,
 };
@@ -159,23 +188,44 @@ export function impose(totalPages: number, s: Pick<PrintSettings, 'creep_per_she
   return result;
 }
 
-/** Sheet indexes in print order: [print-first fronts, print-second backs]. */
+/** Sheet indexes in print order for printing by hand: [print-first fronts, print-second backs]. */
 export function duplexOrder(sheets: number): [number[], number[]] {
   const forward = Array.from({ length: sheets }, (_, i) => i);
   return [[...forward].reverse(), forward];
 }
 
+/** One side of one sheet, in print order. */
+export interface SheetSideRef { sheet: number; side: 'front' | 'back' }
+
+/**
+ * The order the sides of sheets `only` (default: all `n`) go through the printer. By hand: every front, the innermost sheet first (print-first),
+ * then every back, the outermost first (print-second). Auto duplex: each sheet's front then its back, from the outermost sheet (print-duplex).
+ */
+export function printOrder(n: number, method: PrintMethod, only: readonly number[] = Array.from({ length: n }, (_, i) => i)): SheetSideRef[] {
+  const [fronts, backs] = duplexOrder(n), keep = (k: number) => only.includes(k);
+  if (method === 'hand') return [...fronts.filter(keep).map((sheet) => ({ sheet, side: 'front' as const })), ...backs.filter(keep).map((sheet) => ({ sheet, side: 'back' as const }))];
+  return backs.filter(keep).flatMap((sheet) => [{ sheet, side: 'front' as const }, { sheet, side: 'back' as const }]);
+}
+
 /** A copy of the print settings that shares nothing with the original. */
-export const clonePrint = (p: PrintSettings): PrintSettings => ({ ...p, layouts: { half_letter: { ...p.layouts.half_letter }, letter_two_up: { ...p.layouts.letter_two_up } } });
+export const clonePrint = (p: PrintSettings): PrintSettings => ({
+  ...p,
+  print_method: { ...p.print_method },
+  layouts: Object.fromEntries(SHEET_LAYOUTS.map((l) => [l, Object.fromEntries(PRINT_METHODS.map((m) => [m, Object.fromEntries(PAPER_SETS.map((k) => [k, { ...p.layouts[l][m][k] }]))]))])) as Record<SheetLayout, LayoutSets>,
+});
 
-type Layouts = Pick<PrintSettings, 'sheet_layout' | 'layouts'>;
+/** What picks a profile: the layout, its print method, and (with the paper) the profile itself. */
+export type Layouts = Pick<PrintSettings, 'sheet_layout' | 'print_method' | 'layouts'>;
 
-/** The selected layout's offsets and scale. */
-export const profileOf = (s: Layouts): LayoutProfile => s.layouts[s.sheet_layout];
+/** The selected layout's print method. */
+export const methodOf = (s: Pick<PrintSettings, 'sheet_layout' | 'print_method'>): PrintMethod => s.print_method[s.sheet_layout];
+
+/** The offsets and scale of the selected layout and its method, for the inside paper or the cover paper. */
+export const profileOf = (s: Layouts, paper: PaperSet = 'inside'): LayoutProfile => s.layouts[s.sheet_layout][methodOf(s)][paper];
 
 /** The offset a side of the sheet takes, in mm: +x right, +y up, as seen on that side. */
-export function offsetOf(s: Layouts, side: 'front' | 'back') {
-  const p = profileOf(s);
+export function offsetOf(s: Layouts, side: 'front' | 'back', paper: PaperSet = 'inside') {
+  const p = profileOf(s, paper);
   return side === 'front' ? { x: p.front_offset_x_mm, y: p.front_offset_y_mm } : { x: p.back_offset_x_mm, y: p.back_offset_y_mm };
 }
 
@@ -196,12 +246,12 @@ export function checkPrintSettings(s: PrintSettings, sheets: number): string | n
   const numbers = [s.creep_per_sheet_mm, s.fore_edge_shift_mm, s.cover_fore_edge_shift_mm, s.target_fore_edge_margin_mm];
   if (!numbers.every(Number.isFinite)) return 'The creep, shifts and target margin must be numbers.';
   if (s.creep_per_sheet_mm < 0) return 'Creep per sheet must be zero or more.';
-  for (const layout of SHEET_LAYOUTS) {
-    const l = s.layouts[layout];
-    if (![l.front_offset_x_mm, l.front_offset_y_mm, l.back_offset_x_mm, l.back_offset_y_mm].every(Number.isFinite)) return `The ${LAYOUT_NAMES[layout].toLowerCase()} offsets must be numbers.`;
-    if (![l.scale_x_pct, l.scale_y_pct].every((v) => Number.isFinite(v) && v >= 95 && v <= 105)) return `The ${LAYOUT_NAMES[layout].toLowerCase()} scale must be a percentage from 95 to 105.`;
-    if (!Number.isFinite(l.back_rotation_deg) || Math.abs(l.back_rotation_deg) > 1.5) return `The ${LAYOUT_NAMES[layout].toLowerCase()} back rotation must be a number of degrees from -1.5 to 1.5.`;
-    if (!Number.isFinite(l.line_weight_x_pct) || l.line_weight_x_pct < 80 || l.line_weight_x_pct > 120) return `The ${LAYOUT_NAMES[layout].toLowerCase()} line weight must be a percentage from 80 to 120.`;
+  for (const layout of SHEET_LAYOUTS) for (const method of PRINT_METHODS) for (const paper of PAPER_SETS) {
+    const l = s.layouts[layout][method][paper];
+    if (![l.front_offset_x_mm, l.front_offset_y_mm, l.back_offset_x_mm, l.back_offset_y_mm].every(Number.isFinite)) return `The ${LAYOUT_NAMES[layout].toLowerCase()} ${METHOD_SHORT[method]} ${paper} offsets must be numbers.`;
+    if (![l.scale_x_pct, l.scale_y_pct].every((v) => Number.isFinite(v) && v >= 95 && v <= 105)) return `The ${LAYOUT_NAMES[layout].toLowerCase()} ${METHOD_SHORT[method]} ${paper} scale must be a percentage from 95 to 105.`;
+    if (!Number.isFinite(l.back_rotation_deg) || Math.abs(l.back_rotation_deg) > 1.5) return `The ${LAYOUT_NAMES[layout].toLowerCase()} ${METHOD_SHORT[method]} ${paper} back rotation must be a number of degrees from -1.5 to 1.5.`;
+    if (!Number.isFinite(l.line_weight_x_pct) || l.line_weight_x_pct < 80 || l.line_weight_x_pct > 120) return `The ${LAYOUT_NAMES[layout].toLowerCase()} ${METHOD_SHORT[method]} ${paper} line weight must be a percentage from 80 to 120.`;
   }
   for (const key of ['shade_light_pct', 'shade_medium_pct', 'shade_dark_pct', 'gray_text_pct'] as const) {
     if (!Number.isFinite(s[key]) || s[key] < 0 || s[key] > 100) return 'Each tone must be a percentage from 0 to 100.';

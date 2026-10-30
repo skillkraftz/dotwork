@@ -131,8 +131,8 @@ for (const device of ['phone', 'desktop'] as const) {
       await page.locator('[data-key="calibrate-use-sheet"]').scrollIntoViewIfNeeded();
       await shot(app, `${device}-calibrate-sheet-result`);
       await hit(app, 'dialog.calibrate [data-key="calibrate-use-sheet"]');
-      expect((await profile(app)).layouts.half_letter).toMatchObject({ front_offset_x_mm: 1.1, front_offset_y_mm: 0.2, back_offset_x_mm: -1.5, back_offset_y_mm: 0.5, back_rotation_deg: 0, scale_x_pct: 100.5, scale_y_pct: 100.4 });
-      expect((await profile(app)).layouts.letter_two_up).toMatchObject(NONE); // the other layout is left alone
+      expect((await profile(app)).layouts.half_letter.hand.inside).toMatchObject({ front_offset_x_mm: 1.1, front_offset_y_mm: 0.2, back_offset_x_mm: -1.5, back_offset_y_mm: 0.5, back_rotation_deg: 0, scale_x_pct: 100.5, scale_y_pct: 100.4 });
+      expect((await profile(app)).layouts.letter_two_up.auto.inside).toMatchObject(NONE); // the other layout is left alone
       // The book holds the design only: nothing of this reached it.
       expect(await bookDraft(app)).toEqual(JSON.parse(BOOK));
       expect(await page.locator('dialog.calibrate .lib-msg').innerText()).toMatch(/Saved as your printer’s settings/);
@@ -201,7 +201,7 @@ for (const device of ['phone', 'desktop'] as const) {
       await shot(app, `${device}-calibrate-step2-result`);
       await hit(app, 'dialog.calibrate [data-key="calibrate-use-creep"]');
       expect(await profile(app)).toMatchObject({ creep_per_sheet_mm: 0.318, fore_edge_shift_mm: 2, cover_fore_edge_shift_mm: 2.2 });
-      expect((await profile(app)).layouts.half_letter.front_offset_x_mm).toBe(1.1);
+      expect((await profile(app)).layouts.half_letter.hand.inside.front_offset_x_mm).toBe(1.1);
       expect(await bookDraft(app)).toEqual(JSON.parse(BOOK));
       expect(await progress(app)).toBe('Step 2 of 3: Creep and cover');
       expect(await page.locator('[data-key="calibrate-read-outermost"]').inputValue()).toBe(''); // the readings are used up
@@ -248,8 +248,8 @@ for (const device of ['phone', 'desktop'] as const) {
       expect(result).toContain('Back rotation: 0 → -0.278 °'); // 0.6 mm over 123.7 mm (H - 2m): counter-clockwise, so turn it back
       expect(result).toContain('Back offset x: 0 → 0 mm');
       await hit(app, 'dialog.calibrate [data-key="calibrate-use-sheet"]');
-      expect((await profile(app)).layouts.half_letter.back_rotation_deg).toBe(-0.278);
-      expect((await profile(app)).layouts.letter_two_up.back_rotation_deg).toBe(0);
+      expect((await profile(app)).layouts.half_letter.hand.inside.back_rotation_deg).toBe(-0.278);
+      expect((await profile(app)).layouts.letter_two_up.auto.inside.back_rotation_deg).toBe(0);
       await page.locator('[data-key="calibrate-read-top-x"]').scrollIntoViewIfNeeded();
       await shot(app, `${device}-calibrate-rotation`);
       expect(app.errors).toEqual([]);
@@ -327,7 +327,7 @@ for (const device of ['phone', 'desktop'] as const) {
       await twist.scrollIntoViewIfNeeded();
       await shot(app, `${device}-calibrate-fold-twist`);
       // Information only: the printer's settings are as they were.
-      expect((await profile(app)).layouts.half_letter).toMatchObject(NONE);
+      expect((await profile(app)).layouts.half_letter.hand.inside).toMatchObject(NONE);
       expect(await missingHelp(app)).toEqual([]);
     });
 
@@ -344,8 +344,8 @@ for (const device of ['phone', 'desktop'] as const) {
       await app.page.locator('[data-key="calibrate-use-sheet"]').scrollIntoViewIfNeeded();
       await shot(app, `${device}-calibrate-line-weight`);
       await hit(app, 'dialog.calibrate [data-key="calibrate-use-sheet"]');
-      expect((await profile(app)).layouts.half_letter.line_weight_x_pct).toBe(90);
-      expect((await profile(app)).layouts.letter_two_up.line_weight_x_pct ?? 100).toBe(100);
+      expect((await profile(app)).layouts.half_letter.hand.inside.line_weight_x_pct).toBe(90);
+      expect((await profile(app)).layouts.letter_two_up.auto.inside.line_weight_x_pct ?? 100).toBe(100);
       expect(await bookDraft(app)).toEqual(JSON.parse(BOOK));
       await set(app, 'calibrate', 'calibrate-read-ladder', '500'); // brought back inside its limits
       expect(await app.page.locator('[data-key="calibrate-sheet-result"]').innerText()).toContain('→ 120 %');

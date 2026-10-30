@@ -38,7 +38,7 @@ describe('what a backup holds', () => {
     const lib = await full();
     const printer = clonePrint(DEFAULT_PRINT);
     printer.creep_per_sheet_mm = 0.31;
-    printer.layouts.letter_two_up.back_offset_x_mm = 1.25;
+    printer.layouts.letter_two_up.hand.inside.back_offset_x_mm = 1.25;
     const file = roundTrip(await lib.exportAll({ favorites: ['a', 'b'], printer }));
     expect(file.items.map((i) => i.kind).sort()).toEqual(['art', 'book', 'page', 'spread', 'widget']);
     expect(file.favorites).toEqual(['a', 'b']);

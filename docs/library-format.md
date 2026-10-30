@@ -43,7 +43,7 @@ exactly one `art` element or one `image` element (a PNG or JPG stored as a data 
 | `updated` | ISO date and time of the last change. |
 | `data` | A complete page file, spread file, section or book file, or `{ name, elements }` for a widget or art (in the browser's store the `name` is not in `data`, see above). |
 | `favorites` | Optional. The ids starred in the Library (documents by id, built-ins by their prefixed name such as `example:Daily`). An array of strings. |
-| `printer` | Optional. The printer profile as `printer.ts` reads it: the shared settings (creep, fore-edge shifts, target margin, the four tones, `sheet_layout`) and `layouts` for both sheet layouts (offsets, scale, back rotation, line weights). Every number within its limits. |
+| `printer` | Optional. The printer profile as `printer.ts` reads it: the shared settings (creep, fore-edge shifts, target margin, the four tones, `sheet_layout`), `print_method` (`auto` or `hand` for each layout) and `layouts` for both sheet layouts, each by print method and paper (`inside`, `cover`): offsets, scale, back rotation, line weights. Every number within its limits. |
 
 ## Backup and restore
 

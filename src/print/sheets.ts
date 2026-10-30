@@ -8,7 +8,7 @@
 //
 // Positions are millimeters from the PDF page's top left, y down.
 import type { PDFFont } from 'pdf-lib';
-import { SHEET_H_MM, SHEET_W_MM, offsetOf, profileOf, type PrintSettings, type SheetLayout } from '../book/impose';
+import { SHEET_H_MM, SHEET_W_MM, offsetOf, profileOf, type Layouts, type PaperSet, type SheetLayout } from '../book/impose';
 import { mmToPt } from './draw';
 import type { Item } from './display';
 
@@ -37,14 +37,14 @@ export const backRegion = (half: number) => ({ y: halfTops('letter_two_up')[half
  */
 export interface SheetTransform { sx: number; sy: number; rot: number; dx: number; dy: number }
 
-/** The transform of a side of the sheet, from the selected layout's scale and its front or back offset; the back also takes the layout's rotation. */
-export function transformOf(print: Pick<PrintSettings, 'sheet_layout' | 'layouts'>, side: 'front' | 'back'): SheetTransform {
-  const p = profileOf(print), off = offsetOf(print, side);
+/** The transform of a side of the sheet, from the selected layout and print method's scale for that paper and its front or back offset; the back also takes the layout's rotation. */
+export function transformOf(print: Layouts, side: 'front' | 'back', paper: PaperSet = 'inside'): SheetTransform {
+  const p = profileOf(print, paper), off = offsetOf(print, side, paper);
   return { sx: p.scale_x_pct / 100, sy: p.scale_y_pct / 100, rot: side === 'back' ? (p.back_rotation_deg * Math.PI) / 180 : 0, dx: off.x, dy: -off.y };
 }
 
 /** The line weight along the 8.5 in edge of the selected layout, as a factor (1 is as drawn). */
-export const lineWeightOf = (print: Pick<PrintSettings, 'sheet_layout' | 'layouts'>) => profileOf(print).line_weight_x_pct / 100;
+export const lineWeightOf = (print: Layouts, paper: PaperSet = 'inside') => profileOf(print, paper).line_weight_x_pct / 100;
 
 /** Where a point on a w x h sheet (x right, y down) lands. */
 export function mapPoint(t: SheetTransform, w: number, h: number, p: { x: number; y: number }) {

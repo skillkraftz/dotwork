@@ -1,7 +1,7 @@
 // The print settings as plain text: printed in the footer of every calibration page, in calibration.txt and in
 // summary.txt, so a sheet or a zip says what produced it. One function, so they always agree.
 import { PAGE_H_MM, PAGE_W_MM } from '../format/types';
-import { LAYOUT_NAMES, profileOf, type LayoutProfile, type PrintSettings } from '../book/impose';
+import { LAYOUT_NAMES, METHOD_SHORT, PAPER_NAMES, methodOf, profileOf, type LayoutProfile, type PaperSet, type PrintSettings } from '../book/impose';
 import { APP_VERSION } from '../version';
 
 /** How each print setting is named in the text. Typed on every setting, so a new one can't be left out of the summary. */
@@ -12,6 +12,7 @@ export const PRINT_LABELS: Record<keyof PrintSettings | 'signatures', string> = 
   target_fore_edge_margin_mm: 'target margin',
   signatures: 'signatures',
   sheet_layout: 'sheet layout',
+  print_method: 'print method',
   layouts: 'layouts',
   shade_light_pct: 'light',
   shade_medium_pct: 'medium',
@@ -34,12 +35,16 @@ export const LAYOUT_LABELS: Record<keyof LayoutProfile, string> = {
 /** 'YYYY-MM-DD' in the local time zone. */
 export const isoDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
-/** Seven short lines (each fits a page's width at footer size): the app and date, the layout, the creep and shifts, the front and back offsets with the scale, and the tones. */
-export function settingsLines(p: PrintSettings, now: Date, signatures?: number): string[] {
-  const L = PRINT_LABELS, A = LAYOUT_LABELS, l = profileOf(p);
+/** What a file is made for, on one short line: the layout, the print method and the paper set ("Half letter | by hand | inside paper"). */
+export const madeFor = (p: PrintSettings, paper: PaperSet) => `${LAYOUT_NAMES[p.sheet_layout]} | ${METHOD_SHORT[methodOf(p)]} | ${PAPER_NAMES[paper].toLowerCase()}`;
+
+/** Eight short lines (each fits a page's width at footer size): the app and date, what it is made for, the scale, the creep and shifts, the front and back offsets with the scale, and the tones. `paper` picks the offsets and scale shown. */
+export function settingsLines(p: PrintSettings, now: Date, signatures?: number, paper: PaperSet = 'inside'): string[] {
+  const L = PRINT_LABELS, A = LAYOUT_LABELS, l = profileOf(p, paper);
   return [
     `Dotwork ${APP_VERSION} | ${isoDay(now)} | page ${PAGE_W_MM} x ${PAGE_H_MM} mm`,
-    `${L.sheet_layout} ${LAYOUT_NAMES[p.sheet_layout]} | ${A.scale_x_pct} ${l.scale_x_pct}% | ${A.scale_y_pct} ${l.scale_y_pct}%`,
+    `made for ${madeFor(p, paper)}`,
+    `${A.scale_x_pct} ${l.scale_x_pct}% | ${A.scale_y_pct} ${l.scale_y_pct}%`,
     `${L.creep_per_sheet_mm} ${p.creep_per_sheet_mm} mm${signatures === undefined ? '' : ` | ${L.signatures} ${signatures}`} | ${A.line_weight_x_pct} ${l.line_weight_x_pct}%`,
     `${L.fore_edge_shift_mm} ${p.fore_edge_shift_mm} | ${L.cover_fore_edge_shift_mm} ${p.cover_fore_edge_shift_mm} | ${L.target_fore_edge_margin_mm} ${p.target_fore_edge_margin_mm} mm`,
     `${A.front_offset_x_mm} ${l.front_offset_x_mm} mm | ${A.front_offset_y_mm} ${l.front_offset_y_mm} mm`,

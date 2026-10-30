@@ -8,7 +8,7 @@
 // is the line weight by direction (below), which is its own setting.
 import type { Seg } from '../format/path';
 import { dotsAsSet, type Item, type Pt } from './display';
-import type { PrintSettings } from '../book/impose';
+import type { Layouts, PaperSet } from '../book/impose';
 import { lineWeightOf, mapPoint, transformOf, type SheetTransform } from './sheets';
 
 /** Strokes parallel to the paper's 8.5 in edge are drawn `along` times as thick; ones across it as drawn; angled ones in between, by cos² of the angle. */
@@ -76,6 +76,6 @@ export function correct(items: readonly Item[], t: SheetTransform, w: number, h:
   });
 }
 
-/** A list as one side of a `w` x `h` sheet prints it, under the printer profile: the scale, the rotation (back only), the offset and the line weight. */
-export const printSide = (items: readonly Item[], print: Pick<PrintSettings, 'sheet_layout' | 'layouts'>, side: 'front' | 'back', w: number, h: number): Item[] =>
-  correct(items, transformOf(print, side), w, h, lineWeightOf(print));
+/** A list as one side of a `w` x `h` sheet prints it, under the printer profile (its layout, print method and paper): the scale, the rotation (back only), the offset and the line weight. */
+export const printSide = (items: readonly Item[], print: Layouts, side: 'front' | 'back', w: number, h: number, paper: PaperSet = 'inside'): Item[] =>
+  correct(items, transformOf(print, side, paper), w, h, lineWeightOf(print, paper));

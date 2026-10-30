@@ -106,7 +106,7 @@ for (const device of ['phone', 'desktop'] as Device[]) {
       const [download] = await Promise.all([page.waitForEvent('download'), hit(app, '[data-help="library-export"]')]);
       const file = JSON.parse(readFileSync(await download.path(), 'utf8'));
       file.printer.creep_per_sheet_mm = 0.37;
-      file.printer.layouts.letter_two_up.back_offset_x_mm = 1.5;
+      file.printer.layouts.letter_two_up.auto.inside.back_offset_x_mm = 1.5;
       const mine = await page.evaluate(() => localStorage.getItem('dotwork.printer'));
 
       await restoreFile(app, 'other-printer.json', JSON.stringify(file));
@@ -131,7 +131,7 @@ for (const device of ['phone', 'desktop'] as Device[]) {
       await hit(app, '[data-key="restore-printer-replace"]');
       const stored = JSON.parse((await page.evaluate(() => localStorage.getItem('dotwork.printer')))!);
       expect(stored.creep_per_sheet_mm).toBe(0.37);
-      expect(stored.layouts.letter_two_up.back_offset_x_mm).toBe(1.5);
+      expect(stored.layouts.letter_two_up.auto.inside.back_offset_x_mm).toBe(1.5);
       expect(app.errors).toEqual([]);
     });
 

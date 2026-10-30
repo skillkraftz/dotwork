@@ -83,8 +83,8 @@ for (const device of ['phone', 'desktop'] as const) {
       expect(await value('book-front-offset-x')).toBe('1.7');
       await pickLayout(app, 'export', 'letter_two_up');
       expect(await value('book-scale-x')).toBe('101.5');
-      expect((await profile(app)).layouts.letter_two_up.scale_x_pct).toBe(101.5); // the printer's, not the book's
-      expect((await profile(app)).layouts.half_letter.scale_x_pct).toBe(100);
+      expect((await profile(app)).layouts.letter_two_up.auto.inside.scale_x_pct).toBe(101.5); // the printer's, not the book's
+      expect((await profile(app)).layouts.half_letter.hand.inside.scale_x_pct).toBe(100);
       expect((await bookPrint(app)) ?? { signatures: 1 }).toEqual({ signatures: 1 }); // never the printer's settings
       await type(app, 'dialog.export [data-key="book-scale-x"]', '100');
 
@@ -165,8 +165,8 @@ for (const device of ['phone', 'desktop'] as const) {
       expect(result).toContain('Scale along the 11 in edge: 100 → 99.01 %');
       await hit(app, 'dialog.calibrate [data-key="calibrate-use-sheet"]');
       const saved = await profile(app);
-      expect(saved.layouts.letter_two_up).toMatchObject({ scale_x_pct: 102.04, scale_y_pct: 99.01 });
-      expect(saved.layouts.half_letter).toMatchObject({ scale_x_pct: 100, scale_y_pct: 100 });
+      expect(saved.layouts.letter_two_up.auto.inside).toMatchObject({ scale_x_pct: 102.04, scale_y_pct: 99.01 });
+      expect(saved.layouts.half_letter.hand.inside).toMatchObject({ scale_x_pct: 100, scale_y_pct: 100 });
       expect(saved.sheet_layout).toBe('letter_two_up');
       expect((await bookPrint(app)) ?? { signatures: 1 }).toEqual({ signatures: 1 }); // never the printer's settings
       expect(app.errors).toEqual([]);

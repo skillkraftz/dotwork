@@ -1,13 +1,13 @@
-// Builds a book's print files: pages.pdf, print-first.pdf / print-second.pdf (one pair per signature, and print-duplex.pdf on letter
-// two-up), cover-outside.pdf / cover-inside.pdf and a summary. The sheet layouts are in sheets.ts. Match journal-system's pocketjournal/book.py and imposition.py.
+// Builds a book's print files: pages.pdf, then for each signature print-duplex.pdf (the printer flips the paper) or print-first.pdf /
+// print-second.pdf (flipped by hand), by the printer profile's print method, cover-outside.pdf / cover-inside.pdf and a summary. The sheet layouts are in sheets.ts. Match journal-system's pocketjournal/book.py and imposition.py.
 import { PDFDocument } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import { PAGE_H_MM, PAGE_W_MM, type Page } from '../format/types';
 import { blankTokens } from '../format/tokens';
 import { FIRST_SLOT, bookExpand, bookPage, lastSlot, type Book } from '../book/book';
 import {
-  LAYOUT_NAMES, PAPER_SETTINGS, SHEET_H_MM, SHEET_W_MM, checkPrintSettings, duplexOrder, impose, pageOrigin,
-  type PageRef, type PrintSettings, type Sheet, type SheetSide, type Signature,
+  LAYOUT_NAMES, METHOD_NAMES, PAPER_SETTINGS, SHEET_H_MM, SHEET_W_MM, checkPrintSettings, impose, methodOf, pageOrigin, printOrder,
+  type PageRef, type PaperSet, type PrintMethod, type PrintSettings, type Sheet, type SheetSide, type Signature,
 } from '../book/impose';
 import { drawItems, embedImages, mmToPt, type Fonts } from './draw';
 import type { Item } from './display';
@@ -70,12 +70,12 @@ export interface HalfPlan {
   label: string[];
   draw: (d: Drawer, out: Item[], top: number) => void;
 }
-/** One PDF page: which side of the sheet it prints and what is in each half (null is blank). Half letter has one half; two-up has top and bottom. */
-export interface PagePlan { side: 'front' | 'back'; halves: (HalfPlan | null)[] }
+/** One PDF page: which side of the sheet it prints, on which paper (inside unless it says cover) and what is in each half (null is blank). Half letter has one half; two-up has top and bottom. */
+export interface PagePlan { side: 'front' | 'back'; paper?: PaperSet; halves: (HalfPlan | null)[] }
 
 /**
- * The PDF for pages of sheets. The sheet layout, offsets, rotation, scale, shifts and tones all come from the printer profile `print`;
- * each half draws its own book's pages.
+ * The PDF for pages of sheets. The sheet layout, print method, offsets, rotation, scale, shifts and tones all come from the printer profile
+ * `print` (the offsets of each page's paper); each half draws its own book's pages.
  */
 export async function sheetsPdf(plans: PagePlan[], print: PrintSettings, fontBytes: FontBytes): Promise<Uint8Array> {
   const { doc, fonts } = await newDocument(fontBytes);
@@ -92,7 +92,7 @@ export async function sheetsPdf(plans: PagePlan[], print: PrintSettings, fontByt
     });
     if (twoUp) items.push(...cutMarks());
     await embedImages(doc, items);
-    drawItems(doc.addPage([mmToPt(w), mmToPt(h)]), printSide(items, print, plan.side, w, h), fonts, h);
+    drawItems(doc.addPage([mmToPt(w), mmToPt(h)]), printSide(items, print, plan.side, w, h, plan.paper), fonts, h);
   }
   return doc.save({ useObjectStreams: false });
 }
@@ -155,39 +155,49 @@ function coverHalf(book: Book, print: PrintSettings, pass: 'outside' | 'inside')
 
 /** The cover PDF of a pass: one sheet, single-sided. Two-up puts the top book's covers on the top half and the bottom book's below. */
 const coverPdf = (b: Books, print: PrintSettings, pass: 'outside' | 'inside', fontBytes: FontBytes) =>
-  sheetsPdf([{ side: pass === 'outside' ? 'front' : 'back', halves: isTwoUp(print.sheet_layout) ? [coverHalf(b.top, print, pass), coverHalf(b.bottom, print, pass)] : [coverHalf(b.top, print, pass)] }], print, fontBytes);
+  sheetsPdf([{ side: pass === 'outside' ? 'front' : 'back', paper: 'cover', halves: isTwoUp(print.sheet_layout) ? [coverHalf(b.top, print, pass), coverHalf(b.bottom, print, pass)] : [coverHalf(b.top, print, pass)] }], print, fontBytes);
 
-/** Short advice for printing, from the steps above: the real procedure (print-first, same way back in the tray, print-second) and the calibration set. */
-export const PRINT_TIPS = [
+/** Short advice for printing, for the print method: the real procedure is in summary.txt's steps; these are the habits that save paper. */
+export const printTips = (method: PrintMethod): string[] => [
   '- Print the calibration set first (Calibrate, in the PDF tab of Import and Export). It shows how your printer',
   '  places and sizes the pages without printing a whole book: the best way to avoid wasting paper.',
   '- Then print one signature before the whole book.',
   '- Print at actual size (100%): turn off fit-to-page and scale-to-fit.',
-  '- Use the same paper and printer settings for print-first and print-second.',
+  method === 'auto' ? '- Use the same paper and printer settings for every sheet.' : '- Use the same paper and printer settings for print-first and print-second.',
   '- Print at your printer\'s best quality. Firefox may not use the quality set in the printer\'s own defaults, and normal',
   '  quality feeds the paper too fast and misaligns lines. Check the quality in the print dialog\'s printer options, or',
   '  set the default in CUPS (localhost:631) on Linux.',
 ];
 
 /** The sheet order, derived: said in summary.txt so a pile can be checked by eye. */
-export const TWO_UP_ORDER = [
+export const TWO_UP_ORDER = (method: PrintMethod) => [
   'Sheet order: letter sheet k holds sheet k of Book 1 on its top half and sheet k of Book 2 on its bottom half (k = 1 is the',
-  'outermost sheet). print-duplex.pdf runs front, back for k = 1, 2, 3 … A printer that lays each sheet on top of the last',
-  '(first one at the bottom), which is how the manual print-first / print-second pair ends up too, gives a pile with sheet 1 at',
+  `outermost sheet). ${method === 'auto' ? 'print-duplex.pdf runs front, back for k = 1, 2, 3 …' : 'print-first.pdf runs the fronts from the innermost sheet in, print-second.pdf the backs from the outermost.'} A printer that lays each sheet on top of the last`,
+  '(first one at the bottom) gives a pile with sheet 1 at',
   'the bottom and the innermost sheet on top. Cut the whole pile once along the cut marks: the top halves are Book 1 and the bottom',
   'halves Book 2, each in nesting order. If your printer stacks the other way, each pile is in reverse order: turn it round.',
 ];
 
+/** The steps for printing a signature with the chosen print method, and only that one. */
+export function printSteps(method: PrintMethod, twoUp: boolean): string[] {
+  const cut = twoUp ? [...TWO_UP_ORDER(method), 'Cut marks: at the middle line in the side trim zones (they are cut off when trimming). Each half is labelled in its trim zone.'] : [];
+  return method === 'auto'
+    ? ['Print each signature on a printer that duplexes by itself: print-duplex.pdf, double-sided, flip on the long edge (top stays top).', ...cut]
+    : ['Print each signature by hand: print-first.pdf, put the stack back in the tray the same way, then print-second.pdf.', ...cut];
+}
+
 export function summary(books: Books, p: PrintSettings, sigs: Signature[], files: string[], now = new Date(), bottomSigs: Signature[] = sigs, warnings: string[] = []): string {
-  const book = books.top, twoUp = isTwoUp(p.sheet_layout);
+  const book = books.top, twoUp = isTwoUp(p.sheet_layout), method = methodOf(p);
   const sheets = sigs.reduce((n, g) => n + g.sheets.length, 0);
   const maxCreep = Math.max(...sigs.map((g) => (g.sheets.length - 1) * p.creep_per_sheet_mm));
   const { w, h } = sheetSize(p.sheet_layout);
+  const cover = settingsLines(p, now, undefined, 'cover');
   return [
     `Book: ${book.name}`,
     `Pages: ${book.page_count} interior (${sheets} sheets in ${sigs.length} signature${sigs.length > 1 ? 's' : ''})${book.page_numbers ? ', numbered' : ''}`,
     `Sheets: ${SHEET_W_MM} x ${SHEET_H_MM} mm; creep at most ${maxCreep.toFixed(2)} mm`,
     `Sheet layout: ${LAYOUT_NAMES[p.sheet_layout]} (${w} x ${h} mm)`,
+    `Print method: ${METHOD_NAMES[method]}`,
     `Printer: ${PAPER_SETTINGS[p.sheet_layout]}`,
     ...(twoUp ? [
       `Top: Book 1, ${bookTitle(books.top)} (${sigs.reduce((n, g) => n + g.sheets.length, 0)} sheets)`,
@@ -195,28 +205,22 @@ export function summary(books: Books, p: PrintSettings, sigs: Signature[], files
       'Both books print with the same printer settings.',
     ] : []),
     '',
-    'Print settings used for these files:',
+    'Print settings used for these files (the inside paper\'s offsets for the pages):',
     ...settingsLines(p, now, book.print.signatures).map((l) => `  ${l}`),
     '  (offsets: + is right and up, as seen on that side. Front: the first pass. Back: the second. Back rotation: + is counter-clockwise as seen on the back. Tones: 0 = white, 100 = black.)',
+    'The covers use the cover paper\'s offsets:',
+    ...[cover[1], cover[2], cover[5], cover[6]].map((l) => `  ${l}`),
     '',
     `Files: ${files.join(', ')}`,
     '',
     ...(warnings.length ? ['Warnings:', ...warnings.map((w) => `  - ${w}`), ''] : []),
-    ...(twoUp ? [
-      'Print each signature on a printer that duplexes by itself: print-duplex.pdf, flip on the long edge (top stays top).',
-      'Without auto-duplex: print-first, put the stack back in the tray the same way, then print-second.',
-      ...TWO_UP_ORDER,
-      'Cut marks: at the middle line in the side trim zones (they are cut off when trimming). Each half is labelled in its trim zone.',
-    ] : [
-      'Print each signature: print-first, put the stack back in the tray the',
-      'same way, then print-second.',
-    ]),
+    ...printSteps(method, twoUp),
     'Fold, sew, wrap in the cover, then measure',
     `${(PAGE_W_MM / 25.4).toFixed(1)} in from the fold and trim the fore-edge.`,
     `Covers: print cover-outside.pdf single-sided on the cover paper, put the sheet back the same way, then print cover-inside.pdf${twoUp ? ' (two covers per sheet)' : ''}.`,
     '',
     'Tips:',
-    ...PRINT_TIPS,
+    ...printTips(method),
     '',
   ].join('\n');
 }
@@ -254,17 +258,19 @@ export async function exportBookFiles(book: Book, print: PrintSettings, fontByte
   const warnings = signatures || cover ? edgeWarnings(books, print, topSigs, bottomSigs) : [];
   const pdf = (name: string, bytes: Uint8Array): ExportedFile => ({ name, bytes, type: 'application/pdf' });
   const files: ExportedFiles = Object.assign([] as ExportedFile[], { warnings });
-  const twoUp = isTwoUp(print.sheet_layout);
   if (signatures) {
     const counts = sheetCounts(print, topSigs, bottomSigs);
     for (const [i, n] of counts.entries()) {
       const prefix = counts.length > 1 ? `sig${i + 1}-` : '';
-      const [fronts, backs] = duplexOrder(n);
-      const make = (order: [number, 'front' | 'back'][]) => sheetsPdf(order.map(([j, side]) => sheetPage(books, print, topSigs, bottomSigs, i, j, side)), print, fontBytes);
-      // print-duplex: front, back, front, back… from the outermost sheet in, so a pile built in print order nests as it is.
-      if (twoUp) files.push(pdf(`${prefix}print-duplex.pdf`, await make(Array.from({ length: n }, (_, j): [number, 'front' | 'back'][] => [[j, 'front'], [j, 'back']]).flat())));
-      files.push(pdf(`${prefix}print-first.pdf`, await make(fronts.map((j) => [j, 'front']))));
-      files.push(pdf(`${prefix}print-second.pdf`, await make(backs.map((j) => [j, 'back']))));
+      const make = (order: { sheet: number; side: 'front' | 'back' }[]) => sheetsPdf(order.map(({ sheet, side }) => sheetPage(books, print, topSigs, bottomSigs, i, sheet, side)), print, fontBytes);
+      const order = printOrder(n, methodOf(print));
+      if (methodOf(print) === 'auto') {
+        // print-duplex: front, back, front, back… from the outermost sheet in, so a pile built in print order nests as it is.
+        files.push(pdf(`${prefix}print-duplex.pdf`, await make(order)));
+      } else {
+        files.push(pdf(`${prefix}print-first.pdf`, await make(order.filter((o) => o.side === 'front'))));
+        files.push(pdf(`${prefix}print-second.pdf`, await make(order.filter((o) => o.side === 'back'))));
+      }
     }
   }
   if (cover) {

@@ -1,6 +1,6 @@
 # The print pipeline
 
-Every printed file (the book's `print-first.pdf`, `print-second.pdf`, `print-duplex.pdf`, the covers, and all the calibration sheets) is
+Every printed file (the book's `print-first.pdf` and `print-second.pdf` or `print-duplex.pdf`, by the print method, the covers, and all the calibration sheets) is
 made in three stages. Each stage knows only about its own job, so a page size can later plug into the first one without touching the
 other two. (There is no project or page-size feature yet.)
 
