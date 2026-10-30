@@ -12,7 +12,7 @@ import { blankTokens } from '../src/format/tokens';
 import { validatePage } from '../src/format/validate';
 import { SHADE_TONES, TEXT_COLORS } from '../src/render';
 import { drawPage, mmToPt } from '../src/print/draw';
-import { PRINT_TIPS, exportBookFiles, newDocument, summary, type ExportedFile } from '../src/print/export';
+import { printTips, exportBookFiles, newDocument, summary, type ExportedFile } from '../src/print/export';
 import {
   COVER_FILE, CREEP_FILE, FORE_EDGE_RULER_MM, HAIRLINE_WIDTHS, LADDER_MM, LADDER_PCT, PAIR_WIDTHS, RAMP_STEPS, SCALE_MM, SHEET_FILE, calibrationPages, calibrationText, creepFiles, creepPages, creepSheets, sheetFile,
 } from '../src/print/calibrate';
@@ -136,7 +136,7 @@ describe('summary.txt in a book export', () => {
     expect(text).toMatch(/\| \d{4}-\d{2}-\d{2} \|/);
     expect(text).toContain(`page ${PAGE_W_MM} x ${PAGE_H_MM} mm`);
     const tips = text.slice(text.indexOf('Tips:'));
-    expect(text.trimEnd().endsWith(PRINT_TIPS.at(-1)!)).toBe(true);
+    expect(text.trimEnd().endsWith(printTips('hand').at(-1)!)).toBe(true);
     expect(tips).toMatch(/Calibrate/);
     expect(tips).toMatch(/calibration set first/);
     expect(tips).toMatch(/one signature before the whole book/);
@@ -231,7 +231,7 @@ for (const layout of ['half_letter', 'letter_two_up'] as const) {
     it('says the drawn width next to each pair, and 80 % and 90 % give different widths in the PDF', async () => {
       const at = async (pct: number) => {
         const own = clonePrint(print);
-        own.layouts[layout].line_weight_x_pct = pct;
+        own.layouts[layout].hand.inside.line_weight_x_pct = pct;
         const [front] = await readPdf((await sheetFile(emptyBook(52), own, fontBytes, NOW)).bytes);
         const wide = strokes(front.content, H).filter((s) => Math.abs(s.y1 - s.y2) < 0.001 && Math.abs(Math.abs(s.x2 - s.x1) - 11) < 0.01 && s.y1 < 40 && PAIR_WIDTHS.some((w) => Math.abs(s.w - w * pct / 100) < 0.0005)); // the pairs, above the ladder
         return { front, widths: wide.map((s) => +s.w.toFixed(4)) };
@@ -251,7 +251,7 @@ for (const layout of ['half_letter', 'letter_two_up'] as const) {
 
     it('draws the pairs with the line weight setting but never the ladder, so the ladder always shows the same steps', async () => {
       const own = clonePrint(print);
-      own.layouts[layout].line_weight_x_pct = 90;
+      own.layouts[layout].hand.inside.line_weight_x_pct = 90;
       const [front] = await readPdf((await sheetFile(emptyBook(52), own, fontBytes, NOW)).bytes);
       const all = strokes(front.content, H);
       const along = (w: number) => all.some((s) => Math.abs(s.y1 - s.y2) < 0.001 && Math.abs(Math.abs(s.x2 - s.x1) - 11) < 0.01 && Math.abs(s.w - w) < 0.0005);
@@ -423,7 +423,7 @@ describe('the back rotation', () => {
   };
   const turned = (deg: number, layout: 'half_letter' | 'letter_two_up' = 'half_letter') => {
     const p = clonePrint(layout === 'letter_two_up' ? flatTwoUp() : FLAT);
-    p.layouts[layout].back_rotation_deg = deg;
+    p.layouts[layout].hand.inside.back_rotation_deg = deg;
     return p;
   };
   const book = () => { const b = emptyBook(8); onPages(b, { 1: toned() }); return b; };
@@ -479,9 +479,10 @@ describe('the creep test and the cover sheet', () => {
     expect([COVER_FILE, CREEP_FILE]).toEqual(['calibration-cover.pdf', 'creep-test.pdf']);
     const text = decode(file(made, 'calibration.txt'));
     expect(text).toContain('the outermost and innermost sheet of a 52-page book (13 sheets), 4 pages');
-    expect(text).toContain('print pages 1 to 2');
-    expect(text).toContain('print pages 3 to 4');
+    expect(text).toContain('pages 1 to 2');
+    expect(text).toContain('then pages 3 to 4');
     for (const line of settingsLines(FLAT, NOW)) expect(text).toContain(line);
+    for (const line of settingsLines(FLAT, NOW, undefined, 'cover')) expect(text).toContain(line);
   });
 
   it('prints only the outermost and the innermost sheet, both sides, in manual-duplex order: the innermost front first, then the outermost back first', async () => {
@@ -614,7 +615,7 @@ describe('the creep test and the cover sheet', () => {
     expect(outside.strings).toContain('COVER, outside front cover');
     expect(inside.strings).toContain('COVER, inside front cover');
     expect(inside.strings).toContain('COVER, inside back cover');
-    for (const sheet of [outside, inside]) for (const line of settingsLines(FLAT, NOW)) expect(sheet.strings.filter((s) => s === line)).toHaveLength(2);
+    for (const sheet of [outside, inside]) for (const line of settingsLines(FLAT, NOW, undefined, 'cover')) expect(sheet.strings.filter((s) => s === line)).toHaveLength(2);
   });
 
   it('draws the same content-area box on every page', async () => {

@@ -1,3 +1,4 @@
+import type { PrintSettings } from '../src/book/impose';
 import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { PDFDocument } from 'pdf-lib';
@@ -24,6 +25,8 @@ const labelled = (label: string): Page => ({ ...emptyPage(), identity: '', name:
 
 /** The flat printer profile for each layout, so the numbers stay simple. */
 const HALF = FLAT, TWO = flatTwoUp();
+/** Two-up printed by the printer's auto duplex: print-duplex.pdf. TWO prints by hand: print-first.pdf and print-second.pdf. */
+const TWO_AUTO: PrintSettings = { ...clonePrint(TWO), print_method: { ...TWO.print_method, letter_two_up: 'auto' } };
 const printFor = (layout: 'half_letter' | 'letter_two_up') => clonePrint(layout === 'letter_two_up' ? TWO : HALF);
 
 /** A book whose pages say `${prefix}${n}`. */
@@ -48,25 +51,26 @@ describe('the sheet layouts', () => {
 
   it('keeps a separate offset and scale for each layout, and the half-letter values are the owner’s', () => {
     expect(DEFAULT_PRINT.sheet_layout).toBe('half_letter');
-    expect(DEFAULT_PRINT.layouts.half_letter).toEqual({ front_offset_x_mm: 1.7, front_offset_y_mm: -0.05, back_offset_x_mm: 1.5, back_offset_y_mm: 0.05, scale_x_pct: 100, scale_y_pct: 100, back_rotation_deg: 0, line_weight_x_pct: 100 });
-    expect(DEFAULT_PRINT.layouts.letter_two_up).toEqual({ front_offset_x_mm: -0.25, front_offset_y_mm: -1.55, back_offset_x_mm: -0.4, back_offset_y_mm: 1, scale_x_pct: 100, scale_y_pct: 101.01, back_rotation_deg: -0.183, line_weight_x_pct: 100 });
+    expect(DEFAULT_PRINT.layouts.half_letter.hand.inside).toEqual({ front_offset_x_mm: 1.7, front_offset_y_mm: -0.05, back_offset_x_mm: 1.5, back_offset_y_mm: 0.05, scale_x_pct: 100, scale_y_pct: 100, back_rotation_deg: 0, line_weight_x_pct: 100 });
+    expect(DEFAULT_PRINT.layouts.letter_two_up.hand.inside).toEqual({ front_offset_x_mm: -0.25, front_offset_y_mm: -1.55, back_offset_x_mm: -0.4, back_offset_y_mm: 1, scale_x_pct: 100, scale_y_pct: 101.01, back_rotation_deg: -0.183, line_weight_x_pct: 100 });
     const p = clonePrint(DEFAULT_PRINT);
-    p.layouts.letter_two_up.front_offset_x_mm = 0.8;
-    p.layouts.letter_two_up.front_offset_y_mm = 0;
-    p.layouts.letter_two_up.back_offset_y_mm = 0;
+    p.layouts.letter_two_up.hand.inside.front_offset_x_mm = 0.8;
+    p.layouts.letter_two_up.hand.inside.front_offset_y_mm = 0;
+    p.layouts.letter_two_up.hand.inside.back_offset_y_mm = 0;
     expect(offsetOf(p, 'front')).toEqual({ x: 1.7, y: -0.05 }); // half letter is selected
     p.sheet_layout = 'letter_two_up';
+    p.print_method.letter_two_up = 'hand'; // the owner's default for two-up is auto duplex; these are the by-hand numbers
     expect(offsetOf(p, 'front')).toEqual({ x: 0.8, y: 0 });
     expect(offsetOf(p, 'back')).toEqual({ x: -0.4, y: 0 });
-    expect(DEFAULT_PRINT.layouts.letter_two_up.front_offset_x_mm).toBe(-0.25); // the defaults are not shared with the copy
+    expect(DEFAULT_PRINT.layouts.letter_two_up.hand.inside.front_offset_x_mm).toBe(-0.25); // the defaults are not shared with the copy
   });
 
   it('shares creep, shifts, target margin and tones between the layouts, and keeps both layouts’ settings in the one printer profile', () => {
     const p = clonePrint(DEFAULT_PRINT);
-    p.layouts.letter_two_up.scale_x_pct = 101;
+    p.layouts.letter_two_up.hand.inside.scale_x_pct = 101;
     p.sheet_layout = 'letter_two_up';
-    expect(p.layouts.letter_two_up.scale_x_pct).toBe(101);
-    expect(p.layouts.half_letter).toEqual(DEFAULT_PRINT.layouts.half_letter);
+    expect(p.layouts.letter_two_up.hand.inside.scale_x_pct).toBe(101);
+    expect(p.layouts.half_letter.hand.inside).toEqual(DEFAULT_PRINT.layouts.half_letter.hand.inside);
     expect(Object.keys(p)).not.toContain('front_offset_x_mm');
     expect(Object.keys(p)).not.toContain('signatures');
   });
@@ -90,7 +94,7 @@ describe('duplex: the back of each half lands behind its front', () => {
   });
 
   it('draws, in the PDF, page 2k+2 behind page 2k+1 in each half: same height, mirrored across the sheet', async () => {
-    const files = await exportBookFiles(book(8, 'A', 'letter_two_up'), TWO, fonts, {}, book(8, 'B', 'letter_two_up'));
+    const files = await exportBookFiles(book(8, 'A', 'letter_two_up'), TWO_AUTO, fonts, {}, book(8, 'B', 'letter_two_up'));
     const duplex = await readPdf(file(files, 'print-duplex.pdf')); // F0 B0 F1 B1
     expect(duplex).toHaveLength(4);
     for (const prefix of ['A', 'B']) {
@@ -110,11 +114,16 @@ describe('duplex: the back of each half lands behind its front', () => {
 
 describe('two-up files', () => {
   let files: ExportedFile[];
-  beforeAll(async () => { files = await exportBookFiles(book(8, 'A', 'letter_two_up'), TWO, fonts, {}, book(8, 'B', 'letter_two_up')); });
+  beforeAll(async () => {
+    // The auto duplex files and, from the by-hand export, print-first and print-second: the layout is the same, so these tests read all three.
+    const [A, B] = [book(8, 'A', 'letter_two_up'), book(8, 'B', 'letter_two_up')];
+    const auto = await exportBookFiles(A, TWO_AUTO, fonts, {}, B), hand = await exportBookFiles(A, TWO, fonts, {}, B);
+    files = [...auto, ...hand.filter((f) => /^print-(first|second)/.test(f.name))];
+  });
 
   it('writes print-duplex.pdf next to print-first.pdf and print-second.pdf, on letter sheets, and the covers', async () => {
-    expect(files.map((f) => f.name).sort()).toEqual(['cover-inside.pdf', 'cover-outside.pdf', 'pages.pdf', 'print-duplex.pdf', 'print-first.pdf', 'print-second.pdf', 'summary.txt']);
-    for (const name of ['print-duplex.pdf', 'print-first.pdf', 'print-second.pdf', 'cover-outside.pdf', 'cover-inside.pdf']) {
+    expect(files.map((f) => f.name).sort()).toEqual(['cover-duplex.pdf', 'pages.pdf', 'print-duplex.pdf', 'print-first.pdf', 'print-second.pdf', 'summary.txt']);
+    for (const name of ['print-duplex.pdf', 'print-first.pdf', 'print-second.pdf', 'cover-duplex.pdf']) {
       const [page] = await readPdf(file(files, name));
       expect(page.width, name).toBeCloseTo(8.5 * 72, 1);
       expect(page.height, name).toBeCloseTo(11 * 72, 1);
@@ -168,7 +177,7 @@ describe('two-up files', () => {
   });
 
   it('puts different books on the top and bottom, and leaves the extra halves of the shorter one blank', async () => {
-    const out = await exportBookFiles(book(16, 'A', 'letter_two_up', 'Long'), TWO, fonts, {}, book(8, 'B', 'letter_two_up', 'Short'));
+    const out = await exportBookFiles(book(16, 'A', 'letter_two_up', 'Long'), TWO_AUTO, fonts, {}, book(8, 'B', 'letter_two_up', 'Short'));
     const duplex = await readPdf(file(out, 'print-duplex.pdf'));
     expect(duplex).toHaveLength(8); // 4 sheets, both sides: the longer book decides
     const halfOf = (page: PageInfo, half: 'A' | 'B') => page.strings.filter((s) => s.startsWith(half) && /\d/.test(s) && s.length < 4);
@@ -187,7 +196,7 @@ describe('two-up files', () => {
   });
 
   it('uses the same book on both halves unless told otherwise', async () => {
-    const out = await exportBookFiles(book(8, 'A', 'letter_two_up', 'Same'), TWO, fonts);
+    const out = await exportBookFiles(book(8, 'A', 'letter_two_up', 'Same'), TWO_AUTO, fonts);
     const [front] = await readPdf(file(out, 'print-duplex.pdf'));
     expect(front.strings.filter((s) => /^A\d$/.test(s))).toHaveLength(4);
     expect(front.strings).toContain('Book 1 | Same | sheet 1 of 2 | front');
@@ -263,7 +272,7 @@ describe('the 3 mm edge check', () => {
     expect(files.warnings).toHaveLength(1);
     expect(files.warnings[0]).toMatch(/^Book 1, page \d+, row 0 \(the header\): on the front of the letter sheet it prints 2\.85 mm from the top edge\. The print driver may cut it off; check by printing that page\./);
     expect(files.warnings[0]).toMatch(/ about as close\.$/); // the other pages with content that close
-    expect(files.map((f) => f.name)).toEqual(expect.arrayContaining(['print-first.pdf', 'print-second.pdf', 'print-duplex.pdf', 'cover-outside.pdf', 'cover-inside.pdf', 'pages.pdf', 'summary.txt']));
+    expect(files.map((f) => f.name)).toEqual(expect.arrayContaining(['print-first.pdf', 'print-second.pdf', 'cover-outside.pdf', 'cover-inside.pdf', 'pages.pdf', 'summary.txt']));
     const summaryText = decode(file(files, 'summary.txt'));
     expect(summaryText).toContain('Warnings:');
     expect(summaryText).toContain(files.warnings[0]);
@@ -303,7 +312,7 @@ describe('the 3 mm edge check', () => {
   it('warns the owner’s two-up defaults too: their back already prints the first row near the top edge', async () => {
     const files = await exportBookFiles(edgy('A'), { ...clonePrint(DEFAULT_PRINT), sheet_layout: 'letter_two_up', fore_edge_shift_mm: 0, cover_fore_edge_shift_mm: 0, creep_per_sheet_mm: 0.14 }, fonts);
     expect(files.warnings.join('\n')).toMatch(/on the back of the letter sheet it prints 1\.\d\d mm from the top edge/);
-    expect(files.length).toBeGreaterThan(5);
+    expect(files.map((f) => f.name)).toContain('print-duplex.pdf'); // two-up defaults to auto duplex
   });
 
   it('does not apply to half letter, which prints borderless', async () => {
@@ -377,7 +386,7 @@ describe('size correction', () => {
 
   it('scales only the selected layout', async () => {
     const print = clonePrint(HALF);
-    print.layouts.letter_two_up.scale_x_pct = 103;
+    print.layouts.letter_two_up.hand.inside.scale_x_pct = 103;
     const [page] = await readPdf(file(await exportBookFiles(book(8, 'A', 'half_letter'), print, fonts), 'print-first.pdf'));
     expect(page.content).not.toMatch(/ cm\n/);
     expect(transformOf(print, 'front').sx).toBe(1);
@@ -387,7 +396,7 @@ describe('size correction', () => {
 
   it('turns only the back about the sheet’s centre, counter-clockwise as seen on the back', () => {
     const print = clonePrint(HALF);
-    print.layouts.half_letter.back_rotation_deg = 1;
+    print.layouts.half_letter.hand.inside.back_rotation_deg = 1;
     expect(transformOf(print, 'front').rot).toBe(0);
     const t = transformOf(print, 'back');
     expect(t.rot).toBeCloseTo(Math.PI / 180, 12);
@@ -519,7 +528,7 @@ describe('the outside covers', () => {
 describe('page geometry stays the sister project’s', () => {
   it('keeps the grid where it was', () => {
     expect([GRID_X_MM, GRID_Y_MM, PAGE_H_MM]).toEqual([3.95, 3.85, 139.7]);
-    expect(profileOf(DEFAULT_PRINT)).toBe(DEFAULT_PRINT.layouts.half_letter);
+    expect(profileOf(DEFAULT_PRINT)).toBe(DEFAULT_PRINT.layouts.half_letter.hand.inside);
     expect(LAYOUT_NAMES.letter_two_up).toBe('Letter, two-up');
   });
 });

@@ -233,11 +233,11 @@ describe('line weight by direction', () => {
   });
 
   it('is a per-layout printer setting, 100 % by default, applied to every PDF the layout prints', async () => {
-    for (const layout of ['half_letter', 'letter_two_up'] as const) expect(DEFAULT_PRINT.layouts[layout].line_weight_x_pct).toBe(100);
+    for (const layout of ['half_letter', 'letter_two_up'] as const) expect(DEFAULT_PRINT.layouts[layout].hand.inside.line_weight_x_pct).toBe(100);
     const print = clonePrint(FLAT);
     setPrint(print, { line_weight_x_pct: 90 });
-    expect(print.layouts.half_letter.line_weight_x_pct).toBe(90);
-    expect(print.layouts.letter_two_up.line_weight_x_pct).toBe(100);
+    expect(print.layouts.half_letter.hand.inside.line_weight_x_pct).toBe(90);
+    expect(print.layouts.letter_two_up.hand.inside.line_weight_x_pct).toBe(100);
     const { page, h } = await printed([line(30, 40, 90, 40, 0.35), line(120, 60, 120, 120, 0.35)], print);
     const [horizontal, vertical] = strokes(page.content, h);
     expect(horizontal.w).toBeCloseTo(0.315, 4);
@@ -288,7 +288,7 @@ describe('through the pipeline', () => {
     expect(performance.now() - start).toBeLessThan(2500);
     expect(files.filter((f) => f.name.endsWith('.pdf')).reduce((n, f) => n + f.bytes.length, 0)).toBeLessThan(500_000);
     // The files still have their dots.
-    const [first] = await readPdf(files.find((f) => f.name === 'print-first.pdf')!.bytes);
+    const [first] = await readPdf(files.find((f) => f.name === 'print-duplex.pdf')!.bytes);
     expect(first.content).toContain(' Do');
   });
 });

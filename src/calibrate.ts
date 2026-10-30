@@ -8,8 +8,9 @@ import { SPINE_WARN_MM, creepPages, creepResult, innermostSpineMargin, predicted
 import { FOLD_HOW, NO_READINGS, foldTwist, scaleCaptions, sheetResult, twistText, type SheetReadings } from './book/alignment';
 import { GRID_Y_MM } from './format/types';
 import { PRINT_LIMITS, type Book } from './book/book';
-import { EDGE_NAMES, LAYOUT_NAMES, PAPER_SETTINGS, profileOf, type LayoutProfile, type PrintSettings, type SheetLayout } from './book/impose';
-import { printField, type PrintFieldKey } from './settings';
+import { EDGE_NAMES, LAYOUT_NAMES, METHOD_SHORT, PAPER_NAMES, PAPER_SETTINGS, methodOf, profileOf, type LayoutProfile, type PrintSettings } from './book/impose';
+import { coverHow, creepHow, sheetHow } from './print/instructions';
+import { methodPicker, paperPicker, paperShown, printField, type PrintFieldKey } from './settings';
 import { slug } from './slug';
 
 /** What the Calibrate wizard needs from the editor around it. */
@@ -53,10 +54,10 @@ export class CalibrateDialog {
   private back = h('button', { type: 'button', 'data-key': 'calibrate-back', 'data-help': 'calibrate-back' }, 'Back');
   private next = h('button', { type: 'button', class: 'primary', 'data-key': 'calibrate-next', 'data-help': 'calibrate-next' }, 'Next');
   private step = 0;
-  /** Which layout is being calibrated, read-only: it is chosen in the PDF tab, since what is measured belongs to the layout it is printed on. */
+  /** Which layout is being calibrated, read-only (it is chosen in the PDF tab), with the print method and the paper, which are chosen here. */
   private layoutRow = h('div', { class: 'cal-layout' });
-  /** The layout the typed readings belong to. */
-  private layoutOf: SheetLayout | null = null;
+  /** The set (layout, print method, paper) the typed readings belong to. */
+  private setOf: string | null = null;
   // What was typed. Kept as text so a half-typed number isn't lost when a result is redrawn.
   private read = { sheet: { ...EMPTY_SHEET }, cover: '', outermost: '', innermost: '', fore: '', top: '', bottom: '' };
   /** The layout's settings the sheet was printed with (they are in its footer): every reading is relative to them. */
@@ -89,9 +90,7 @@ export class CalibrateDialog {
 
   show() {
     this.status.hidden = true;
-    // Readings belong to the layout they were made on.
-    if (this.layoutOf !== this.layout) this.resetSheet();
-    this.layoutOf = this.layout;
+    this.keepReadings();
     this.go(0);
     if (!this.dialog.open) this.dialog.showModal();
   }
@@ -113,15 +112,29 @@ export class CalibrateDialog {
     this.status.replaceChildren(...(problem === null ? [] : [typeof problem === 'string' ? h('span', {}, problem) : problemView(problem)]));
   }
 
-  private get layout(): SheetLayout { return this.host.printer.get().sheet_layout; }
+  private get layout() { return this.host.printer.get().sheet_layout; }
 
-  /** Which layout is being calibrated, with a way to change it (in the PDF tab, where the layout is chosen). */
+  /** The set the readings are for: the layout, how it is printed and the paper. Readings made for one set mean nothing for another. */
+  private get set() { return `${this.layout}/${methodOf(this.host.printer.get())}/${paperShown()}`; }
+
+  private keepReadings() {
+    if (this.setOf !== this.set) this.resetSheet();
+    this.setOf = this.set;
+  }
+
+  /** Which layout is being calibrated, with a way to change it (in the PDF tab, where the layout is chosen); the print method and the paper, with the set they pick. */
   private layoutLine(): HTMLElement {
     const change = h('button', { type: 'button', 'data-key': 'calibrate-change-layout', 'data-help': 'calibrate-change-layout' }, 'Change layout');
     change.onclick = () => this.dialog.close();
-    return h('div', { class: 'cal-layout-line' },
-      h('p', { class: 'hint', 'data-key': 'calibrate-layout' }, 'Calibrating: ', h('strong', {}, LAYOUT_NAMES[this.layout]), ` (${PAPER_SETTINGS[this.layout]}).`),
-      change);
+    const print = this.host.printer.get();
+    const redraw = () => { this.keepReadings(); this.go(this.step); };
+    return h('div', { class: 'cal-layout-stack' },
+      h('div', { class: 'cal-layout-line' },
+        h('p', { class: 'hint', 'data-key': 'calibrate-layout' }, 'Calibrating: ', h('strong', {}, LAYOUT_NAMES[this.layout]), ` (${PAPER_SETTINGS[this.layout]}).`),
+        change),
+      methodPicker(() => this.host.printer.get(), (c) => this.change(c), redraw, false),
+      paperPicker(redraw),
+      h('p', { class: 'hint', 'data-key': 'calibrate-set' }, 'Reading and writing: ', h('strong', {}, `${LAYOUT_NAMES[print.sheet_layout]}, ${METHOD_SHORT[methodOf(print)]}, ${PAPER_NAMES[paperShown()].toLowerCase()}`), '. The creep test uses the inside paper’s set, the cover test the cover paper’s.'));
   }
 
   /** Change the printer profile (it is kept). A browser that won't store it is told, with its reason (returned, and shown). */
@@ -176,8 +189,9 @@ export class CalibrateDialog {
   }
 
   private downloadSheet = () => this.button('Download calibration-sheet.pdf', 'calibrate-download-sheet', async () => {
-    this.printed = { ...profileOf(this.host.printer.get()) };
-    await this.download('calibration-sheet', async (book, print, fontBytes) => [await (await import('./print/calibrate')).sheetFile(book, print, fontBytes)]);
+    const paper = paperShown();
+    this.printed = { ...profileOf(this.host.printer.get(), paper) };
+    await this.download('calibration-sheet', async (book, print, fontBytes) => [await (await import('./print/calibrate')).sheetFile(book, print, fontBytes, undefined, paper)]);
   });
 
   private downloadCreep = () => this.button('Download the creep test', 'calibrate-download-creep', () => {
@@ -192,7 +206,7 @@ export class CalibrateDialog {
   // ---- step 1: the sheet ----------------------------------------------------
 
   private sheet(): HTMLElement[] {
-    const layout = this.layout, twoUp = layout === 'letter_two_up', cap = scaleCaptions(layout);
+    const layout = this.layout, twoUp = layout === 'letter_two_up', cap = scaleCaptions(layout), paper = paperShown(), method = methodOf(this.host.printer.get());
     const result = h('div', { class: 'cal-result', role: 'status', 'data-key': 'calibrate-sheet-result' });
     const twist = h('p', { class: 'hint', 'data-key': 'calibrate-fold-twist', 'data-help': 'calibrate-fold-twist' });
     const num_ = (k: keyof SheetFields) => num(this.read.sheet[k]);
@@ -204,7 +218,7 @@ export class CalibrateDialog {
       twist.replaceChildren(...[['Horizontal fold', t.horizontal], ['Vertical fold', t.vertical]].flatMap(([name, v]) => (v ? [h('span', {}, `${name}, ${twistText(v as { mm: number; over: number })}. `)] : [])));
       twist.hidden = !t.horizontal && !t.vertical;
       if ((Object.values(r) as (number | null)[]).every((v) => v === null)) { result.replaceChildren(h('p', { class: 'hint' }, 'Enter what you read to see the new settings.')); return; }
-      const now = profileOf(this.host.printer.get()), printed = this.printed ?? now;
+      const now = profileOf(this.host.printer.get(), paper), printed = this.printed ?? now;
       const next = sheetResult(layout, printed, r);
       const edges = EDGE_NAMES[layout];
       const rows = RESULTS.map(([k, name, unit]) => {
@@ -213,7 +227,7 @@ export class CalibrateDialog {
         return h('li', {}, `${label}: ${show(now[k])} → `, h('strong', {}, `${show(next[k])} ${unit}`));
       });
       const use = this.button('Use these values', 'calibrate-use-sheet', () => {
-        const problem = this.change((p) => { const l = profileOf(p); for (const [k] of RESULTS) if (next[k] !== printed[k]) l[k] = next[k]; });
+        const problem = this.change((p) => { const l = profileOf(p, paper); for (const [k] of RESULTS) if (next[k] !== printed[k]) l[k] = next[k]; });
         this.resetSheet();
         this.go(0);
         this.say(problem ?? 'Saved as your printer’s settings. Print the sheet again to check: every see-through and fold reading should now be 0, and the 100 mm lines exactly 100.0 mm.');
@@ -225,7 +239,7 @@ export class CalibrateDialog {
     return [
       h('p', { class: 'hint' }, QUALITY_TIP),
       h('ol', { class: 'cal-how' },
-        h('li', {}, `Print calibration-sheet.pdf double-sided: page 1, put the sheet back in the tray as for print-second, then page 2. (A duplex printer can print both.)${twoUp ? ' It uses the whole letter sheet.' : ''}`),
+        h('li', {}, `${sheetHow(method)}${twoUp ? ' It uses the whole letter sheet.' : ''} Use the paper you chose above (${PAPER_NAMES[paper].toLowerCase()}).`),
         h('li', {}, `Hold the sheet to a light. On side 2, read each see-through scale where side 1’s + shows through: x at the top and bottom, y at the left and right. + is right and up, as seen on side 2. The + in the middle is a quick look-through check: it should sit on side 1’s.`),
         h('li', {}, `${FOLD_HOW} + is up for the horizontal-fold scales and right for the vertical-fold ones, as seen on side 2.`),
         h('li', {}, `Measure the two 100 mm lines with a ruler, from tick to tick: one parallel to the ${EDGE_NAMES[layout].x} edge, one to the ${EDGE_NAMES[layout].y} edge.`),
@@ -298,6 +312,12 @@ export class CalibrateDialog {
     return h('label', { class: 'compact' }, 'Pages in the book', input);
   }
 
+  /** How many sheets the creep test prints (its outermost and innermost sheet, or the one if the book has one sheet). */
+  private testSheets(): number {
+    const pages = this.testPages();
+    return validPages(pages) && pages >= 8 ? 2 : 1;
+  }
+
   private padding = h('p', { class: 'hint', 'data-key': 'calibrate-padding' });
   private foldAround = h('li', { 'data-key': 'calibrate-fold-around' });
 
@@ -315,6 +335,7 @@ export class CalibrateDialog {
   }
 
   private creep(): HTMLElement[] {
+    const method = methodOf(this.host.printer.get());
     this.printedInputs = {};
     const result = h('div', { class: 'cal-result', role: 'status', 'data-key': 'calibrate-creep-result' });
     const redraw = () => {
@@ -366,8 +387,8 @@ export class CalibrateDialog {
       this.padding,
       this.testField('creep_per_sheet_mm'), this.testField('fore_edge_shift_mm'), this.testField('cover_fore_edge_shift_mm'), this.testField('target_fore_edge_margin_mm'),
       h('ol', { class: 'cal-how' },
-        h('li', {}, 'Print calibration-cover.pdf on your cover stock: page 1 (the outside), put the sheet back the same way, then page 2 (the inside).'),
-        h('li', {}, 'Print creep-test.pdf on your real paper: pages 1 and 2, put the stack back in the tray the same way, then pages 3 and 4.'),
+        h('li', {}, coverHow(method)),
+        h('li', {}, creepHow(method, this.testSheets())),
         h('li', {}, 'Hold a sheet to a light: the boxes should line up through the paper.'),
         this.foldAround),
       this.downloadCreep(),

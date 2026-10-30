@@ -3,7 +3,7 @@
 import type { PrintSettings } from '../book/impose';
 import type { Favorites } from './favorites';
 import { readLibraryFile, type Library, type LibraryItem, type RefusedItem } from './library';
-import { SHEET_LAYOUTS } from '../book/impose';
+import { PAPER_SETS, PRINT_METHODS, SHEET_LAYOUTS } from '../book/impose';
 import { PRINTER_KEYS } from '../printer';
 import type { Problem } from '../problems';
 import { issuesProblem } from '../problems';
@@ -91,9 +91,10 @@ export function printerRows(mine: PrintSettings, theirs: PrintSettings): { label
   const val = (v: unknown) => (typeof v === 'number' ? String(Math.round(v * 1000) / 1000) : String(v));
   const rows = [
     ...(['sheet_layout', ...PRINTER_KEYS] as const).map((k) => ({ label: k.replace(/_/g, ' '), mine: val(mine[k]), theirs: val(theirs[k]) })),
-    ...SHEET_LAYOUTS.flatMap((layout) => Object.keys(mine.layouts[layout]).map((k) => ({
-      label: `${layout} ${k.replace(/_/g, ' ')}`, mine: val((mine.layouts[layout] as unknown as Record<string, unknown>)[k]), theirs: val((theirs.layouts[layout] as unknown as Record<string, unknown>)[k]),
-    }))),
+    ...SHEET_LAYOUTS.map((layout) => ({ label: `${layout} print method`, mine: mine.print_method[layout], theirs: theirs.print_method[layout] })),
+    ...SHEET_LAYOUTS.flatMap((layout) => PRINT_METHODS.flatMap((method) => PAPER_SETS.flatMap((paper) => Object.keys(mine.layouts[layout][method][paper]).map((k) => ({
+      label: `${layout} ${method} ${paper} ${k.replace(/_/g, ' ')}`, mine: val((mine.layouts[layout][method][paper] as unknown as Record<string, unknown>)[k]), theirs: val((theirs.layouts[layout][method][paper] as unknown as Record<string, unknown>)[k]),
+    }))))),
   ];
   return rows;
 }

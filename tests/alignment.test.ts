@@ -154,8 +154,8 @@ describe('the result', () => {
   it('moves the front too once the back is read against the paper: the front is what is left', () => {
     // Back perfect against the paper (every fold reads 0), front shows through 0.4 mm left of the scale and 0.3 mm above it: the
     // front is 0.4 right of where it should be (the sheet is turned over) and 0.3 too high.
-    const next = sheetResult('half_letter', DEFAULT_PRINT.layouts.half_letter, { ...NO_READINGS, topX: -0.4, bottomX: -0.4, leftY: 0.3, rightY: 0.3, hFoldLeft: 0, hFoldRight: 0, vFoldTop: 0, vFoldBottom: 0 });
-    const was = DEFAULT_PRINT.layouts.half_letter;
+    const next = sheetResult('half_letter', DEFAULT_PRINT.layouts.half_letter.hand.inside, { ...NO_READINGS, topX: -0.4, bottomX: -0.4, leftY: 0.3, rightY: 0.3, hFoldLeft: 0, hFoldRight: 0, vFoldTop: 0, vFoldBottom: 0 });
+    const was = DEFAULT_PRINT.layouts.half_letter.hand.inside;
     expect(next.front_offset_x_mm).toBeCloseTo(was.front_offset_x_mm - 0.4, 9);
     expect(next.front_offset_y_mm).toBeCloseTo(was.front_offset_y_mm - 0.3, 9);
     expect(next.back_offset_x_mm).toBe(was.back_offset_x_mm);

@@ -5,7 +5,7 @@ import { validatePage } from './format/validate';
 import { calendarFor, calendarMonths } from './format/calendar';
 import { parts } from './format/dates';
 import { LAYOUT_LIMITS, MAX_PAGES, MIN_PAGES, PRINT_LIMITS, resizeBook, roundPageCount, type Book } from './book/book';
-import { DEFAULT_PRINT, EDGE_NAMES, LAYOUT_NAMES, SHEET_LAYOUTS, profileOf, type LayoutProfile, type PrintSettings, type SheetLayout } from './book/impose';
+import { DEFAULT_PRINT, EDGE_NAMES, LAYOUT_NAMES, METHOD_NAMES, METHOD_SHORT, PAPER_NAMES, PAPER_SETS, PRINT_METHODS, SHEET_LAYOUTS, methodOf, profileOf, type LayoutProfile, type PaperSet, type PrintMethod, type PrintSettings, type SheetLayout } from './book/impose';
 import type { Store } from './store';
 import type { SpreadSide } from './format/spread';
 
@@ -214,7 +214,7 @@ export class SettingsDialog {
   }
 }
 
-type SharedKey = Exclude<keyof PrintSettings, 'sheet_layout' | 'layouts'>;
+type SharedKey = Exclude<keyof PrintSettings, 'sheet_layout' | 'print_method' | 'layouts'>;
 export type PrintFieldKey = SharedKey | keyof LayoutProfile;
 
 /** How each printer setting is labelled and stepped in its field. `help` is the key of its entry in help.ts. */
@@ -238,8 +238,16 @@ const PRINT_FIELDS: Record<PrintFieldKey, { label: string; help: string; step: n
 };
 
 const isLayoutKey = (key: PrintFieldKey): key is keyof LayoutProfile => key in LAYOUT_LIMITS;
-/** A setting's value in the printer profile: a layout's settings are those of the layout selected there. */
-export const printValue = (print: PrintSettings, key: PrintFieldKey): number => (isLayoutKey(key) ? profileOf(print)[key] : print[key]);
+/**
+ * Which paper the offset, scale and rotation fields are showing and writing: the inside paper's or the cover paper's. Not part of the printer profile;
+ * it is shared by the print settings and the Calibrate window, so both show the same set.
+ */
+let shownPaper: PaperSet = 'inside';
+export const paperShown = (): PaperSet => shownPaper;
+export const showPaper = (paper: PaperSet) => { shownPaper = paper; };
+
+/** A setting's value in the printer profile: a layout's settings are those of the layout and print method selected there, for the paper shown. */
+export const printValue = (print: PrintSettings, key: PrintFieldKey, paper: PaperSet = shownPaper): number => (isLayoutKey(key) ? profileOf(print, paper)[key] : print[key]);
 
 type EditPrinter = (change: (p: PrintSettings) => void) => void;
 
@@ -249,16 +257,16 @@ export function printField(printer: () => PrintSettings, edit: EditPrinter, key:
   // The scales are named by the paper's edges of the selected layout.
   const edges = EDGE_NAMES[printer().sheet_layout];
   const label = key === 'scale_x_pct' ? `Scale along the ${edges.x} edge (%)` : key === 'scale_y_pct' ? `Scale along the ${edges.y} edge (%)` : PRINT_FIELDS[key].label;
-  const value = printValue(printer(), key);
-  // The layout this field was drawn for: a change that arrives after the layout was switched still goes to it.
-  const layout = printer().sheet_layout;
+  // The set this field was drawn for: a change that arrives after the layout, method or paper was switched still goes to it.
+  const layout = printer().sheet_layout, method = methodOf(printer()), paper = shownPaper;
+  const value = printValue(printer(), key, paper);
   const input = h('input', { type: 'number', value, min, max, step, 'aria-label': label, 'data-key': help, 'data-help': help });
   input.onchange = () => {
     const typed = Number(input.value);
-    if (input.value === '' || !Number.isFinite(typed)) { input.value = String(printValue(printer(), key)); return; }
+    if (input.value === '' || !Number.isFinite(typed)) { input.value = String(printValue(printer(), key, paper)); return; }
     const v = Math.min(max, Math.max(min, typed));
     input.value = String(v);
-    edit((p) => { if (isLayoutKey(key)) p.layouts[layout][key] = v; else p[key] = v; });
+    edit((p) => { if (isLayoutKey(key)) p.layouts[layout][method][paper][key] = v; else p[key] = v; });
   };
   return h('label', { class: 'compact' }, label, input);
 }
@@ -330,20 +338,42 @@ export function layoutPicker(printer: () => PrintSettings, edit: EditPrinter, re
     ...SHEET_LAYOUTS.map((l) => h('option', { value: l, selected: l === printer().sheet_layout }, LAYOUT_NAMES[l])));
   select.onchange = () => { edit((p) => { p.sheet_layout = select.value as SheetLayout; }); redraw(); };
   return h('div', {}, h('label', { class: 'compact wide' }, 'Sheet layout', select),
-    h('p', { class: 'hint' }, 'Half letter prints on the paper cut in half (as Statement, borderless). Letter, two-up puts two half-letter sheets on one letter sheet, a top book and a bottom book, with normal margins, so the printer can duplex by itself. The offsets, rotation and scale belong to the layout chosen here; everything else is shared.'));
+    h('p', { class: 'hint' }, 'Half letter prints on the paper cut in half (as Statement, borderless). Letter, two-up puts two half-letter sheets on one letter sheet, a top book and a bottom book, with normal margins, so the printer can duplex by itself. The offsets, rotation and scale belong to the layout chosen here (and its print method and paper); everything else is shared.'));
 }
 
+/** Picks how the selected layout's paper is flipped: by the printer (auto duplex) or by hand. It is the printer's setting, kept per layout; each method has its own offsets. */
+export function methodPicker(printer: () => PrintSettings, edit: EditPrinter, redraw: () => void, hint = true): HTMLElement {
+  const layout = printer().sheet_layout;
+  const select = h('select', { 'data-key': 'print-method', 'data-help': 'print-method', 'aria-label': 'Print method' },
+    ...PRINT_METHODS.map((m) => h('option', { value: m, selected: m === methodOf(printer()) }, METHOD_NAMES[m])));
+  select.onchange = () => { edit((p) => { p.print_method[layout] = select.value as PrintMethod; }); redraw(); };
+  return h('div', {}, h('label', { class: 'compact wide' }, 'Print method', select),
+    ...(!hint ? [] : [h('p', { class: 'hint' }, 'Auto duplex: the printer prints both sides itself (print-duplex.pdf). By hand: you print one side, put the stack back and print the other (print-first.pdf, then print-second.pdf). A printer places the back differently in the two, so each method has its own offsets.')]));
+}
+
+/** Picks which paper's offsets, scale and rotation are shown and changed: the inside paper's or the cover stock's (heavier paper is placed differently). */
+export function paperPicker(redraw: () => void): HTMLElement {
+  const select = h('select', { 'data-key': 'paper-set', 'data-help': 'paper-set', 'aria-label': 'Paper' },
+    ...PAPER_SETS.map((k) => h('option', { value: k, selected: k === shownPaper }, PAPER_NAMES[k])));
+  select.onchange = () => { showPaper(select.value as PaperSet); redraw(); };
+  return h('label', { class: 'compact wide' }, 'Paper', select);
+}
+
+/** One line saying which set of offsets the fields below read and write: the layout, the print method and the paper. */
+export const setLine = (print: PrintSettings): HTMLElement =>
+  h('p', { class: 'hint set-line', 'data-key': 'print-set' }, 'Showing and changing: ', h('strong', {}, `${LAYOUT_NAMES[print.sheet_layout]}, ${METHOD_SHORT[methodOf(print)]}, ${PAPER_NAMES[shownPaper].toLowerCase()}`), '.');
+
 /**
- * "Reset this layout to defaults": a button that first shows what each setting of the selected layout is now and what the default is, and
+ * "Reset these offsets to defaults": a button that first shows what each setting of the selected layout, method and paper is now and what the default is, and
  * changes nothing until it is confirmed. `redraw` runs after a reset, to show the new values.
  */
 export function resetLayout(printer: () => PrintSettings, edit: EditPrinter, redraw: () => void): HTMLElement {
-  const layout = printer().sheet_layout, name = LAYOUT_NAMES[layout], box = h('div', { class: 'reset-layout' });
+  const layout = printer().sheet_layout, method = methodOf(printer()), paper = shownPaper, name = `${LAYOUT_NAMES[layout]}, ${METHOD_SHORT[method]}, ${PAPER_NAMES[paper].toLowerCase()}`, box = h('div', { class: 'reset-layout' });
   const ask = () => {
-    const now = printer().layouts[layout], defaults = DEFAULT_PRINT.layouts[layout];
+    const now = printer().layouts[layout][method][paper], defaults = DEFAULT_PRINT.layouts[layout][method][paper];
     const keys = Object.keys(LAYOUT_LIMITS) as (keyof LayoutProfile)[];
     const reset = h('button', { type: 'button', class: 'primary', 'data-key': 'reset-layout-yes', 'data-help': 'reset-layout-yes' }, 'Yes, reset');
-    reset.onclick = () => { edit((p) => { p.layouts[layout] = { ...DEFAULT_PRINT.layouts[layout] }; }); redraw(); };
+    reset.onclick = () => { edit((p) => { p.layouts[layout][method][paper] = { ...DEFAULT_PRINT.layouts[layout][method][paper] }; }); redraw(); };
     const cancel = h('button', { type: 'button', 'data-key': 'reset-layout-cancel', 'data-help': 'reset-layout-cancel' }, 'Cancel');
     cancel.onclick = () => box.replaceChildren(button);
     box.replaceChildren(h('div', { class: 'restore-printer', role: 'group', 'aria-label': `Reset ${name} to defaults`, 'data-key': 'reset-layout-question' },
@@ -353,20 +383,21 @@ export function resetLayout(printer: () => PrintSettings, edit: EditPrinter, red
         h('tbody', {}, ...keys.map((k) => h('tr', { class: now[k] === defaults[k] ? '' : 'differs' }, h('td', {}, PRINT_FIELDS[k].label), h('td', {}, String(now[k])), h('td', {}, String(defaults[k]))))))),
       h('div', { class: 'problem-actions' }, cancel, reset)));
   };
-  const button = h('button', { type: 'button', 'data-key': 'reset-layout', 'data-help': 'reset-layout' }, 'Reset this layout to defaults');
+  const button = h('button', { type: 'button', 'data-key': 'reset-layout', 'data-help': 'reset-layout' }, 'Reset these offsets to defaults');
   button.onclick = ask;
   box.append(button);
   return box;
 }
 
 /**
- * Creep, shifts, the offsets, rotation and scale of the selected layout, signatures and tones: the settings that shape the print-ready files.
+ * Creep, shifts, the offsets, rotation and scale of the selected layout, print method and paper, signatures and tones: the settings that shape the print-ready files.
  * All but the signatures are the printer's, not the book's.
  */
-export function printFields(printer: () => PrintSettings, edit: EditPrinter, book: () => Book, editBook: (change: (b: Book) => void) => void): HTMLElement[] {
+export function printFields(printer: () => PrintSettings, edit: EditPrinter, book: () => Book, editBook: (change: (b: Book) => void) => void, redraw: () => void): HTMLElement[] {
   const field = (key: PrintFieldKey) => printField(printer, edit, key);
   return [
     field('creep_per_sheet_mm'), field('fore_edge_shift_mm'), field('cover_fore_edge_shift_mm'), field('target_fore_edge_margin_mm'), signaturesField(book, editBook),
+    paperPicker(redraw), setLine(printer()),
     field('front_offset_x_mm'), field('front_offset_y_mm'), field('back_offset_x_mm'), field('back_offset_y_mm'), field('back_rotation_deg'), field('scale_x_pct'), field('scale_y_pct'), field('line_weight_x_pct'),
     h('p', { class: 'hint' }, 'Creep moves each sheet’s pages toward the fold by the sheets outside it × the creep per sheet (often more than the paper’s thickness; the Calibrate page finds it). The fore-edge shifts move every page away from the fold, so the trimmed fore-edge margin lands on the target. The front offset moves everything printed first (print-first.pdf, the fronts of print-duplex.pdf, cover-outside.pdf), the back offset everything printed second (+x right, +y up, as seen on that side), to cancel what your printer does to each side; the back rotation turns the back about the sheet’s centre (+ is counter-clockwise as seen on the back). The scale moves everything on the sheet about its centre, to cancel a printer that enlarges or shrinks it; it never stretches lines, dots or letters. The line weight is only for a printer that draws lines along the 8.5 in edge thicker than lines along the other edge; the Calibrate page’s line pairs show it. The Calibrate page finds all of these.'),
     field('shade_light_pct'), field('shade_medium_pct'), field('shade_dark_pct'), field('gray_text_pct'),

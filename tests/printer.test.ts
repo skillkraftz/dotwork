@@ -16,14 +16,14 @@ const memory = (initial: Record<string, string> = {}): PrinterStorage & { data: 
 const refusing = (message: string): PrinterStorage => ({ getItem: () => { throw new Error(message); }, setItem: () => { throw new Error(message); } });
 
 const calibrated = setPrintCopy({ ...clonePrint(DEFAULT_PRINT), creep_per_sheet_mm: 0.11, shade_light_pct: 9 }, { front_offset_x_mm: -1.5, front_offset_y_mm: 0.3, back_offset_x_mm: 1.4, back_offset_y_mm: -0.2, back_rotation_deg: 0.12 });
-function setPrintCopy(p: PrintSettings, change: Partial<LayoutProfile>): PrintSettings { Object.assign(p.layouts.half_letter, change); return p; }
+function setPrintCopy(p: PrintSettings, change: Partial<LayoutProfile>): PrintSettings { Object.assign(p.layouts.half_letter.hand.inside, change); return p; }
 
 describe('the printer profile', () => {
   it('holds the creep, the shifts, the target and the tones, and each layout’s offsets, rotation and scale, but not the signatures', () => {
     expect([...PRINTER_KEYS].sort()).toEqual(['cover_fore_edge_shift_mm', 'creep_per_sheet_mm', 'fore_edge_shift_mm', 'gray_text_pct', 'shade_dark_pct', 'shade_light_pct', 'shade_medium_pct', 'target_fore_edge_margin_mm']);
     expect(DEFAULT_PRINT).not.toHaveProperty('signatures');
     expect(Object.keys(calibrated.layouts)).toEqual(['half_letter', 'letter_two_up']);
-    expect(Object.keys(DEFAULT_PRINT.layouts.half_letter)).toContain('back_rotation_deg');
+    expect(Object.keys(DEFAULT_PRINT.layouts.half_letter.hand.inside)).toContain('back_rotation_deg');
   });
 
   it('is saved and loaded back', () => {
@@ -46,8 +46,8 @@ describe('the printer profile', () => {
     const storage = memory();
     savePrinter(storage, calibrated);
     const loaded = loadPrinter(storage);
-    if (loaded.status === 'ok') loaded.value.layouts.half_letter.front_offset_x_mm = 9;
-    expect(JSON.parse(storage.data[PRINTER_KEY]).layouts.half_letter.front_offset_x_mm).toBe(-1.5);
+    if (loaded.status === 'ok') loaded.value.layouts.half_letter.hand.inside.front_offset_x_mm = 9;
+    expect(JSON.parse(storage.data[PRINTER_KEY]).layouts.half_letter.hand.inside.front_offset_x_mm).toBe(-1.5);
   });
 
   it('takes a layout, or a setting of one, that a saved profile lacks from the defaults, never zeros', () => {
@@ -55,11 +55,11 @@ describe('the printer profile', () => {
     const noLayouts = readPrinter(shared);
     expect(noLayouts.ok && noLayouts.value.layouts).toEqual(DEFAULT_PRINT.layouts);
     const noTwoUp = readPrinter({ ...shared, layouts: { half_letter: calibrated.layouts.half_letter } });
-    expect(noTwoUp.ok && noTwoUp.value.layouts.letter_two_up).toEqual(DEFAULT_PRINT.layouts.letter_two_up);
-    expect(noTwoUp.ok && noTwoUp.value.layouts.half_letter).toEqual(calibrated.layouts.half_letter);
-    const { back_rotation_deg: _r, ...noRotation } = calibrated.layouts.letter_two_up;
+    expect(noTwoUp.ok && noTwoUp.value.layouts.letter_two_up.hand.inside).toEqual(DEFAULT_PRINT.layouts.letter_two_up.hand.inside);
+    expect(noTwoUp.ok && noTwoUp.value.layouts.half_letter.hand.inside).toEqual(calibrated.layouts.half_letter.hand.inside);
+    const { back_rotation_deg: _r, ...noRotation } = calibrated.layouts.letter_two_up.hand.inside; // the shape saved before print methods: one profile per layout
     const partial = readPrinter({ ...shared, layouts: { ...calibrated.layouts, letter_two_up: noRotation } });
-    expect(partial.ok && partial.value.layouts.letter_two_up.back_rotation_deg).toBe(DEFAULT_PRINT.layouts.letter_two_up.back_rotation_deg);
+    expect(partial.ok && partial.value.layouts.letter_two_up.hand.inside.back_rotation_deg).toBe(DEFAULT_PRINT.layouts.letter_two_up.hand.inside.back_rotation_deg);
   });
 
   it('keeps only the layouts that were changed, so a layout at the defaults follows them when they change', () => {
@@ -68,10 +68,10 @@ describe('the printer profile', () => {
     expect(Object.keys(JSON.parse(storage.data[PRINTER_KEY]).layouts)).toEqual(['half_letter']);
     const stale = memory({ [PRINTER_KEY]: JSON.stringify({ ...JSON.parse(storage.data[PRINTER_KEY]) }) });
     const loaded = loadPrinter(stale);
-    expect(loaded.status === 'ok' && loaded.value.layouts.letter_two_up).toEqual(DEFAULT_PRINT.layouts.letter_two_up);
+    expect(loaded.status === 'ok' && loaded.value.layouts.letter_two_up.hand.inside).toEqual(DEFAULT_PRINT.layouts.letter_two_up.hand.inside);
     // a layout the person set to something else is kept as they set it, even all zeros
     const zeros = clonePrint(calibrated);
-    Object.assign(zeros.layouts.letter_two_up, { front_offset_x_mm: 0, front_offset_y_mm: 0, back_offset_x_mm: 0, back_offset_y_mm: 0, back_rotation_deg: 0, scale_y_pct: 100 });
+    Object.assign(zeros.layouts.letter_two_up.hand.inside, { front_offset_x_mm: 0, front_offset_y_mm: 0, back_offset_x_mm: 0, back_offset_y_mm: 0, back_rotation_deg: 0, scale_y_pct: 100 });
     savePrinter(storage, zeros);
     expect(loadPrinter(storage)).toEqual({ status: 'ok', value: zeros });
   });
@@ -93,12 +93,12 @@ describe('the printer profile', () => {
   });
 
   it('refuses stored settings that break the format’s limits, naming each, and does not use them', () => {
-    const bad = memory({ [PRINTER_KEY]: JSON.stringify({ ...calibrated, layouts: { ...calibrated.layouts, letter_two_up: { ...calibrated.layouts.letter_two_up, scale_x_pct: 110 } }, gray_text_pct: 'dark' }) });
+    const bad = memory({ [PRINTER_KEY]: JSON.stringify({ ...calibrated, layouts: { ...calibrated.layouts, letter_two_up: { ...calibrated.layouts.letter_two_up, hand: { ...calibrated.layouts.letter_two_up.hand, inside: { ...calibrated.layouts.letter_two_up.hand.inside, scale_x_pct: 110 } } } }, gray_text_pct: 'dark' }) });
     const load = loadPrinter(bad);
     expect(load.status).toBe('bad');
     if (load.status === 'bad') {
       const text = load.problem.details;
-      expect(text).toContain('layouts.letter_two_up.scale_x_pct');
+      expect(text).toContain('layouts.letter_two_up.hand.inside.scale_x_pct');
       expect(text).toContain('gray_text_pct');
     }
     const old = memory({ [PRINTER_KEY]: JSON.stringify({ creep_per_sheet_mm: 0.14 }) }); // saved before layouts existed
@@ -114,10 +114,10 @@ describe('the layouts in the printer profile', () => {
     for (const layout of ['half_letter', 'letter_two_up'] as const) for (const key of Object.keys(limits) as (keyof typeof limits)[]) {
       for (const bad of [...limits[key], 'x', null]) {
         const p = JSON.parse(JSON.stringify(DEFAULT_PRINT));
-        p.layouts[layout][key] = bad;
+        p.layouts[layout].hand.inside[key] = bad;
         const r = readPrinter(p);
         expect(r.ok, `${layout} ${key} ${bad}`).toBe(false);
-        if (!r.ok) expect(r.issues.map((i) => i.path)).toEqual([`layouts.${layout}.${key}`]);
+        if (!r.ok) expect(r.issues.map((i) => i.path)).toEqual([`layouts.${layout}.hand.inside.${key}`]);
       }
     }
   });
@@ -131,7 +131,7 @@ describe('settings never touch the book', () => {
     const profile = clonePrint(DEFAULT_PRINT);
     // wild values: the printer profile's own limits are for the printer's fields, the book never sees them
     Object.assign(profile, { creep_per_sheet_mm: 0.9, fore_edge_shift_mm: -9, shade_dark_pct: 3 });
-    Object.assign(profile.layouts.letter_two_up, { back_rotation_deg: 1.5, back_offset_x_mm: 9, scale_x_pct: 104 });
+    Object.assign(profile.layouts.letter_two_up.hand.inside, { back_rotation_deg: 1.5, back_offset_x_mm: 9, scale_x_pct: 104 });
     profile.sheet_layout = 'letter_two_up';
     expect(savePrinter(storage, profile)).toBeNull();
     expect(loadPrinter(storage).status).toBe('ok');
@@ -145,7 +145,7 @@ describe('settings never touch the book', () => {
     onPages(book, { 1: { ...emptyPage(), identity: '', elements: [{ type: 'text', x: 1, y: 3, text: 'HELLO', tone: 'black' }] } });
     const a = await exportBookFiles(book, DEFAULT_PRINT, fontBytes, { pages: false, cover: false });
     const twoUp = clonePrint(DEFAULT_PRINT); twoUp.sheet_layout = 'letter_two_up';
-    twoUp.layouts.letter_two_up = { ...FLAT.layouts.letter_two_up }; // the owner’s calibrated two-up offsets put the last row inside the 3 mm edge check
+    twoUp.layouts.letter_two_up = clonePrint(FLAT).layouts.letter_two_up; // the owner’s calibrated two-up offsets put the last row inside the 3 mm edge check
     const b = await exportBookFiles(book, twoUp, fontBytes, { pages: false, cover: false });
     expect(a.map((f) => f.name)).toContain('print-first.pdf');
     expect(b.map((f) => f.name)).toContain('print-duplex.pdf');

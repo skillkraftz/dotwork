@@ -7,7 +7,7 @@
 // each edge of the sheet is measured. The nearest is named by book, page and row (or column, for the left and right edges).
 import { COLS, GRID_X_MM, GRID_Y_MM, PAGE_H_MM, PAGE_W_MM, PITCH_MM as P, ROWS } from '../format/types';
 import { FIRST_SLOT, bookExpand, bookPage, lastSlot, type Book } from '../book/book';
-import { pageOrigin, type PrintSettings, type Signature } from '../book/impose';
+import { PAPER_SETS, pageOrigin, type PaperSet, type PrintSettings, type Signature } from '../book/impose';
 import { boundsOf, type Item } from './display';
 import { layoutPage } from './layout';
 import { EDGE_MM, LETTER_H_MM, LETTER_W_MM, halfTops, isTwoUp, mapPoint, transformOf, trimZoneBoxes } from './sheets';
@@ -42,8 +42,8 @@ export function edgeWarnings(books: { top: Book; bottom: Book }, print: PrintSet
   if (!isTwoUp(print.sheet_layout)) return [];
   const W = LETTER_W_MM, H = LETTER_H_MM, tops = halfTops('letter_two_up');
   const hits = new Map<string, Hit>();
-  const gapsOf = (side: Side, box: Box, ox: number, oy: number): [Edge, number][] => {
-    const t = transformOf(print, side);
+  const gapsOf = (side: Side, box: Box, ox: number, oy: number, paper: PaperSet): [Edge, number][] => {
+    const t = transformOf(print, side, paper);
     const corners = [[box.x0, box.y0], [box.x1, box.y0], [box.x0, box.y1], [box.x1, box.y1]].map(([x, y]) => mapPoint(t, W, H, { x: x + ox, y: y + oy }));
     return [['left', Math.min(...corners.map((p) => p.x))], ['right', W - Math.max(...corners.map((p) => p.x))], ['top', Math.min(...corners.map((p) => p.y))], ['bottom', H - Math.max(...corners.map((p) => p.y))]];
   };
@@ -56,13 +56,13 @@ export function edgeWarnings(books: { top: Book; bottom: Book }, print: PrintSet
   };
 
   const cache = new Map<string, Box | null>();
-  const place = (slot: number, bookIndex: number, side: Side, isRight: boolean, creep: number, shift: number) => {
+  const place = (slot: number, bookIndex: number, side: Side, isRight: boolean, creep: number, shift: number, paper: PaperSet = 'inside') => {
     const book = bookIndex ? books.bottom : books.top, key = `${bookIndex}|${slot}`;
     if (!cache.has(key)) cache.set(key, contentBox(book, slot));
     const box = cache.get(key);
     if (!box) return;
     const o = pageOrigin(isRight, creep, shift), top = tops[bookIndex];
-    for (const [edge, gap] of gapsOf(side, box, o.x, top + o.y)) {
+    for (const [edge, gap] of gapsOf(side, box, o.x, top + o.y, paper)) {
       if (gap >= EDGE_MM) continue;
       const near = edge === 'top' ? `row ${cell(box.y0, GRID_Y_MM, ROWS)}` : edge === 'bottom' ? `row ${cell(box.y1 - 1e-6, GRID_Y_MM, ROWS)}` : edge === 'left' ? `column ${cell(box.x0, GRID_X_MM, COLS)}` : `column ${cell(box.x1 - 1e-6, GRID_X_MM, COLS)}`;
       const row = near === 'row 0' ? 'row 0 (the header)' : near;
@@ -82,10 +82,10 @@ export function edgeWarnings(books: { top: Book; bottom: Book }, print: PrintSet
       }
     }
     // The covers: the outside is printed first (the front), the inside second (the back).
-    place(lastSlot(book), bookIndex, 'front', false, 0, print.cover_fore_edge_shift_mm);
-    place(FIRST_SLOT, bookIndex, 'front', true, 0, print.cover_fore_edge_shift_mm);
-    place(0, bookIndex, 'back', false, 0, print.cover_fore_edge_shift_mm);
-    place(book.page_count + 1, bookIndex, 'back', true, 0, print.cover_fore_edge_shift_mm);
+    place(lastSlot(book), bookIndex, 'front', false, 0, print.cover_fore_edge_shift_mm, 'cover');
+    place(FIRST_SLOT, bookIndex, 'front', true, 0, print.cover_fore_edge_shift_mm, 'cover');
+    place(0, bookIndex, 'back', false, 0, print.cover_fore_edge_shift_mm, 'cover');
+    place(book.page_count + 1, bookIndex, 'back', true, 0, print.cover_fore_edge_shift_mm, 'cover');
   });
 
   const out: string[] = [];
@@ -96,8 +96,8 @@ export function edgeWarnings(books: { top: Book; bottom: Book }, print: PrintSet
   }
 
   // The cut marks and the labels are not pages, but they are printed and trimmed away: warn the same way.
-  for (const side of ['front', 'back'] as const) {
-    const t = transformOf(print, side);
+  for (const paper of PAPER_SETS) for (const side of ['front', 'back'] as const) {
+    const t = transformOf(print, side, paper);
     for (const b of trimZoneBoxes()) {
       const corners = [[b.x, b.y], [b.x + b.w, b.y], [b.x, b.y + b.h], [b.x + b.w, b.y + b.h]].map(([x, y]) => mapPoint(t, W, H, { x, y }));
       const gaps: [Edge, number][] = [['left', Math.min(...corners.map((p) => p.x))], ['right', W - Math.max(...corners.map((p) => p.x))], ['top', Math.min(...corners.map((p) => p.y))], ['bottom', H - Math.max(...corners.map((p) => p.y))]];
