@@ -170,7 +170,12 @@ fieldset:disabled { opacity: 0.5; }
 .layer.selected { background: var(--gray-2); }
 .layer.is-hidden .layer-name { color: var(--gray-3); text-decoration: line-through; }
 .layer.drop { box-shadow: inset 0 2px 0 #000; }
-.layer-name { flex: 1; min-width: 0; text-align: left; border: 0; background: transparent; padding: 3px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.layers-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.layers-head h2 { margin: 0; }
+.layers-select[aria-pressed='true'] { background: #000; color: #fff; }
+.layer-check { display: grid; place-items: center; align-content: center; align-self: stretch; min-width: 28px; cursor: pointer; }
+.layer-check input { margin: 0; }
+.layer-name { flex: 1; min-width: 0; user-select: none; -webkit-user-select: none; text-align: left; border: 0; background: transparent; padding: 3px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 button.icon { border: 0; background: transparent; padding: 3px 4px; line-height: 0; }
 button.icon[aria-pressed='true'] { background: transparent; color: var(--ink); box-shadow: inset 0 -2px 0 #000; }
 .hint.end { margin: 4px 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
@@ -182,6 +187,7 @@ button.icon[aria-pressed='true'] { background: transparent; color: var(--ink); b
 #spread::after { content: ''; position: absolute; left: 50%; top: 5%; bottom: 5%; border-left: 1px dashed var(--gray-3); pointer-events: none; }
 .half { position: relative; flex: 1; min-width: 0; }
 .half svg { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.half .copy-mirrored { position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%); z-index: 6; background: rgba(255, 255, 255, 0.94); white-space: nowrap; min-height: 44px; }
 .half .tag { position: absolute; top: 8px; left: 12px; z-index: 1; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--gray-4); }
 .half[data-side='right'] .tag { left: auto; right: 12px; }
 .half.active .tag { color: var(--ink); font-weight: 700; }
@@ -372,6 +378,7 @@ body.help-mode button, body.help-mode select, body.help-mode input, body.help-mo
   button.icon { min-width: var(--tap); }
   .layer { min-height: var(--tap); }
   .layer-name { font-size: 14px; align-self: stretch; }
+  .layer-check { min-width: var(--tap); }
   #panel label.inline { min-height: var(--tap); }
   summary { min-height: var(--tap); display: flex; align-items: center; }
 }

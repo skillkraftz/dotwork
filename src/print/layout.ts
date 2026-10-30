@@ -15,8 +15,8 @@ import { artClip, artPaths } from '../format/art';
 import { pictureRect, placePicture } from '../format/picture';
 import { compose, parseStored, parseSvgPath, transformSegs, type Matrix, type Seg } from '../format/path';
 import { isIcons, sequenceItems } from '../format/sequence';
-import { placedElements } from '../format/mirror';
-import { resolveWeek, shownOn } from '../format/week';
+import { placedElements, resolveGenerated } from '../format/mirror';
+import { shownOn } from '../format/week';
 import type { Expander } from '../format/tokens';
 import { ICONS } from '../icons/icons';
 import { SCREEN_TONES, type PrintTones } from './tones';
@@ -186,12 +186,12 @@ export function layoutPage(page: Page, o: PageLayoutOptions, out: Item[]): void 
       case 'text': return label(e);
       case 'art': return art(e);
       case 'image': return image(e);
-      case 'generated': return resolveWeek(e, o.expand.read).forEach(element);
+      case 'generated': return resolveGenerated(e, o.expand.read).forEach(element);
     }
   };
 
   out.push({ k: 'clip', pts: rectPts(o.x, o.y, PAGE_W_MM, PAGE_H_MM) });
-  for (const e of placedElements(page, o.expand.read)) element(e);
+  for (const e of placedElements(page)) element(e);
   for (const item of headerItems(page, o.pageNumber, o.expand)) {
     text(item.text, TEXT_SIZE_MM.label, item.bold ? 'bold' : 'regular', HEADER_COLOR, { x: item.x, y: HEADER_BASELINE_MM }, item.anchor === 'end' ? 'end' : 'start', 0);
   }

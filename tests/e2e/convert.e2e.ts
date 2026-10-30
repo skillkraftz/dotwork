@@ -52,18 +52,19 @@ for (const device of ['phone', 'desktop'] as Device[]) {
       els = (await draft(app)).elements as El[];
       expect(els.every((e) => e.group === undefined)).toBe(true);
 
-      // move one element: the vertical rule at column 18 in the first day row
+      // move one element: the vertical rule at column 18 in the first day row. The Week planner is mirrored on a left page, so the editor draws
+      // it flipped (27 - x on screen); dragging it one cell toward the left of the screen moves the design one cell the other way.
       type R = El & { x1: number; y1: number; x2: number; y2: number };
       const rules = (els as R[]).map((e, i) => ({ e, i })).filter(({ e }) => e.type === 'rule' && e.x1 === e.x2 && e.y2 - e.y1 === 4);
       const at = rules.find(({ e }) => e.x1 === 18)!, other = rules.find(({ e }) => e.x1 === 25)!;
-      const mid = (r: R, dx = 0) => cellToClient(app, r.x1 + dx, (r.y1 + r.y2) / 2);
+      const mid = (r: R, dx = 0) => cellToClient(app, 27 - (r.x1 + dx), (r.y1 + r.y2) / 2); // dx: how far the design has moved
       await tap(app, await mid(at.e));
-      await drag(app, await mid(at.e), await mid(at.e, -1));
-      expect(((await draft(app)).elements as R[])[at.i].x1).toBe(17);
+      await drag(app, await mid(at.e), await mid(at.e, 1));
+      expect(((await draft(app)).elements as R[])[at.i].x1).toBe(19);
 
       if (!app.touch) {
         // Ctrl+click adds a second element to the selection, and takes it off again
-        await tap(app, await mid(at.e, -1));
+        await tap(app, await mid(at.e, 1));
         const p2 = await mid(other.e);
         await app.page.keyboard.down('Control');
         await app.page.mouse.click(p2.x, p2.y);

@@ -93,6 +93,10 @@ Dotwork's print export follows the same physical rules as journal-system
   remove a feature's tests when the feature is removed. Don't add a test for every bug fixed unless the bug was in
   rules or math.
 - The book file holds the design only. Printer and calibration settings live in the printer profile; changing them must never change the book format or stop a book from opening.
+- **The editor shows exactly what will print.** Edit and Preview draw every element the same: same place, same flip, same text, same dates.
+  The only things the editor may add are editing aids: the grid dots, the gray editor background and header shading, selection handles and
+  outlines, and layers hidden with the eye. (A mark `class="aid"` in the markup says which; the edit/preview test removes them and compares what is
+  left.) Anything that changes how a page prints, such as mirroring, must be visible and editable in the editor itself, never only in Preview.
 - Don't add features beyond the task. When a choice is unclear, take the
   simplest version and list the question in the PR.
 - Every new control gets a help entry with touch and desktop text; the help test enforces it.

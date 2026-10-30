@@ -58,16 +58,19 @@ no back compatibility, so a file of any other version is refused.
 ## Mirror on left pages
 
 A page made for a right-hand page often has something along its outer (right) edge, like the week block's strip. With `"mirror_left": true`, when
-the page sits on a left page (its `side` is `"left"`: in a book, in a spread, or in the editor's Preview) it is drawn flipped left to right at
-layout time, so that edge is still the outer one. The file is not changed, and the editor shows the design as stored. Right pages, and
-pages on neither side, are drawn as they are. The header and the page number stay where the page rules put them.
+the page sits on a left page (its `side` is `"left"`, or it is the left half of a spread, whatever its `side` says: in a book, in a spread, in the
+editor, in Preview, the PNG and the PDFs) it is drawn flipped left to right at layout time, so that edge is still the outer one. The file is not
+changed: it keeps the design as made, and the editor works on the flipped drawing and flips it back when it saves. Right pages, and pages on
+neither side, are drawn as they are. The header and the page number stay where the page rules put them.
 
 - Every element's `x` becomes `27 - x - w` (a rule's ends, and the first column of checkboxes and sequences, are flipped the same way as a block).
   A box's `left` and `right` sides swap; a shade's tones run from the other end; art is flipped as a whole (its `pan_x` and `rotate` mirror with it).
   An `image` is placed on the other side but never flipped, like text: its `pan_x` changes sign and its `rotate` turns the other way (90 and 270 swap), so it keeps its top toward the same side of the page.
 - Text is never drawn backwards: its anchor moves to `27 - x`, `left` and `right` alignment swap, and turned text turns the other way
   (90 and 270 swap) so it keeps its tops toward the same side of the page. Items of a run stay in reading order.
-- A week block mirrors the elements it draws (its goals, each day and its outcomes), like any other.
+- A week block mirrors the elements it draws (its goals, each day and its outcomes), like any other. (The editor holds the block flipped in place with a `flipped: true` mark that is never written to a file.)
+- Flipping twice gives the design back; a shade's `columns` tones keep their period (`LMD` flips to `LDM`), so a flip of a flip is the same string.
+- "Copy mirrored to the other page" in the spread editor writes the flipped elements into the other page as ordinary elements; it sets no `mirror_left`.
 - A pattern whose width is not a multiple of its `every` keeps its lattice running from the left.
 
 ## Element types

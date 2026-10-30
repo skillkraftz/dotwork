@@ -211,7 +211,9 @@ export class Canvas {
       draft,
       marquee,
       weekPreview: store.weekPreview,
-      ...(preview && this.previewAs ? { expand: this.previewAs.expand, pageNumber: this.previewAs.pageNumber } : {}),
+      placed: true, // the store holds the page as it is drawn
+      // Edit and Preview read the same dates: where a page sits in a book, its own; elsewhere the sample.
+      ...(this.previewAs ? { expand: this.previewAs.expand, pageNumber: this.previewAs.pageNumber } : {}),
       handleMm: this.handlePx() * this.mmPerPx(),
     });
     if (preview) this.svg.style.cursor = 'default';
