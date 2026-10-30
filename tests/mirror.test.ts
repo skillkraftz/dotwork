@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mirrorElement, mirrorsOn, placedElements } from '../src/format/mirror';
+import { mirrorElement, mirrorsOn, placedElements, resolveGenerated } from '../src/format/mirror';
 import { resolveWeek } from '../src/format/week';
 import { elementArea } from '../src/format/bounds';
 import { readPage } from '../src/format/read';
@@ -55,8 +55,8 @@ describe('mirroring one element', () => {
 
   it('runs a shade\'s tones from the other end', () => {
     const shade = (more: Partial<Shade>): Shade => ({ type: 'shade', x: 0, y: 1, w: 4, h: 2, tones: 'LMD', ...more });
-    expect(m(shade({ along: 'columns' }))).toMatchObject({ x: 23, tones: 'LDML' }); // four columns L M D L, read from the right
-    expect(m(shade({ along: 'columns', every: 2 }))).toMatchObject({ tones: 'ML' }); // two steps of 2: the tones 0 and 1, reversed
+    expect(m(shade({ along: 'columns' }))).toMatchObject({ x: 23, tones: 'LDM' }); // four columns L M D L, read from the right: L D M L, which repeats with the same period
+    expect(m(shade({ along: 'columns', every: 2 }))).toMatchObject({ tones: 'MLD' }); // two steps of 2: the tones 0 and 1, reversed (the unused third follows)
     expect(m(shade({}))).toMatchObject({ x: 23, tones: 'LMD' }); // rows are the same across
     expect(m(shade({ along: 'checker', tones: 'LM' }))).toMatchObject({ tones: 'ML' }); // four columns: the squares swap
     expect(m(shade({ along: 'checker', tones: 'LM', w: 3 }))).toMatchObject({ tones: 'LM' });
@@ -119,8 +119,8 @@ describe('which pages are mirrored', () => {
 
   it('leaves the elements of every other page exactly as they are', () => {
     const els: PageElement[] = [{ type: 'box', x: 0, y: 1, w: 3, h: 3 }];
-    expect(placedElements(page({ elements: els, side: 'right', mirror_left: true }), undefined)).toBe(els);
-    expect(placedElements(page({ elements: els, side: 'left' }), undefined)).toBe(els);
+    expect(placedElements(page({ elements: els, side: 'right', mirror_left: true }))).toBe(els);
+    expect(placedElements(page({ elements: els, side: 'left' }))).toBe(els);
   });
 
   it('is read from a file as a true or false, and refused as anything else', () => {
@@ -137,10 +137,12 @@ describe('the Week planner on a left page and a right page', () => {
   const week = readingOf(NOV, spansOf(NOV, 'week')[1]);
   const left: Page = { ...structuredClone(planner), side: 'left' }, right: Page = { ...structuredClone(planner), side: 'right' };
   const kinds = (els: PageElement[], type: string) => els.filter((e) => e.type === type);
+  /** What the left page draws: its elements flipped, the week block turned into the pieces it draws. */
+  const drawnLeft = () => placedElements(left).flatMap((e) => (e.type === 'generated' ? resolveGenerated(e, week) : [e]));
 
   it('is built to mirror, and the week block mirrors its widgets: the strip goes from the right edge to the left', () => {
     expect(planner.mirror_left).toBe(true);
-    const asMade = resolveWeek(planner.elements[0] as Generated, week), mirrored = placedElements(left, week);
+    const asMade = resolveWeek(planner.elements[0] as Generated, week), mirrored = drawnLeft();
     expect(asMade.length).toBe(mirrored.length);
     const strips = (els: PageElement[]) => kinds(els, 'shade').map((s) => [(s as Shade).x, (s as Shade).w]);
     expect(strips(asMade)).toEqual([[25, 2], [25, 2]]); // Sunday and Saturday
@@ -150,7 +152,7 @@ describe('the Week planner on a left page and a right page', () => {
   });
 
   it('reads the labels right: GOAL and OUTCOME turn the other way and every word is the same word', () => {
-    const asMade = kinds(resolveWeek(planner.elements[0] as Generated, week), 'text') as Text[], mirrored = kinds(placedElements(left, week), 'text') as Text[];
+    const asMade = kinds(resolveWeek(planner.elements[0] as Generated, week), 'text') as Text[], mirrored = kinds(drawnLeft(), 'text') as Text[];
     expect(mirrored.map((t) => t.text)).toEqual(asMade.map((t) => t.text));
     const strip = (t: Text) => (t.rotate ?? 0) !== 0;
     const turned = asMade.filter(strip), turnedMirror = mirrored.filter(strip);
@@ -174,12 +176,11 @@ describe('the Week planner on a left page and a right page', () => {
     expect(items({ ...left, mirror_left: undefined })).toEqual(items(right));
   });
 
-  it('is drawn flipped on the screen too: in the preview and the export, but the editor draws the page as stored', () => {
+  it('is drawn flipped on the screen too: in the editor, the preview and the export', () => {
     const drawn = (page: Page, mode: 'edit' | 'preview' | 'export') => pageContent(page, { mode, expand: expandRead(week) });
-    for (const mode of ['preview', 'export'] as const) {
+    for (const mode of ['edit', 'preview', 'export'] as const) {
       expect(drawn(left, mode)).not.toBe(drawn({ ...left, mirror_left: undefined }, mode));
     }
-    expect(drawn(left, 'edit')).toBe(drawn({ ...left, mirror_left: undefined }, 'edit'));
     expect(drawn(right, 'preview')).toBe(drawn({ ...right, mirror_left: undefined }, 'preview'));
   });
 });

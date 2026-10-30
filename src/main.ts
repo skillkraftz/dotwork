@@ -6,7 +6,7 @@ import { validatePage, type ValidationIssue } from './format/validate';
 import { readPage } from './format/read';
 import { DocSession, statusText, type Adapter } from './documents';
 import { Canvas, type CanvasHooks } from './canvas';
-import { contextActions, convertGenerated, deleteElement, duplicateElement, groupAction, moreActions, nudgeElement, nudgePicture, selectAll, toggleGroup } from './actions';
+import { contextActions, convertGenerated, copyMirrored, deleteElement, duplicateElement, groupAction, moreActions, nudgeElement, nudgePicture, selectAll, toggleGroup } from './actions';
 import { isPicture } from './format/picture';
 import { asCover } from './format/bounds';
 import { h, Panel } from './panel';
@@ -64,8 +64,8 @@ const blank = emptySpread();
 /** The page being edited alone, and the two pages of the spread being edited. Each has its own undo history, kept in memory. */
 const stores = {
   page: new Store(emptyPage()),
-  left: new Store(blank.left),
-  right: new Store(blank.right),
+  left: new Store(blank.left, 'left'),
+  right: new Store(blank.right, 'right'),
 };
 const all = [stores.page, stores.left, stores.right];
 const storedView = stored(VIEW_KEY);
@@ -96,19 +96,19 @@ const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringif
  */
 let editHere: { request: EditHere; saved: { page: Page; spread: Spread; view: View }; name: string } | null = null;
 const pageAdapter: Adapter<Page> = {
-  read: (name) => ({ ...(editHere ? editHere.saved.page : stores.page.page), name }),
+  read: (name) => ({ ...(editHere ? editHere.saved.page : stores.page.document), name }),
   show: (data) => showing(() => stores.page.load(structuredClone(data))),
   blank: emptyPage,
-  isBlank: () => !editHere && sameJson({ ...stores.page.page, name: '' }, { ...emptyPage(), name: '' }),
+  isBlank: () => !editHere && sameJson({ ...stores.page.document, name: '' }, { ...emptyPage(), name: '' }),
 };
 const spreadAdapter: Adapter<Spread> = {
-  read: (name) => (editHere ? { ...editHere.saved.spread, name } : buildSpread(name, stores.left.page, stores.right.page)),
+  read: (name) => (editHere ? { ...editHere.saved.spread, name } : buildSpread(name, stores.left.document, stores.right.document)),
   show: (data) => showing(() => { stores.left.load(withSide(data.left, 'left')); stores.right.load(withSide(data.right, 'right')); }),
   blank: emptySpread,
   isBlank: () => {
     if (editHere) return false; // what is on screen is not the open document
     const b = emptySpread();
-    return sameJson(buildSpread('', stores.left.page, stores.right.page), buildSpread('', withSide(b.left, 'left'), withSide(b.right, 'right')));
+    return sameJson(buildSpread('', stores.left.document, stores.right.document), buildSpread('', withSide(b.left, 'left'), withSide(b.right, 'right')));
   },
 };
 /** The book being arranged, before the arranger exists and after (it keeps its own copy in step through `changed`). */
@@ -220,6 +220,8 @@ function refresh() {
   if (spread) { canvases.left.render(); canvases.right.render(); }
   for (const half of document.querySelectorAll<HTMLElement>('.half')) {
     half.classList.toggle('active', half.dataset.side === active);
+    // "Copy mirrored" is on the half being worked on, when the page is not read-only or in Preview.
+    half.querySelector<HTMLElement>('.copy-mirrored')!.hidden = !(spread && !preview && !both && half.dataset.side === active);
   }
   panel.store = store;
   panel.render();
@@ -423,6 +425,16 @@ function setActive(side: SpreadSide) {
 }
 $('side-left').onclick = () => setActive('left');
 $('side-right').onclick = () => setActive('right');
+for (const b of document.querySelectorAll<HTMLButtonElement>('.copy-mirrored')) {
+  b.onclick = () => {
+    const from = b.dataset.from as SpreadSide, to: SpreadSide = from === 'left' ? 'right' : 'left';
+    const target = stores[to];
+    if (target.page.elements.length && !confirm(`Replace the ${to} page’s ${target.page.elements.length} element${target.page.elements.length === 1 ? '' : 's'} with this page flipped? Undo on the ${to} page takes it back.`)) return;
+    const { copied, skipped } = copyMirrored(stores[from], target);
+    setActive(to); // Undo acts on the page that changed
+    notify(`Copied ${copied} element${copied === 1 ? '' : 's'} mirrored to the ${to} page.${skipped ? ` ${skipped} didn’t fit its header row and were left out.` : ''} Undo takes it back.`);
+  };
+}
 $('side-both').onclick = () => {
   showBoth = !showBoth;
   stores[active].select(null);
@@ -474,9 +486,9 @@ $('view-spread').onclick = () => setView('spread');
 $('view-book').onclick = () => setView('book');
 
 /** The spread on screen as a file (while editing here, that is the copy from the book). */
-const currentSpread = (): Spread => buildSpread(editHere ? editHere.name : sessions.spread.name, stores.left.page, stores.right.page);
+const currentSpread = (): Spread => buildSpread(editHere ? editHere.name : sessions.spread.name, stores.left.document, stores.right.document);
 /** The page on screen as a file: the Library document's name goes into it. */
-const currentPage = (): Page => ({ ...stores.page.page, name: editHere ? stores.page.page.name : sessions.page.name });
+const currentPage = (): Page => ({ ...stores.page.document, name: editHere ? stores.page.page.name : sessions.page.name });
 
 /**
  * Open a document, writing the one open before it. If that write fails nothing is switched (the page on screen would
@@ -561,7 +573,7 @@ async function startEditHere(request: EditHere): Promise<boolean> {
     return false;
   }
   notify(null);
-  const saved = { page: structuredClone(stores.page.page), spread: buildSpread('', stores.left.page, stores.right.page), view };
+  const saved = { page: structuredClone(stores.page.document), spread: buildSpread('', stores.left.document, stores.right.document), view };
   editHere = { request, saved, name: request.name };
   setMode('edit');
   showing(() => {
@@ -598,7 +610,7 @@ function writeHere() {
   const e = editHere;
   if (!e) return;
   const spread = e.request.kind === 'spread';
-  e.request.commit(spread ? [stores.left.page, stores.right.page] : [stores.page.page], e.name);
+  e.request.commit(spread ? [stores.left.document, stores.right.document] : [stores.page.document], e.name);
   renderDocbar();
 }
 
@@ -622,7 +634,7 @@ $('edit-save').onclick = async () => {
   if (asked === null || !editHere) return;
   try {
     const name = await library.uniqueName(kind, asked);
-    const saved = await library.create(kind, name, kind === 'page' ? { ...stores.page.page, name } : buildSpread(name, stores.left.page, stores.right.page));
+    const saved = await library.create(kind, name, kind === 'page' ? { ...stores.page.document, name } : buildSpread(name, stores.left.document, stores.right.document));
     notify(`Saved a copy to the Library as “${saved.name}”. The book keeps its own copy.`);
   } catch (err) { notifyProblems([errorProblem('The copy wasn’t saved to the Library.', err)]); }
 };
@@ -743,7 +755,7 @@ const exportDialog = new ExportDialog({
   json: jsonToExport,
   png: () => (view === 'book' ? null
     : view === 'page' ? { page: currentPage() }
-      : { page: cur().page, spread: { left: stores.left.page, right: stores.right.page, name: editHere ? editHere.name : sessions.spread.name } }),
+      : { page: cur().document, spread: { left: stores.left.document, right: stores.right.document, name: editHere ? editHere.name : sessions.spread.name } }),
   beforeExport: nameBeforeExport,
   book: currentBook,
   savedBooks: async () => (await library.list()).filter((i) => i.kind === 'book' && !isOldFormat(i)).map((i) => ({ id: i.id, name: i.name, book: i.data as Book })),

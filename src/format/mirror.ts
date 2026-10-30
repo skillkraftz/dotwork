@@ -1,4 +1,4 @@
-import { COLS, DEFAULTS, type Art, type Image, type Box, type BoxSide, type Page, type PageElement, type Shade, type Text } from './types';
+import { COLS, DEFAULTS, type Art, type Image, type Box, type BoxSide, type Generated, type Page, type PageElement, type Shade, type Text } from './types';
 import { elementArea } from './bounds';
 import { mirrorView } from './picture';
 import { parseStored, pathString, transformSegs } from './path';
@@ -8,7 +8,8 @@ import type { Reading } from './tokens';
 
 // "Mirror on left pages" (docs/page-format.md, `mirror_left`): a page made for the right-hand side of the spine, with a strip along its outer
 // edge, is drawn flipped left to right when it sits on a left page, so the strip is on the outer edge there too. It is done where the page is
-// drawn (the screen's preview, the PNG and the PDF), never in the file: the design stays as it was made.
+// drawn (the editor, the preview, the PNG and the PDF), never in the file: the design stays as it was made. The editor works on the page as it
+// is drawn (see `shownPage`), so what is tapped, dragged and typed is what is on screen, and it is flipped back when the page is saved.
 
 /** Whether the page is drawn mirrored: it asks for it and sits on a left page (a page that is on neither side is drawn as made). */
 export const mirrorsOn = (page: Pick<Page, 'side' | 'mirror_left'>): boolean => page.mirror_left === true && page.side === 'left';
@@ -49,8 +50,9 @@ function mirrorShade(e: Shade): Shade {
   const x = flipX(e.x, e.w), along = e.along ?? DEFAULTS.along;
   if (along === 'rows') return { ...e, x };
   const steps = Math.ceil(e.w / (e.every ?? DEFAULTS.every));
-  const at = (c: number) => e.tones[c % e.tones.length];
-  if (along === 'columns') return { ...e, x, tones: Array.from({ length: steps }, (_, c) => at(steps - 1 - c)).join('') };
+  // The tones repeat along the columns, so the flipped run repeats with the same period, read from the other end (and flips back to the same string).
+  const len = e.tones.length;
+  if (along === 'columns') return { ...e, x, tones: Array.from({ length: len }, (_, k) => e.tones[(((steps - 1 - k) % len) + len) % len]).join('') };
   // A checker of one or two tones flips by starting on the right tone; with more tones the diagonals would run the other way, so it is left as it is.
   return { ...e, x, tones: e.tones.length === 2 && steps % 2 === 0 ? e.tones[1] + e.tones[0] : e.tones };
 }
@@ -75,15 +77,24 @@ export function mirrorElement(e: PageElement): PageElement {
       const a = sequenceArea(e);
       return { ...e, x: flipX(a.x, a.w), ...(e.rotate ? { rotate: e.rotate === 90 ? 270 : 90 } as const : {}) };
     }
-    case 'generated': return e;
+    // A week block is flipped in place: its box moves and `flipped` is turned over, and it is drawn flipped part by part (see `resolveGenerated`).
+    case 'generated': {
+      const { flipped, ...rest } = e;
+      return { ...rest, x: flipX(e.x, e.w), ...(flipped ? {} : { flipped: true as const }) };
+    }
   }
 }
 
-/**
- * What a page draws, in cells: its elements, or for a page that is mirrored the same elements flipped, with a week block turned into the
- * ordinary elements it draws for `read` (see resolveWeek) and each of those flipped, so its goals, days and outcomes mirror like any others.
- */
-export function placedElements(page: Page, read: Reading | null | undefined, preview?: WeekPreview): PageElement[] {
-  if (!mirrorsOn(page)) return page.elements;
-  return page.elements.flatMap((e) => (e.type === 'generated' ? resolveWeek(e, read, preview) : [e])).map(mirrorElement);
+/** The ordinary elements a week block draws, in page cells: a block held flipped is resolved as made and then each piece flipped. */
+export function resolveGenerated(e: Generated, read: Reading | null | undefined, preview?: WeekPreview): PageElement[] {
+  return e.flipped ? resolveWeek(mirrorElement(e) as Generated, read, preview).map(mirrorElement) : resolveWeek(e, read, preview);
 }
+
+/** The page with every element flipped left to right. Flipping twice gives the page back. */
+export const mirrorPage = (page: Page): Page => ({ ...page, elements: page.elements.map(mirrorElement) });
+
+/** A page as the editor holds and draws it: flipped when it is mirrored where it sits, else as it is. The flip is its own inverse, so this also turns a shown page back into the one to save. */
+export const shownPage = (page: Page): Page => (mirrorsOn(page) ? mirrorPage(page) : page);
+
+/** What a page draws, in cells: its elements, flipped when the page is mirrored. A week block stays one element (see `resolveGenerated`). */
+export const placedElements = (page: Page): PageElement[] => (mirrorsOn(page) ? page.elements.map(mirrorElement) : page.elements);

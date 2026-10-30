@@ -240,7 +240,7 @@ describe('groups (phone)', () => {
     expect(await app.page.locator('#group-banner').isVisible()).toBe(true);
     expect(await app.page.locator('#group-banner').innerText()).toContain('Editing inside a group');
     expect(await selectedLayers(app)).toEqual([expect.stringContaining('text')]); // just the piece that was tapped
-    expect(await app.page.locator('#content g[opacity="0.3"]').count()).toBe(5); // the rest of the page is dimmed
+    expect(await app.page.locator('#content g[opacity="0.3"]').count()).toBe(0); // the page is drawn as it prints; only a frame marks the group
     await shot(app, 'phone-inside-group');
 
     // move the label alone, by one cell down

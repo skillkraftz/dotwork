@@ -9,7 +9,7 @@ import { iconGlyph } from './icons/glyph';
 import { tokenProblem } from './format/tokens';
 import { validateElement } from './format/validate';
 import { headerOf } from './format/bounds';
-import { canNudge, deleteElement, deleteElements, duplicateElement, nudgeButton, nudgePicture, nudgeStep, reorderElement, setPicture } from './actions';
+import { canNudge, deleteElement, deleteElements, duplicateElement, nudgeButton, nudgePicture, nudgeStep, reorderElement, selectLayer, setPicture } from './actions';
 import { isPicture, PICTURE_ROTATIONS, tidyView, ZOOM, type PictureRotation } from './format/picture';
 import type { Store } from './store';
 import type { Widget } from './widgets';
@@ -179,6 +179,10 @@ export class Panel {
   private propsEl = h('section', { 'data-tab': 'properties' });
   private layersSig = '';
   private layersFor: { store: Store; selected: number | null } | null = null;
+  /** The Select button is on: every layer shows a checkbox, and a tap on a layer ticks or unticks it (for touch, which has no Ctrl or Shift). */
+  selectMode = false;
+  /** The layer last clicked: where a Shift+click range starts. */
+  private anchor: number | null = null;
   private propsKey = '';
   private propCtls: Ctl[] = [];
   private lockedHint = h('p', { class: 'hint', hidden: true }, 'Locked: unlock it in the layers list to edit.');
@@ -392,14 +396,22 @@ export class Panel {
 
   // ---- layers -------------------------------------------------------------
 
+  /** A click on layer `i` (see `selectLayer`); a plain one also opens its properties. */
+  private pickLayer(i: number, how: { toggle: boolean; range: boolean }) {
+    const anchor = this.anchor;
+    this.anchor = i;
+    if (selectLayer(this.store, i, how, anchor) === 'one') this.openLayer?.();
+  }
+
   private syncLayers() {
     const { store } = this;
     const els = store.page.elements;
     const rows = els.map((el, i) => [describe(el), store.isHidden(i), store.isLocked(i)]);
-    const sig = JSON.stringify([rows, store.selection]);
+    const sig = JSON.stringify([rows, store.selection, this.selectMode]);
     const same = this.layersFor?.store === store;
     if (same && sig === this.layersSig) return;
     this.layersSig = sig;
+    if (!same) this.anchor = null;
 
     const old = this.layersEl.querySelector('.layers');
     const scroll = old?.scrollTop ?? 0;
@@ -410,7 +422,7 @@ export class Panel {
       const hidden = store.isHidden(i), locked = store.isLocked(i);
       const row = h('li', {
         class: `layer${store.isSelected(i) ? ' selected' : ''}${hidden ? ' is-hidden' : ''}`,
-        draggable: matchMedia('(pointer: fine)').matches ? 'true' : null, // drag and drop is a desktop shortcut; the arrows work everywhere
+        draggable: matchMedia('(pointer: fine)').matches && !this.selectMode ? 'true' : null, // drag and drop is a desktop shortcut; the arrows work everywhere
         ondragstart: (e: DragEvent) => { e.dataTransfer?.setData('text/plain', String(i)); e.dataTransfer!.effectAllowed = 'move'; },
         ondragover: (e: DragEvent) => { e.preventDefault(); row.classList.add('drop'); },
         ondragleave: () => row.classList.remove('drop'),
@@ -420,7 +432,15 @@ export class Panel {
           if (Number.isInteger(from)) reorderElement(store, from, i);
         },
       },
-        h('button', { type: 'button', class: 'layer-name', 'data-key': `layer-${i}-name`, 'data-help': 'layer-select', 'aria-current': store.isSelected(i), onclick: () => { store.select(i); this.openLayer?.(); } }, describe(el)),
+        ...(this.selectMode ? [h('label', { class: 'layer-check' },
+          h('input', {
+            type: 'checkbox', checked: store.isSelected(i), 'data-key': `layer-${i}-check`, 'data-help': 'layer-check', 'aria-label': `Select ${describe(el)}`,
+            onchange: () => this.pickLayer(i, { toggle: true, range: false }),
+          }))] : []),
+        h('button', {
+          type: 'button', class: 'layer-name', 'data-key': `layer-${i}-name`, 'data-help': 'layer-select', 'aria-current': store.isSelected(i),
+          onclick: (e: MouseEvent) => this.pickLayer(i, { toggle: this.selectMode || e.ctrlKey || e.metaKey, range: e.shiftKey && !this.selectMode }),
+        }, describe(el)),
         icon(hidden ? 'hide' : 'show', hidden ? 'Show' : 'Hide', () => store.toggleHidden(i), { pressed: hidden, key: `layer-${i}-hide`, help: 'layer-hide' }),
         icon(locked ? 'lock' : 'unlock', locked ? 'Unlock' : 'Lock', () => store.toggleLocked(i), { pressed: locked, key: `layer-${i}-lock`, help: 'layer-lock' }),
         icon('up', 'Move up (toward the front)', () => reorderElement(store, i, i + 1), { disabled: i === els.length - 1, key: `layer-${i}-up`, help: 'layer-up' }),
@@ -429,15 +449,21 @@ export class Panel {
       );
       return row;
     });
+    const selectButton = h('button', {
+      type: 'button', class: 'layers-select', 'data-key': 'layers-select', 'data-help': 'layers-select', 'aria-pressed': this.selectMode,
+      onclick: () => { this.selectMode = !this.selectMode; this.syncLayers(); },
+    }, this.selectMode ? 'Done' : 'Select');
     this.layersEl.replaceChildren(
-      h('h2', {}, 'Layers'),
+      h('div', { class: 'layers-head' }, h('h2', {}, 'Layers'), ...(els.length ? [selectButton] : [])),
       els.length
         ? h('div', {},
           h('p', { class: 'hint end' }, 'Top: drawn last'),
           h('ol', { class: 'layers' }, ...list.reverse()),
           h('p', { class: 'hint end' }, 'Bottom: drawn first'))
         : h('p', { class: 'hint' }, 'Nothing on the page yet. Pick a tool and draw on the page.'),
-      ...(els.length ? [h('p', { class: 'hint' }, 'Tap a name to select it and see its properties. Use the arrows to reorder (or drag a row). Hiding affects only this editor.')] : []),
+      ...(els.length ? [h('p', { class: 'hint' }, this.selectMode
+        ? 'Tick the layers you want, then tap Done. The page shows the same selection.'
+        : 'Tap a name to select it and see its properties. Ctrl+click adds or removes a layer and Shift+click selects a range; on a touch screen, tap Select. Use the arrows to reorder (or drag a row). Hiding affects only this editor.')] : []),
     );
     const layers = this.layersEl.querySelector<HTMLElement>('.layers');
     if (layers) {
@@ -803,7 +829,7 @@ export class Panel {
     this.propCtls = [pad];
     this.propsEl.replaceChildren(
       h('h2', {}, `Properties · ${count} elements`),
-      h('p', { class: 'hint' }, 'Drag any of them to move them all, or use the arrows. Group ties them together; tap one in the layers list to select just that one.'),
+      h('p', { class: 'hint' }, 'Drag any of them to move them all, or use the arrows. Group ties them together. In the layers list, Ctrl+click or Select adds and removes layers.'),
       pad.node,
       h('div', { class: 'row' },
         h('button', { type: 'button', 'data-help': 'prop-duplicate', onclick: () => duplicateElement(store, i) }, 'Duplicate'),

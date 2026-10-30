@@ -1,4 +1,6 @@
-import type { Area, Page, PageElement } from './format/types';
+import type { Area, Generated, Page, PageElement } from './format/types';
+import { mirrorElement } from './format/mirror';
+import { validateElement } from './format/validate';
 import { isPicture, panTo, resetView, tidyView, type PictureView } from './format/picture';
 import { centered, headerOf } from './format/bounds';
 import { boundsOf, canMove, cycleHit, moveGroup } from './geometry';
@@ -147,11 +149,34 @@ export function shiftLayer(store: Store, index: number, by: 1 | -1) {
   reorderElement(store, index, index + by);
 }
 
+/**
+ * A click on layer `i` in the Layers list. Plain: select it (its whole group, as a tap on the page does). `toggle` (Ctrl/Cmd+click, or a tap in
+ * Select mode): add it to the selection or take it out. `range` (Shift+click): select every layer from `anchor`, the one clicked last, to this one.
+ * Returns 'one' for a plain click, which the panel follows by showing the layer's properties.
+ */
+export function selectLayer(store: Store, i: number, how: { toggle: boolean; range: boolean }, anchor: number | null): 'one' | 'many' {
+  if (how.range && anchor !== null && anchor < store.page.elements.length) {
+    const [from, to] = anchor < i ? [anchor, i] : [i, anchor];
+    const rows = Array.from({ length: to - from + 1 }, (_, k) => from + k);
+    store.selectMany([...new Set(rows.flatMap((r) => store.pickSet(r)))].sort((a, b) => a - b));
+  } else if (how.toggle || how.range) {
+    const set = store.pickSet(i), now = store.selection;
+    store.selectMany(store.isSelected(i) ? now.filter((r) => !set.includes(r)) : [...new Set([...now, ...set])].sort((a, b) => a - b));
+  } else {
+    store.pick(i);
+    return 'one';
+  }
+  return 'many';
+}
+
 /** Select everything that can be selected: visible, unlocked elements. */
 export function selectAll(store: Store) {
   const all = store.page.elements.flatMap((_, i) => (!store.isHidden(i) && !store.isLocked(i) ? [i] : []));
   if (all.length) store.selectMany(all);
 }
+
+/** The plain elements a week block turns into, as it is drawn: a block held flipped (see format/mirror.ts) is converted as made and then each piece flipped. */
+const plainElements = (el: Generated): PageElement[] => (el.flipped ? convertWeek(mirrorElement(el) as Generated).map(mirrorElement) : convertWeek(el));
 
 /** Replace the selected generated element with the plain elements it draws, as one group in the same places. One undo step; the new group stays selected. */
 export function convertGenerated(store: Store) {
@@ -160,7 +185,7 @@ export function convertGenerated(store: Store) {
   if (index === null || el?.type !== 'generated' || store.selection.length !== 1 || store.isLocked(index)) return;
   const next = clone(store.page);
   const group = newGroupId(next.elements.filter((_, i) => i !== index));
-  const plain = convertWeek(el).map((e) => ({ ...e, group }));
+  const plain = plainElements(el).map((e) => ({ ...e, group }));
   next.elements.splice(index, 1, ...plain);
   next.elements = dropLoneGroups(next.elements);
   const ids = [...store.ids];
@@ -248,4 +273,21 @@ export function nudgePicture(store: Store, index: number, dx: number, dy: number
   if (!el || !isPicture(el)) return;
   const after = panTo(el, (el.pan_x ?? 0) + dx, (el.pan_y ?? 0) + dy);
   setPicture(store, index, { pan_x: after.pan_x ?? 0, pan_y: after.pan_y ?? 0 }, 'nudge-picture');
+}
+
+/**
+ * Copy the elements of `from`, as they are drawn, flipped left to right onto `to`, replacing what `to` has: the same flip a mirrored page
+ * is drawn with, but the result is ordinary elements (no mirror setting). A week block is copied as the plain elements it draws. One undo
+ * step in `to`. Elements that don't fit `to` (its header row is taken) are left out; returns how many were copied and how many left out.
+ */
+export function copyMirrored(from: Store, to: Store): { copied: number; skipped: number } {
+  const flipped = from.page.elements.flatMap((e) => (e.type === 'generated' ? plainElements(e) : [e])).map(mirrorElement);
+  const header = headerOf(to.page);
+  const fits = dropLoneGroups(flipped.filter((e) => validateElement(e, 'element', header).length === 0));
+  const next = clone(to.page);
+  next.elements = fits;
+  to.selected = null;
+  to.others.clear();
+  to.commit(next, undefined, to.freshIds(fits.map(() => -1)));
+  return { copied: fits.length, skipped: flipped.length - fits.length };
 }

@@ -6,8 +6,8 @@ import { isIcons, itemOrigin, itemSize, sequenceItems } from './format/sequence'
 import { ICON_GRID, ICONS } from './icons/icons';
 import { drawnText, elementArea, headerOf, TEXT_INSET_MM, TEXT_SIZE_MM } from './format/bounds';
 import { expandTokens, sampleFor, type Expander } from './format/tokens';
-import { resolveWeek, shownOn, type WeekPreview } from './format/week';
-import { placedElements } from './format/mirror';
+import { shownOn, type WeekPreview } from './format/week';
+import { placedElements, resolveGenerated } from './format/mirror';
 import { shadeRects, weekLines } from './format/shade';
 import { monthOf } from './format/month';
 import { artClip, artPaths, type ArtTone } from './format/art';
@@ -53,7 +53,7 @@ export interface RenderOptions {
   selection?: readonly number[];
   /** Indexes of elements the editor is hiding (edit mode only). */
   hidden?: ReadonlySet<number>;
-  /** Indexes of the pieces of the group being edited from inside (edit mode): the rest of the page is dimmed, and the group framed. */
+  /** Indexes of the pieces of the group being edited from inside (edit mode): the group is framed (an outline; the page itself is drawn as it prints). */
   inside?: readonly number[];
   /** The box being dragged to select things (cells, edit mode). */
   marquee?: { x: number; y: number; w: number; h: number };
@@ -61,6 +61,8 @@ export interface RenderOptions {
   draft?: PageElement | readonly PageElement[] | null;
   /** Side of the selection's resize handles in mm (edit mode); the editor sizes them to stay finger-sized on screen. */
   handleMm?: number;
+  /** The page's elements are already as drawn (an editor holds a mirrored page flipped, see `shownPage`): nothing more is flipped. Pages from files are drawn mirrored where they sit. */
+  placed?: boolean;
   /** The number in the header's outer corner. Defaults to a sample; null leaves it out. */
   pageNumber?: string | null;
   /** How text turns its {tokens} into what is drawn, and what the page reads (a week block draws the days of it). Defaults to sample values. */
@@ -220,6 +222,8 @@ function imageMarkup(e: Image): string {
 }
 
 /** Which day an element limited to weekends or weekdays is drawn for: the day a day page reads; none (it shows) where no single day is read. */
+/** How much of an element that Preview leaves out the editor still draws. */
+export const FAINT_OPACITY = 0.25;
 const dayOf = (expand: Expander): string | null => (expand.read?.kind === 'day' ? expand.read.first : null);
 
 export function elementMarkup(e: PageElement, expand: Expander = sample, weekPreview?: WeekPreview): string {
@@ -234,7 +238,7 @@ export function elementMarkup(e: PageElement, expand: Expander = sample, weekPre
     case 'sequence': return sequenceMarkup(e, expand);
     case 'art': return artMarkup(e);
     case 'image': return imageMarkup(e);
-    case 'generated': return resolveWeek(e, expand.read, weekPreview).map((x) => elementMarkup(x, expand)).join('');
+    case 'generated': return resolveGenerated(e, expand.read, weekPreview).map((x) => elementMarkup(x, expand)).join('');
   }
 }
 
@@ -263,7 +267,7 @@ function headerMarkup(page: Page, pageNumber: string | null, expand: Expander): 
 function gridDots(): string {
   let d = '';
   for (let i = 0; i <= COLS; i++) for (let j = 0; j <= ROWS; j++) d += `M${i * P} ${j * P}h0`;
-  return stroke(d, 0.4, '#cfcfcf', 'round');
+  return stroke(d, 0.4, '#cfcfcf', 'round').replace('<path ', '<path class="aid" ');
 }
 
 const HANDLE_MM = 1.6;
@@ -297,29 +301,33 @@ export function pageContent(page: Page, opts: RenderOptions): string {
   let out = `<rect x="0" y="0" width="${PAGE_W_MM}" height="${PAGE_H_MM}" fill="#fff"${exporting ? '' : ' stroke="#a8a8a8" stroke-width="0.2"'}/>`;
   out += `<g transform="translate(${GRID_X_MM} ${GRID_Y_MM})" ${FONT_FAMILY}>`;
   if (edit) {
-    out += `<rect x="0" y="0" width="${COLS * P}" height="${ROWS * P}" fill="#f7f7f7"/>`;
+    out += `<rect class="aid" x="0" y="0" width="${COLS * P}" height="${ROWS * P}" fill="#f7f7f7"/>`;
     // Row 0 is the printed header: shaded whole when it is taken by the identity, otherwise only the page number's corner.
     const header = headerOf(page);
     const shaded = header.top === 1 ? { x: 0, w: COLS } : header.corner;
-    if (shaded) out += `<rect x="${shaded.x * P}" y="0" width="${shaded.w * P}" height="${P}" fill="#e4e4e4"/>`;
+    if (shaded) out += `<rect class="aid" x="${shaded.x * P}" y="0" width="${shaded.w * P}" height="${P}" fill="#e4e4e4"/>`;
     out += gridDots();
   }
   const expand = opts.expand ?? sampleFor(page);
-  const inside = edit && opts.inside?.length ? new Set(opts.inside) : null;
-  // The editor draws the design as it is stored (its handles and taps use those places); the preview and every export draw it mirrored on a left page.
-  (edit ? page.elements : placedElements(page, expand.read, opts.weekPreview)).forEach((e, i) => {
+  const inside = edit && opts.inside?.length ? opts.inside : null;
+  // Edit and Preview draw every element the same way (CLAUDE.md, "the editor shows exactly what will print"). The editor adds only its aids:
+  // layers hidden with the eye are skipped, and an element that Preview leaves out for the day the page shows (limited to weekends or
+  // weekdays) is drawn faintly so it can still be selected.
+  const elements = opts.placed ? page.elements : placedElements(page);
+  const day = dayOf(expand);
+  elements.forEach((e, i) => {
     if (edit && opts.hidden?.has(i)) return;
-    // The editor shows every element, whatever days it is limited to: it has no day to read.
-    const markup = elementMarkup(edit ? { ...e, days: undefined } : e, expand, opts.weekPreview);
-    out += inside && !inside.has(i) ? `<g opacity="0.3">${markup}</g>` : markup;
+    let markup = elementMarkup(e, expand, opts.weekPreview);
+    if (edit && !shownOn(e.days, day)) markup = `<g class="aid" opacity="${FAINT_OPACITY}">${elementMarkup({ ...e, days: undefined }, expand, opts.weekPreview)}</g>`;
+    out += markup;
   });
   out += headerMarkup(page, opts.pageNumber === undefined ? SAMPLE_PAGE_NUMBER : opts.pageNumber, expand);
   if (edit) {
     const chosen = opts.selection ?? (opts.selected != null ? [opts.selected] : []);
-    if (inside) out += frameMarkup(boundsOf([...inside].map((i) => page.elements[i])), true);
-    if (chosen.length > 1) out += frameMarkup(boundsOf(chosen.map((i) => page.elements[i])), false);
+    if (inside) out += frameMarkup(boundsOf(inside.map((i) => elements[i])), true);
+    if (chosen.length > 1) out += frameMarkup(boundsOf(chosen.map((i) => elements[i])), false);
     for (const i of chosen) {
-      const sel = page.elements[i];
+      const sel = elements[i];
       // Only a lone selection can be resized, so only it shows handles.
       if (sel && !opts.hidden?.has(i)) out += selectionMarkup(sel, chosen.length === 1, opts.handleMm);
     }

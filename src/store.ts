@@ -1,4 +1,5 @@
-import { emptyPage, type Page } from './format/types';
+import { emptyPage, type Page, type PageSide } from './format/types';
+import { mirrorPage, mirrorsOn, shownPage } from './format/mirror';
 import { membersOf } from './groups';
 import type { IconChoice } from './geometry';
 import type { Widget } from './widgets';
@@ -16,6 +17,11 @@ interface Snapshot { page: Page; ids: number[] }
  * Current page, selection, mode, tool and undo/redo history. Pages are never mutated once committed.
  * Each element has an id that follows it through reordering, so hiding and locking (which are editor
  * view state, not part of the file) stay with the right element.
+ *
+ * `page` is the page as it is drawn: a page that is mirrored where it sits (see format/mirror.ts) is held flipped, so everything that acts
+ * on it (taps, drags, handles, the properties, the arrow keys) acts on what is on screen. `document` is the page to save, flipped back.
+ * `load`, `replace` and the constructor take a page as it is saved; `commit` takes one as it is drawn, and flips its elements when the
+ * change turns mirroring on or off (the page's setting, or its side).
  */
 export class Store {
   page: Page;
@@ -53,10 +59,23 @@ export class Store {
   private lastAt = 0;
   private listeners = new Set<() => void>();
 
-  constructor(page: Page = emptyPage()) {
-    this.page = page;
+  /** `hostSide` is the side the page always sits on: the left half of a spread is a left page whatever its `side` says. */
+  constructor(page: Page = emptyPage(), private hostSide?: PageSide) {
+    this.page = this.sitting(page, true);
     this.ids = page.elements.map(() => this.nextId++);
   }
+
+  /** The page on its side (`hostSide` wins over its own setting), and with `flip`, drawn as it sits: a saved page, as the editor holds it. */
+  private sitting(page: Page, flip: boolean): Page {
+    const sat = this.hostSide && page.side !== this.hostSide ? { ...page, side: this.hostSide } : page;
+    return flip ? shownPage(sat) : sat;
+  }
+
+  /** Whether the page is drawn mirrored where it sits. */
+  get mirrored(): boolean { return mirrorsOn(this.page); }
+
+  /** The page as it is saved: not flipped, whatever is drawn. */
+  get document(): Page { return shownPage(this.page); }
 
   subscribe(fn: () => void): () => void {
     this.listeners.add(fn);
@@ -173,9 +192,16 @@ export class Store {
    * undo step, so typing in a field is undone as a whole.
    */
   commit(next: Page, coalesceKey?: string, ids?: number[], now = Date.now()) {
+    // Turning mirroring on or off (or changing the side it depends on) flips the drawing at once.
+    next = this.sitting(next, false);
+    this.put(mirrorsOn(next) === this.mirrored ? next : mirrorPage(next), coalesceKey, ids, now);
+  }
+
+  /** `commit` for a page that is already as it is drawn. */
+  private put(next: Page, coalesceKey?: string, ids?: number[], now = Date.now()) {
     if (this.guard) {
       const guard = this.guard;
-      guard(() => this.commit(next, coalesceKey, ids, now));
+      guard(() => this.put(next, coalesceKey, ids, now));
       return;
     }
     const merge = coalesceKey !== undefined && coalesceKey === this.lastKey && now - this.lastAt < COALESCE_MS;
@@ -213,7 +239,7 @@ export class Store {
     this.undoStack = [];
     this.redoStack = [];
     this.lastKey = null;
-    this.page = page;
+    this.page = this.sitting(page, true);
     this.ids = page.elements.map(() => this.nextId++);
     this.emit();
   }
@@ -225,7 +251,7 @@ export class Store {
     this.editingGroup = null;
     this.hidden.clear();
     this.locked.clear();
-    this.commit(page, undefined, page.elements.map(() => this.nextId++));
+    this.put(this.sitting(page, true), undefined, page.elements.map(() => this.nextId++));
   }
 
   undo() {

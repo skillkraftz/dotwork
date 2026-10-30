@@ -210,6 +210,8 @@ export interface Generated extends Area {
   goals: Part;
   day: Part;
   outcomes: Part;
+  /** Editor only, never in a file: the editor holds a block on a mirrored page flipped in place (see format/mirror.ts), and draws its parts flipped to match. */
+  flipped?: true;
 }
 
 export type PageElement = (Pattern | Shade | Box | Rule | Checkboxes | Text | Sequence | Art | Image | Generated) & Grouped;
