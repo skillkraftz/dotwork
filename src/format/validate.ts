@@ -228,6 +228,12 @@ function validateElementInto(el: unknown, at: string, fail: Fail, header: Header
       else checkTokens(el.text, `${at}.text`, fail);
       choice('size', TEXT_SIZES); choice('style', TEXT_STYLES); choice('tone', TEXT_TONES); choice('align', ALIGNS);
       choice('rotate', ROTATIONS);
+      if (el.center_in !== undefined) {
+        const a = el.center_in;
+        if (!isObject(a) || !['x', 'y', 'w', 'h'].every((k) => isNum(a[k])) || (a.w as number) < 0 || (a.h as number) < 0) {
+          fail('center-in', `${at}.center_in`, `"center_in" must be an area {x, y, w, h} in cells, got ${JSON.stringify(a)}.`);
+        }
+      }
       break;
     }
   }

@@ -4,7 +4,7 @@ import {
 } from './format/types';
 import { isIcons, itemOrigin, itemSize, sequenceItems } from './format/sequence';
 import { ICON_GRID, ICONS } from './icons/icons';
-import { elementArea, headerOf, TEXT_INSET_MM, TEXT_SIZE_MM } from './format/bounds';
+import { drawnText, elementArea, headerOf, TEXT_INSET_MM, TEXT_SIZE_MM } from './format/bounds';
 import { expandTokens, sampleFor, type Expander } from './format/tokens';
 import { resolveWeek, shownOn, type WeekPreview } from './format/week';
 import { placedElements } from './format/mirror';
@@ -142,7 +142,8 @@ function checkboxesMarkup(e: Checkboxes): string {
   return `<g fill="none" stroke="#000" stroke-width="${n(w)}">${boxes}</g>`;
 }
 
-function textMarkup(e: Text, expand: Expander): string {
+function textMarkup(stored: Text, expand: Expander): string {
+  const e = drawnText(stored);
   const size = TEXT_SIZE_MM[e.size ?? DEFAULTS.textSize];
   const align = e.align ?? DEFAULTS.align;
   const anchor = align === 'left' ? 'start' : align === 'center' ? 'middle' : 'end';

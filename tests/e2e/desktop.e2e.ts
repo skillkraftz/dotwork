@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { box, cellToClient, choose, draft, drag, open, shot, start, stop, tap, viewBoxOf, type Env, openDoc} from './harness';
+import { box, cellToClient, choose, draft, drag, open, seedPage, shot, start, stop, tap, viewBoxOf, type Env, openDoc} from './harness';
 
 let env: Env;
 beforeAll(async () => { env = await start(); });
@@ -121,5 +121,23 @@ describe('desktop (1280 x 800, mouse and keyboard)', () => {
     expect(d.width).toBeLessThan(1280);
     expect(d.height).toBeLessThanOrEqual(800);
     await shot(app, 'desktop-library');
+  });
+
+  it('grabbing a selected box anywhere but a handle moves it; a corner handle resizes it', async () => {
+    const app = await open(env, 'desktop');
+    await seedPage(app, {
+      format: 'dotwork-page', version: 2, name: 'Seed', grid: { cols: 27, rows: 44, pitch_mm: 3 },
+      elements: [{ type: 'box', x: 4, y: 4, w: 10, h: 8, weight: 'thick' }],
+    });
+    const at = (x: number, y: number) => cellToClient(app, x, y);
+    await tap(app, await at(6.5, 4)); // selects the box by its top side
+    const s = await at(6.5, 4);
+    await drag(app, s, { x: s.x, y: s.y + 3 * ((await at(0, 1)).y - (await at(0, 0)).y) }); // a quarter along the top side, three cells down
+    expect((await elements(app))[0]).toMatchObject({ x: 4, y: 7, w: 10, h: 8 });
+    const corner = await at(14, 15);
+    const cell = (await at(1, 0)).x - (await at(0, 0)).x;
+    await drag(app, corner, { x: corner.x + 2 * cell, y: corner.y + 2 * cell });
+    expect((await elements(app))[0]).toMatchObject({ x: 4, y: 7, w: 12, h: 10 });
+    expect(app.errors).toEqual([]);
   });
 });

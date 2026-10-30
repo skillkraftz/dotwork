@@ -5,7 +5,7 @@ import {
   DEFAULTS, GRID_X_MM, GRID_Y_MM, PAGE_H_MM, PAGE_W_MM, PITCH_MM as P,
   type Art, type Image, type Box, type Checkboxes, type Page, type PageElement, type Pattern, type Rule, type Shade, type Sequence, type Text,
 } from '../format/types';
-import { TEXT_INSET_MM, TEXT_SIZE_MM } from '../format/bounds';
+import { drawnText, TEXT_INSET_MM, TEXT_SIZE_MM } from '../format/bounds';
 import {
   BASELINE_MM, DOT_MM, artColor, GRAY_DOT, HEADER_BASELINE_MM, HEADER_COLOR, LINE, TEXT_COLORS, headerItems, iconPlacement, itemCenter, ticks,
 } from '../render';
@@ -107,7 +107,8 @@ export function layoutPage(page: Page, o: PageLayoutOptions, out: Item[]): void 
     }
   };
 
-  const label = (e: Text) => {
+  const label = (stored: Text) => {
+    const e = drawnText(stored);
     const size = TEXT_SIZE_MM[e.size ?? DEFAULTS.textSize];
     const align = e.align ?? DEFAULTS.align;
     const dx = align === 'left' ? TEXT_INSET_MM : align === 'right' ? -TEXT_INSET_MM : 0;

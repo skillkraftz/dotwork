@@ -126,6 +126,8 @@ export interface Text {
   tone?: TextTone;
   align?: Align;
   rotate?: Rotation;
+  /** While set, the text is drawn centered in this area (cells; fractions allowed), whatever `align` says. */
+  center_in?: Area;
 }
 
 /**

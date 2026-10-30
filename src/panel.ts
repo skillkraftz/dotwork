@@ -164,6 +164,8 @@ export class Panel {
   onTab: ((tab: PanelTab) => void) | null = null;
   /** Save the selected elements as a widget. */
   saveWidget: (() => void) | null = null;
+  /** Start "Center in…" for the text at this index: the next element tapped is the one to center it in. */
+  centerIn: ((index: number) => void) | null = null;
   /** The widgets a week block can be built from (the built-in ones and the saved ones). */
   widgetList: (() => readonly Widget[]) | null = null;
   /** Open the icon grid and call back with the icon picked. */
@@ -278,7 +280,7 @@ export class Panel {
       return rec[key] ?? (key === 'pan_x' || key === 'pan_y' ? 0 : key === 'size' ? DEFAULTS.checkSize : key === 'every' ? DEFAULTS.every : key === 'start' ? DEFAULTS.start : key === 'step' ? DEFAULTS.step : undefined);
     };
     const stepSize = () => (o.by === 'cell' ? nudgeStep(store) : o.by);
-    const apply = (v: number, group: string | null): string | null => this.edit(store, i, id, group ?? key, (x) => { (x as unknown as Record<string, number>)[key] = v; });
+    const apply = (v: number, group: string | null): string | null => this.edit(store, i, id, group ?? key, (x) => { (x as unknown as Record<string, number>)[key] = v; if (key === 'x' || key === 'y') delete (x as { center_in?: unknown }).center_in; });
     const msg = this.message();
     let dirty = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -590,7 +592,8 @@ export class Panel {
           choice('style', 'Style', TEXT_STYLES, DEFAULTS.style),
           choice('tone', 'Tone', TEXT_TONES, DEFAULTS.textTone, 'prop-text-tone'),
           choice('align', 'Align', ALIGNS, DEFAULTS.align),
-          choice('rotate', 'Rotate (°)', [0, 90, 270] as const, 0 as 0 | 90 | 270)];
+          choice('rotate', 'Rotate (°)', [0, 90, 270] as const, 0 as 0 | 90 | 270),
+          h('div', { class: 'row' }, h('button', { type: 'button', 'data-key': 'prop-center-in', 'data-help': 'prop-center-in', onclick: () => this.centerIn?.(i) }, 'Center in…'))];
         break;
       }
     }

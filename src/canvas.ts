@@ -3,13 +3,13 @@ import { panTo } from './format/picture';
 import { validateElement } from './format/validate';
 import { headerOf } from './format/bounds';
 import {
-  artFromDrag, cellPoint, elementFromDrag, boundsOf, HANDLE_CURSOR, hitElement, hitHandle, hitHandlePoint, moveGroup, resizeElement, snapPoint, snapStep,
+  artFromDrag, cellPoint, elementFromDrag, boundsOf, HANDLE_CURSOR, hitElement, hitHandlePoint, moveGroup, resizeElement, snapPoint, snapStep,
   tapCandidates, touchedBy, cycleHit, type Handle, type Pt,
 } from './geometry';
 import { membersOf } from './groups';
 import { placeWidget } from './widgets';
 import { artOf } from './art/widget';
-import { addElement, addElements } from './actions';
+import { addElement, addElements, centerTextIn } from './actions';
 import { LongPress } from './longpress';
 import { EDIT_BOX, EDIT_VIEWBOX, FIT_BOX, pageContent } from './render';
 import type { Store } from './store';
@@ -50,6 +50,8 @@ export class Canvas {
   private content: SVGGElement;
   private downPx: Pt = { x: 0, y: 0 };
   private downType = 'mouse';
+  /** A press while "Center in…" waits for an element: the element under it, applied when the press ends without moving. */
+  private centerTap: { id: number; px: Pt; target: number } | null = null;
 
   /** Zoom and pan. While `fitted` the page is kept fitted to the element as it resizes. */
   view: View = { zoom: 1, cx: EDIT_BOX.x + EDIT_BOX.w / 2, cy: EDIT_BOX.y + EDIT_BOX.h / 2 };
@@ -213,7 +215,7 @@ export class Canvas {
       handleMm: this.handlePx() * this.mmPerPx(),
     });
     if (preview) this.svg.style.cursor = 'default';
-    else if (!d) this.svg.style.cursor = store.tool === 'select' ? 'default' : 'crosshair';
+    else if (!d) this.svg.style.cursor = store.tool === 'select' && store.centering === null ? 'default' : 'crosshair';
     this.hooks.rendered?.();
   }
 
@@ -280,6 +282,7 @@ export class Canvas {
     const { store } = this;
     if (this.readOnly) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
+    this.centerTap = null;
     if (e.isPrimary) this.pointers.clear(); // a first finger means any earlier ones are gone, whatever events were missed
     this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (this.pointers.size >= 2) {
@@ -296,6 +299,13 @@ export class Canvas {
     const tol = touch ? TOUCH : MOUSE;
     this.downType = e.pointerType;
     const { p, cellsPerPx } = this.toCells(e);
+    if (store.centering !== null) {
+      // "Center in…" is waiting: the next element pressed (other than the text) is the one; anything else is ignored.
+      const text = store.centering;
+      const target = (touch ? this.fingerHits(p, cellsPerPx) : this.hits(p, tol.hit * cellsPerPx)).find((i) => i !== text);
+      this.centerTap = target === undefined ? null : { id: e.pointerId, px: { x: e.clientX, y: e.clientY }, target };
+      return;
+    }
     this.downPx = { x: e.clientX, y: e.clientY };
     this.notify(null);
 
@@ -320,7 +330,8 @@ export class Canvas {
     } else {
       const sel = store.selected;
       const canHandle = sel !== null && store.selection.length === 1 && !store.isLocked(sel) && !store.isHidden(sel);
-      const handle = canHandle ? hitHandle(store.page.elements[sel], p, tol.handle * cellsPerPx) : null;
+      // Only the drawn handles resize, as with touch: a press anywhere else on the element moves it.
+      const handle = canHandle ? hitHandlePoint(store.page.elements[sel], p, tol.handle * cellsPerPx) : null;
       if (handle && sel !== null) {
         const origin = store.page.elements[sel];
         this.drag = { kind: 'resize', index: sel, handle, origin, last: origin };
@@ -421,9 +432,9 @@ export class Canvas {
     const { p, cellsPerPx } = this.toCells(e);
     const d = this.drag;
     if (!d) {
-      if (e.pointerType !== 'mouse' || store.mode !== 'edit' || store.tool !== 'select') return;
+      if (e.pointerType !== 'mouse' || store.mode !== 'edit' || store.tool !== 'select' || store.centering !== null) return;
       const sel = store.selected;
-      const h = sel !== null && !store.isLocked(sel) ? hitHandle(store.page.elements[sel], p, tol.handle * cellsPerPx) : null;
+      const h = sel !== null && !store.isLocked(sel) ? hitHandlePoint(store.page.elements[sel], p, tol.handle * cellsPerPx) : null;
       this.svg.style.cursor = h ? HANDLE_CURSOR[h] : this.hits(p, tol.hit * cellsPerPx).length ? 'move' : 'default';
       return;
     }
@@ -439,7 +450,7 @@ export class Canvas {
       if (!d.moved && Math.hypot(e.clientX - this.downPx.x, e.clientY - this.downPx.y) < slop) return;
       d.moved = true;
       const dx = Math.round((p.x - d.startCells.x) / step) * step, dy = Math.round((p.y - d.startCells.y) / step) * step;
-      d.last = moveGroup(d.origins, dx, dy, this.header());
+      d.last = moveGroup(d.origins, dx, dy, this.header(), step);
     } else if (d.kind === 'pan') {
       d.last = panTo(d.origin, (d.origin.pan_x ?? 0) + (p.x - d.startCells.x), (d.origin.pan_y ?? 0) + (p.y - d.startCells.y));
     } else if (d.kind === 'resize') {
@@ -487,6 +498,13 @@ export class Canvas {
     const wasPinching = this.pinch !== null;
     this.forget(e);
     this.press.cancel();
+    const ct = this.centerTap;
+    if (ct && ct.id === e.pointerId) {
+      this.centerTap = null;
+      const { store } = this;
+      if (!wasPinching && store.centering !== null && Math.hypot(e.clientX - ct.px.x, e.clientY - ct.px.y) < TOUCH.dragStart && centerTextIn(store, store.centering, ct.target)) store.endCentering();
+      return;
+    }
     if (wasPinching) return;
     const pd = this.pending;
     const d = this.drag;
@@ -581,7 +599,7 @@ export class Canvas {
   /** Double-click with a mouse: the same as a double-tap. */
   private onDoubleClick = (e: MouseEvent) => {
     const { store } = this;
-    if (e.detail !== 2 || e.button !== 0 || e.shiftKey || e.ctrlKey || e.metaKey || this.readOnly || store.mode !== 'edit' || store.tool !== 'select') return;
+    if (e.detail !== 2 || e.button !== 0 || e.shiftKey || e.ctrlKey || e.metaKey || this.readOnly || store.mode !== 'edit' || store.tool !== 'select' || store.centering !== null) return;
     const { p, cellsPerPx } = this.toCells(e);
     const hit = this.hits(p, MOUSE.hit * cellsPerPx)[0];
     if (hit === undefined) return;

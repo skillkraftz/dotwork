@@ -20,8 +20,8 @@ const SWAP_SIDE: Record<BoxSide, BoxSide> = { top: 'top', bottom: 'bottom', left
 function mirrorText(e: Text): Text {
   const align = e.align === 'left' || e.align === undefined ? 'right' : e.align === 'right' ? 'left' : 'center';
   const rotate = e.rotate === 90 ? 270 : e.rotate === 270 ? 90 : e.rotate;
-  const { align: _a, rotate: _r, ...rest } = e;
-  return { ...rest, x: flipX(e.x), ...(align !== DEFAULTS.align ? { align } : {}), ...(rotate ? { rotate } : {}) };
+  const { align: _a, rotate: _r, center_in: area, ...rest } = e;
+  return { ...rest, x: flipX(e.x), ...(area ? { center_in: { ...area, x: flipX(area.x, area.w) } } : {}), ...(align !== DEFAULTS.align ? { align } : {}), ...(rotate ? { rotate } : {}) };
 }
 
 /** The element with its zoom, pan and rotation as they read on the mirrored page. */

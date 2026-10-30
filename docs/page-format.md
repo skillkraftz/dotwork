@@ -291,6 +291,7 @@ draws the sample week (Sun 25 to Sat 31 Oct 2026) and can preview a first week (
 | `tone` | `"gray"` (default) or `"black"`. |
 | `align` | `"left"` (default), `"center"` or `"right"`. For center and right, `x` is the text's center or right end. |
 | `rotate` | `0` (default), `90` (reads bottom to top) or `270` (reads top to bottom). Rotated text is anchored the same way in its rotated frame. |
+| `center_in` | Optional area `{ x, y, w, h }` in cells (fractions allowed, `w` and `h` of 0 or more). While present the text is drawn centered in this area, across and down, ignoring `align`: horizontally on the middle of the area, vertically so the middle of the capitals (Courier Prime's cap height, 0.58 em) is on the middle of the area. Rotated text is centered the same way in its own frame. `x`, `y` stay valid half-cell values (the nearest to the centered anchor) and are where the text lands when it is freed. Set by the editor's **Center in…**; it does not follow the element it was centered in. On a mirrored left page the area is mirrored. |
 
 Text sits on its row's baseline, the way labels sit on writing lines in
 journal-system. Font: Courier Prime.
