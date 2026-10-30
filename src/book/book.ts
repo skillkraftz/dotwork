@@ -33,6 +33,7 @@ export const PRINT_LIMITS = {
   fore_edge_shift_mm: { min: -10, max: 10 },
   cover_fore_edge_shift_mm: { min: -10, max: 10 },
   target_fore_edge_margin_mm: { min: 1, max: 10 },
+  trim_margin_mm: { min: 0, max: 3.85 },
   signatures: { min: 1, max: 20 },
   shade_light_pct: { min: 0, max: 100 },
   shade_medium_pct: { min: 0, max: 100 },
@@ -50,6 +51,8 @@ export const LAYOUT_LIMITS = {
   scale_y_pct: { min: 95, max: 105 },
   back_rotation_deg: { min: -1.5, max: 1.5 },
   line_weight_x_pct: { min: 80, max: 120 },
+  inset_front_left_mm: { min: 0, max: 8 }, inset_front_right_mm: { min: 0, max: 8 }, inset_front_top_mm: { min: 0, max: 8 }, inset_front_bottom_mm: { min: 0, max: 8 },
+  inset_back_left_mm: { min: 0, max: 8 }, inset_back_right_mm: { min: 0, max: 8 }, inset_back_top_mm: { min: 0, max: 8 }, inset_back_bottom_mm: { min: 0, max: 8 },
 } as const satisfies Record<keyof LayoutProfile, { min: number; max: number }>;
 
 export const DEFAULT_PAGE_COUNT = 52;

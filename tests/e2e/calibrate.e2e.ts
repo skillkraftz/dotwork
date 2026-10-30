@@ -289,6 +289,55 @@ for (const device of ['phone', 'desktop'] as const) {
       expect(app.errors).toEqual([]);
     });
 
+    it('has an Edges step on the letter two-up sheet that keeps each side’s printable insets for the layout, method and paper, and places the books from them', async () => {
+      const app = await open(env, device);
+      const { page } = app;
+      await startFlat(app, 'letter_two_up');
+      await openCalibrate(app);
+      expect(await progress(app)).toBe('Step 1 of 4: Sheet');
+      await hit(app, 'dialog.calibrate [data-key="calibrate-next"]');
+      expect(await progress(app)).toBe('Step 2 of 4: Edges');
+      // Eight edge readings (four for each side), the margin, and a way to print the sheet that has the scales.
+      for (const side of ['Front', 'Back']) for (const edge of ['left', 'right', 'top', 'bottom']) {
+        expect(await page.locator(`dialog.calibrate input[aria-label="${side}, ${edge} edge: last number printed (mm)"]`).count(), `${side} ${edge}`).toBe(1);
+      }
+      expect(await page.locator('dialog.calibrate [data-key="book-trim-margin"]').inputValue()).toBe('3.85');
+      expect(await page.locator('dialog.calibrate [data-key="calibrate-download-sheet"]').count()).toBe(1);
+      // Until measured, 3 mm; the books fill the sheet.
+      expect(await page.locator('dialog.calibrate [data-key="book-inset-front-bottom"]').inputValue()).toBe('3');
+      await page.waitForFunction(() => /fits inside the printable area/.test(document.querySelector('dialog.calibrate [data-key="calibrate-placement"]')?.textContent ?? ''));
+      expect(await missingHelp(app)).toEqual([]);
+      if (app.touch) expect(await small(app)).toEqual([]);
+      expect(await noOverflow(app)).toBe(true);
+
+      // The printer leaves the front's bottom strip unprinted: 6 mm. At the page's own margin nothing can move; a smaller margin makes room.
+      await set(app, 'calibrate', 'book-inset-front-bottom', '6');
+      await page.waitForFunction(() => /does not fit at this margin\. The largest that fits is 3\.\d+ mm/.test(document.querySelector('dialog.calibrate [data-key="calibrate-placement"]')?.textContent ?? ''));
+      await set(app, 'calibrate', 'book-trim-margin', '3');
+      await page.waitForFunction(() => /each book is cut 138 mm tall\. Waste above Book 1: 0\.4 mm, below Book 2: 3 mm\./.test(document.querySelector('dialog.calibrate [data-key="calibrate-placement"]')?.textContent ?? ''));
+      await set(app, 'calibrate', 'book-inset-back-left', '4.5');
+      await shot(app, `${device}-calibrate-edges`);
+
+      // Kept in the printer profile for this layout, method and paper; the cover paper and the other layout are untouched; the book never changes.
+      const stored = await profile(app);
+      expect(stored.layouts.letter_two_up.auto.inside).toMatchObject({ inset_front_bottom_mm: 6, inset_back_left_mm: 4.5 });
+      expect(stored.layouts.letter_two_up.auto.cover.inset_front_bottom_mm ?? 3).toBe(3);
+      expect(stored.layouts.letter_two_up.hand.inside.inset_front_bottom_mm ?? 3).toBe(3);
+      expect(stored.layouts.half_letter.hand.inside.inset_front_bottom_mm ?? 3).toBe(3);
+      expect(stored.trim_margin_mm).toBe(3);
+      expect(await bookDraft(app)).toEqual(JSON.parse(BOOK));
+
+      // They survive the wizard and a reload, and Back and Next keep them.
+      await hit(app, 'dialog.calibrate [data-key="calibrate-next"]');
+      expect(await progress(app)).toBe('Step 3 of 4: Creep and cover');
+      await hit(app, 'dialog.calibrate [data-key="calibrate-back"]');
+      expect(await page.locator('dialog.calibrate [data-key="book-inset-front-bottom"]').inputValue()).toBe('6');
+      // The sheet with the scales downloads as two pages.
+      const sheet = await download(app, 'dialog.calibrate [data-key="calibrate-download-sheet"]');
+      expect((await PDFDocument.load(sheet.bytes)).getPageCount()).toBe(2);
+      expect(app.errors).toEqual([]);
+    });
+
     it('uses the printer profile for every book: nothing is compared or copied into the book', async () => {
       const app = await open(env, device);
       const { page } = app;

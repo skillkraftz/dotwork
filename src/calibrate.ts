@@ -25,6 +25,9 @@ export interface CalibrateHost {
 export const QUALITY_TIP = 'Print at your printer’s best quality. Firefox may not use the quality set in the printer’s own defaults, and normal quality feeds the paper too fast and misaligns lines. Check the quality in the print dialog’s printer options, or set the default in CUPS (localhost:631) on Linux.';
 
 const STEPS = ['Sheet', 'Creep and cover', 'Check'] as const;
+/** Two-up adds a step after the sheet: how close to each paper edge the printer prints, which places the two books. */
+const TWO_UP_STEPS = ['Sheet', 'Edges', 'Creep and cover', 'Check'] as const;
+type StepName = (typeof TWO_UP_STEPS)[number];
 /** What the sheet step changes, by name. */
 const RESULTS: [keyof LayoutProfile, string, string][] = [
   ['front_offset_x_mm', 'Front offset x', 'mm'], ['front_offset_y_mm', 'Front offset y', 'mm'], ['back_offset_x_mm', 'Back offset x', 'mm'], ['back_offset_y_mm', 'Back offset y', 'mm'],
@@ -54,6 +57,8 @@ export class CalibrateDialog {
   private back = h('button', { type: 'button', 'data-key': 'calibrate-back', 'data-help': 'calibrate-back' }, 'Back');
   private next = h('button', { type: 'button', class: 'primary', 'data-key': 'calibrate-next', 'data-help': 'calibrate-next' }, 'Next');
   private step = 0;
+  /** The steps of the layout being calibrated. */
+  private get steps(): readonly StepName[] { return this.layout === 'letter_two_up' ? TWO_UP_STEPS : STEPS; }
   /** Which layout is being calibrated, read-only (it is chosen in the PDF tab), with the print method and the paper, which are chosen here. */
   private layoutRow = h('div', { class: 'cal-layout' });
   /** The set (layout, print method, paper) the typed readings belong to. */
@@ -96,12 +101,14 @@ export class CalibrateDialog {
   }
 
   private go(step: number) {
-    this.step = Math.min(STEPS.length - 1, Math.max(0, step));
-    this.progress.textContent = `Step ${this.step + 1} of ${STEPS.length}: ${STEPS[this.step]}`;
+    const steps = this.steps;
+    this.step = Math.min(steps.length - 1, Math.max(0, step));
+    this.progress.textContent = `Step ${this.step + 1} of ${steps.length}: ${steps[this.step]}`;
     this.back.disabled = this.step === 0;
-    this.next.disabled = this.step === STEPS.length - 1;
+    this.next.disabled = this.step === steps.length - 1;
     this.layoutRow.replaceChildren(this.layoutLine());
-    this.body.replaceChildren(...[() => this.sheet(), () => this.creep(), () => this.check()][this.step]());
+    const build: Record<StepName, () => HTMLElement[]> = { Sheet: () => this.sheet(), Edges: () => this.edges(), 'Creep and cover': () => this.creep(), Check: () => this.check() };
+    this.body.replaceChildren(...build[steps[this.step]]());
     this.body.scrollTop = 0;
   }
 
@@ -262,6 +269,38 @@ export class CalibrateDialog {
     ];
   }
 
+  // ---- step 2 (two-up): the edges -------------------------------------------
+
+  private edges(): HTMLElement[] {
+    const placed = h('p', { class: 'hint', 'data-key': 'calibrate-placement', role: 'status' });
+    // The placement math is loaded with the print code, the first time it is needed.
+    const show = () => void import('./print/placement').then(({ placeBooks }) => {
+      const print = this.host.printer.get(), paper = paperShown(), p = placeBooks(print, paper);
+      const mm_ = (v: number) => `${Math.round(v * 100) / 100}`;
+      placed.replaceChildren(h('span', {}, `On the ${PAPER_NAMES[paper].toLowerCase()}, each book is cut ${mm_(p.bookHeight)} mm tall. Waste above Book 1: ${mm_(p.wasteTop)} mm, below Book 2: ${mm_(p.wasteBottom)} mm. Cuts, from the sheet’s top edge: ${p.cuts.map(mm_).join(', ')} mm. `),
+        p.fits ? h('strong', {}, 'The grid fits inside the printable area.')
+          : h('strong', { class: 'warn' }, p.largestMargin === null ? 'The grid does not fit inside the printable area at any margin: check the insets.' : `The grid does not fit at this margin. The largest that fits is ${p.largestMargin} mm.`));
+    });
+    const field = (key: PrintFieldKey) => printField(() => this.host.printer.get(), (c) => { this.change(c); show(); }, key);
+    show();
+    return [
+      h('p', { class: 'hint' }, 'Every printer leaves a strip along the paper’s edge unprinted, often a different one on each side of the sheet. This finds how wide it is at each edge, so the two books are placed where the printer can print. Until you measure, 3 mm is used.'),
+      h('ol', { class: 'cal-how' },
+        h('li', {}, `Print calibration-sheet.pdf as in step 1 (download it there or below). It has a scale at the middle of each paper edge on both sides: a line every 0.5 mm out to 8 mm, numbered every 1 mm, placed with this side’s offset, scale and rotation already applied, so the numbers are distances on the paper.`),
+        h('li', {}, 'At each edge, on each side, read the last number whose line is printed completely. A line cut off or missing is inside the unprinted strip.'),
+        h('li', {}, 'Type the four numbers for the front (the side printed first) and the four for the back. A half step, like 3.5, is fine.')),
+      this.downloadSheet(),
+      h('h3', {}, 'Front, last number fully printed (mm)'),
+      field('inset_front_left_mm'), field('inset_front_right_mm'), field('inset_front_top_mm'), field('inset_front_bottom_mm'),
+      h('h3', {}, 'Back, last number fully printed (mm)'),
+      field('inset_back_left_mm'), field('inset_back_right_mm'), field('inset_back_top_mm'), field('inset_back_bottom_mm'),
+      h('h3', {}, 'Where the books go'),
+      h('p', { class: 'hint' }, 'A book is cut 132 mm (the grid) plus twice this margin tall. 3.85 fills the sheet, as before. A smaller margin leaves waste above Book 1 and below Book 2, which is split so the grid stays inside the printable area, evenly if it can.'),
+      field('trim_margin_mm'),
+      placed,
+    ];
+  }
+
   // ---- step 3: creep and cover ----------------------------------------------
 
   /** A number box for one of the values the test was printed with. */
@@ -365,7 +404,7 @@ export class CalibrateDialog {
         this.read.cover = this.read.outermost = this.read.innermost = '';
         this.testPrinted = null;
         this.testDownloaded = false;
-        this.go(1);
+        this.go(this.steps.indexOf('Creep and cover'));
         this.say(problem ?? 'Saved as your printer’s settings. Print the creep test again to check.');
       });
       result.replaceChildren(

@@ -147,7 +147,7 @@ for (const device of ['phone', 'desktop'] as const) {
       await pickLayout(app, 'export', 'letter_two_up');
       await hit(app, 'dialog.export [data-key="calibrate-open"]');
       await page.waitForSelector('dialog.calibrate[open]');
-      expect(await page.locator('dialog.calibrate .cal-progress').innerText()).toBe('Step 1 of 3: Sheet');
+      expect(await page.locator('dialog.calibrate .cal-progress').innerText()).toBe('Step 1 of 4: Sheet');
       expect(await page.locator('dialog.calibrate').innerText()).toContain('Letter (not borderless)');
       expect(await page.locator('dialog.calibrate').innerText()).not.toContain('Statement (Borderless)');
       expect(await page.locator('dialog.calibrate [data-key="book-sheet-layout"]').count()).toBe(0);

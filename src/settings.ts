@@ -223,6 +223,15 @@ const PRINT_FIELDS: Record<PrintFieldKey, { label: string; help: string; step: n
   fore_edge_shift_mm: { label: 'Fore-edge shift (mm)', help: 'book-fore-edge-shift', step: 0.1 },
   cover_fore_edge_shift_mm: { label: 'Cover shift (mm)', help: 'book-cover-shift', step: 0.1 },
   target_fore_edge_margin_mm: { label: 'Target fore-edge margin (mm)', help: 'book-target-margin', step: 0.1 },
+  trim_margin_mm: { label: 'Trimmed top/bottom margin (mm)', help: 'book-trim-margin', step: 0.05 },
+  inset_front_left_mm: { label: 'Front, left edge: last number printed (mm)', help: 'book-inset-front-left', step: 0.5 },
+  inset_front_right_mm: { label: 'Front, right edge: last number printed (mm)', help: 'book-inset-front-right', step: 0.5 },
+  inset_front_top_mm: { label: 'Front, top edge: last number printed (mm)', help: 'book-inset-front-top', step: 0.5 },
+  inset_front_bottom_mm: { label: 'Front, bottom edge: last number printed (mm)', help: 'book-inset-front-bottom', step: 0.5 },
+  inset_back_left_mm: { label: 'Back, left edge: last number printed (mm)', help: 'book-inset-back-left', step: 0.5 },
+  inset_back_right_mm: { label: 'Back, right edge: last number printed (mm)', help: 'book-inset-back-right', step: 0.5 },
+  inset_back_top_mm: { label: 'Back, top edge: last number printed (mm)', help: 'book-inset-back-top', step: 0.5 },
+  inset_back_bottom_mm: { label: 'Back, bottom edge: last number printed (mm)', help: 'book-inset-back-bottom', step: 0.5 },
   front_offset_x_mm: { label: 'Front offset x (mm)', help: 'book-front-offset-x', step: 0.1 },
   front_offset_y_mm: { label: 'Front offset y (mm)', help: 'book-front-offset-y', step: 0.1 },
   back_offset_x_mm: { label: 'Back offset x (mm)', help: 'book-offset-x', step: 0.1 },
@@ -371,9 +380,16 @@ export function resetLayout(printer: () => PrintSettings, edit: EditPrinter, red
   const layout = printer().sheet_layout, method = methodOf(printer()), paper = shownPaper, name = `${LAYOUT_NAMES[layout]}, ${METHOD_SHORT[method]}, ${PAPER_NAMES[paper].toLowerCase()}`, box = h('div', { class: 'reset-layout' });
   const ask = () => {
     const now = printer().layouts[layout][method][paper], defaults = DEFAULT_PRINT.layouts[layout][method][paper];
-    const keys = Object.keys(LAYOUT_LIMITS) as (keyof LayoutProfile)[];
+    // The measured printable insets are calibration numbers: a reset leaves them as they are.
+    const keys = (Object.keys(LAYOUT_LIMITS) as (keyof LayoutProfile)[]).filter((k) => !k.startsWith('inset_'));
     const reset = h('button', { type: 'button', class: 'primary', 'data-key': 'reset-layout-yes', 'data-help': 'reset-layout-yes' }, 'Yes, reset');
-    reset.onclick = () => { edit((p) => { p.layouts[layout][method][paper] = { ...DEFAULT_PRINT.layouts[layout][method][paper] }; }); redraw(); };
+    reset.onclick = () => {
+      edit((p) => {
+        const insets = Object.fromEntries(Object.entries(p.layouts[layout][method][paper]).filter(([k]) => k.startsWith('inset_')));
+        p.layouts[layout][method][paper] = { ...DEFAULT_PRINT.layouts[layout][method][paper], ...insets };
+      });
+      redraw();
+    };
     const cancel = h('button', { type: 'button', 'data-key': 'reset-layout-cancel', 'data-help': 'reset-layout-cancel' }, 'Cancel');
     cancel.onclick = () => box.replaceChildren(button);
     box.replaceChildren(h('div', { class: 'restore-printer', role: 'group', 'aria-label': `Reset ${name} to defaults`, 'data-key': 'reset-layout-question' },
@@ -397,6 +413,7 @@ export function printFields(printer: () => PrintSettings, edit: EditPrinter, boo
   const field = (key: PrintFieldKey) => printField(printer, edit, key);
   return [
     field('creep_per_sheet_mm'), field('fore_edge_shift_mm'), field('cover_fore_edge_shift_mm'), field('target_fore_edge_margin_mm'), signaturesField(book, editBook),
+    ...(printer().sheet_layout === 'letter_two_up' ? [field('trim_margin_mm')] : []),
     paperPicker(redraw), setLine(printer()),
     field('front_offset_x_mm'), field('front_offset_y_mm'), field('back_offset_x_mm'), field('back_offset_y_mm'), field('back_rotation_deg'), field('scale_x_pct'), field('scale_y_pct'), field('line_weight_x_pct'),
     h('p', { class: 'hint' }, 'Creep moves each sheet’s pages toward the fold by the sheets outside it × the creep per sheet (often more than the paper’s thickness; the Calibrate page finds it). The fore-edge shifts move every page away from the fold, so the trimmed fore-edge margin lands on the target. The front offset moves everything printed first (print-first.pdf, the fronts of print-duplex.pdf, cover-outside.pdf), the back offset everything printed second (+x right, +y up, as seen on that side), to cancel what your printer does to each side; the back rotation turns the back about the sheet’s centre (+ is counter-clockwise as seen on the back). The scale moves everything on the sheet about its centre, to cancel a printer that enlarges or shrinks it; it never stretches lines, dots or letters. The line weight is only for a printer that draws lines along the 8.5 in edge thicker than lines along the other edge; the Calibrate page’s line pairs show it. The Calibrate page finds all of these.'),
