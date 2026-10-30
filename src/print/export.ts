@@ -1,5 +1,5 @@
 // Builds a book's print files: pages.pdf, then for each signature print-duplex.pdf (the printer flips the paper) or print-first.pdf /
-// print-second.pdf (flipped by hand), by the printer profile's print method, cover-outside.pdf / cover-inside.pdf and a summary. The sheet layouts are in sheets.ts. Match journal-system's pocketjournal/book.py and imposition.py.
+// print-second.pdf (flipped by hand), by the printer profile's print method, cover-duplex.pdf (auto duplex) or cover-outside.pdf / cover-inside.pdf (by hand), and a summary. The sheet layouts are in sheets.ts. Match journal-system's pocketjournal/book.py and imposition.py.
 import { PDFDocument } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import { PAGE_H_MM, PAGE_W_MM, type Page } from '../format/types';
@@ -153,9 +153,19 @@ function coverHalf(book: Book, print: PrintSettings, pass: 'outside' | 'inside')
   };
 }
 
-/** The cover PDF of a pass: one sheet, single-sided. Two-up puts the top book's covers on the top half and the bottom book's below. */
-const coverPdf = (b: Books, print: PrintSettings, pass: 'outside' | 'inside', fontBytes: FontBytes) =>
-  sheetsPdf([{ side: pass === 'outside' ? 'front' : 'back', paper: 'cover', halves: isTwoUp(print.sheet_layout) ? [coverHalf(b.top, print, pass), coverHalf(b.bottom, print, pass)] : [coverHalf(b.top, print, pass)] }], print, fontBytes);
+/** The cover sheet of a pass as a PDF page: outside is the front, inside the back. Two-up puts the top book's covers on the top half and the bottom book's below. */
+const coverPlan = (b: Books, print: PrintSettings, pass: 'outside' | 'inside'): PagePlan =>
+  ({ side: pass === 'outside' ? 'front' : 'back', paper: 'cover', halves: isTwoUp(print.sheet_layout) ? [coverHalf(b.top, print, pass), coverHalf(b.bottom, print, pass)] : [coverHalf(b.top, print, pass)] });
+
+/** The cover files by print method: auto duplex, one cover-duplex.pdf (page 1 the outside, page 2 the inside, printed double-sided); by hand, cover-outside.pdf then cover-inside.pdf, one single-sided pass each. */
+async function coverFiles(b: Books, print: PrintSettings, fontBytes: FontBytes): Promise<ExportedFile[]> {
+  const pdf = (name: string, bytes: Uint8Array): ExportedFile => ({ name, bytes, type: 'application/pdf' });
+  if (methodOf(print) === 'auto') return [pdf('cover-duplex.pdf', await sheetsPdf([coverPlan(b, print, 'outside'), coverPlan(b, print, 'inside')], print, fontBytes))];
+  return [
+    pdf('cover-outside.pdf', await sheetsPdf([coverPlan(b, print, 'outside')], print, fontBytes)),
+    pdf('cover-inside.pdf', await sheetsPdf([coverPlan(b, print, 'inside')], print, fontBytes)),
+  ];
+}
 
 /** Short advice for printing, for the print method: the real procedure is in summary.txt's steps; these are the habits that save paper. */
 export const printTips = (method: PrintMethod): string[] => [
@@ -217,7 +227,9 @@ export function summary(books: Books, p: PrintSettings, sigs: Signature[], files
     ...printSteps(method, twoUp),
     'Fold, sew, wrap in the cover, then measure',
     `${(PAGE_W_MM / 25.4).toFixed(1)} in from the fold and trim the fore-edge.`,
-    `Covers: print cover-outside.pdf single-sided on the cover paper, put the sheet back the same way, then print cover-inside.pdf${twoUp ? ' (two covers per sheet)' : ''}.`,
+    method === 'auto'
+      ? `Covers: print cover-duplex.pdf double-sided on the cover paper (page 1 is the outside, page 2 the inside)${twoUp ? ', two covers per sheet' : ''}.`
+      : `Covers: print cover-outside.pdf single-sided on the cover paper, put the sheet back the same way, then print cover-inside.pdf${twoUp ? ' (two covers per sheet)' : ''}.`,
     '',
     'Tips:',
     ...printTips(method),
@@ -274,8 +286,7 @@ export async function exportBookFiles(book: Book, print: PrintSettings, fontByte
     }
   }
   if (cover) {
-    files.push(pdf('cover-outside.pdf', await coverPdf(books, print, 'outside', fontBytes)));
-    files.push(pdf('cover-inside.pdf', await coverPdf(books, print, 'inside', fontBytes)));
+    files.push(...await coverFiles(books, print, fontBytes));
   }
   if (pages) files.push(pdf('pages.pdf', await pagesPdf(book, print, fontBytes)));
   if (signatures) {

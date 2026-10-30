@@ -122,8 +122,8 @@ describe('two-up files', () => {
   });
 
   it('writes print-duplex.pdf next to print-first.pdf and print-second.pdf, on letter sheets, and the covers', async () => {
-    expect(files.map((f) => f.name).sort()).toEqual(['cover-inside.pdf', 'cover-outside.pdf', 'pages.pdf', 'print-duplex.pdf', 'print-first.pdf', 'print-second.pdf', 'summary.txt']);
-    for (const name of ['print-duplex.pdf', 'print-first.pdf', 'print-second.pdf', 'cover-outside.pdf', 'cover-inside.pdf']) {
+    expect(files.map((f) => f.name).sort()).toEqual(['cover-duplex.pdf', 'pages.pdf', 'print-duplex.pdf', 'print-first.pdf', 'print-second.pdf', 'summary.txt']);
+    for (const name of ['print-duplex.pdf', 'print-first.pdf', 'print-second.pdf', 'cover-duplex.pdf']) {
       const [page] = await readPdf(file(files, name));
       expect(page.width, name).toBeCloseTo(8.5 * 72, 1);
       expect(page.height, name).toBeCloseTo(11 * 72, 1);

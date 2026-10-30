@@ -43,6 +43,9 @@ export const METHOD_NAMES: Record<PrintMethod, string> = { auto: 'Printer flips 
 export const METHOD_SHORT: Record<PrintMethod, string> = { auto: 'auto duplex', hand: 'by hand' };
 export const DEFAULT_METHOD: Record<SheetLayout, PrintMethod> = { half_letter: 'hand', letter_two_up: 'auto' };
 
+/** The names of the book's cover files for a print method: auto duplex, one two-page file; by hand, a file for each pass. */
+export const coverFileNames = (method: PrintMethod) => (method === 'auto' ? ['cover-duplex.pdf'] : ['cover-outside.pdf', 'cover-inside.pdf']);
+
 /** The paper a file is printed on: the book's interior pages, or the (heavier) cover stock, which a printer places differently. */
 export type PaperSet = 'inside' | 'cover';
 export const PAPER_SETS: readonly PaperSet[] = ['inside', 'cover'];

@@ -89,7 +89,7 @@ the "Bottom book" choice in the PDF tab, and the `from` links) and the names of 
 | **Memory only** (lost on reload) | Undo stacks, selection, hidden/locked layers, current tool and mode, which spread page is active, the Book view's current page, every window's unsaved choices (PDF checkboxes, PNG resolution and Darker grays, "Bottom book", Calibrate readings, which outline row is selected or open, and **Edit here**: which copy in the book is open in the editor, the page or spread that was open before it, and its name for a spread block; `main.ts` `editHere`). | | |
 
 **Files the app makes:** page / spread / book JSON, PNG (page or spread), and a zip of PDFs
-(`<book>-print.zip`: `pages.pdf`, `cover-outside.pdf`, `cover-inside.pdf`, per-signature `print-first.pdf` / `print-second.pdf` (by hand) or `print-duplex.pdf` (auto duplex), `preview.png`, `summary.txt`, `book.json`, and `error.txt` only on a problem). Calibration
+(`<book>-print.zip`: `pages.pdf`, the covers (`cover-duplex.pdf` for auto duplex, `cover-outside.pdf` and `cover-inside.pdf` by hand), per-signature `print-first.pdf` / `print-second.pdf` (by hand) or `print-duplex.pdf` (auto duplex), `preview.png`, `summary.txt`, `book.json`, and `error.txt` only on a problem). Calibration
 downloads (`calibration-sheet.pdf`, a creep-test zip) also carry `book.json`.
 
 ## 3. Every screen, window and menu
@@ -174,7 +174,7 @@ The book has four cover pages: **inside front** (left page, `cover.front`), **in
 
 - **Generated:** only by a **book template**, and only the two *inside* covers: the monthly journal gets a tracker cover for the month and a page index (`monthlyTracker`, `monthlyPageIndex`); the year planner a goals cover and a year index; plain books a purpose cover and a plain index. The tracker is one design for every month (31 rows, `monthlyTracker()`): its weekend shading, day numbers and weekday letters are the **month tools** (a shade with `weekends`, and sequences of `month_days` and `month_weekdays`) and its identity is `{monthname} {year}`, all read from the month the cover reads. The page index and the other covers are built from the answers (year, month) as **literal text and drawings**, not tokens, and are not part of the outline. The outside covers are never generated.
 - **Typed or chosen in:** everything else. The outside covers, and any inside cover you want different, are chosen with **Choose design…** after stepping to the cover with ‹ / › (the outside front cover comes before the inside front cover, the outside back after the inside back), or drawn in the editor and saved to the Library first. The outline never reaches a cover.
-- **Printed:** `cover-outside.pdf` (outside back | outside front, first pass) and `cover-inside.pdf` (inside front | inside back, second pass), single-sided, with the cover fore-edge shift. Missing outside covers print blank.
+- **Printed:** by hand `cover-outside.pdf` (outside back | outside front, first pass) and `cover-inside.pdf` (inside front | inside back, second pass), single-sided, with the cover fore-edge shift; with auto duplex one two-page `cover-duplex.pdf` (outside, then inside). Missing outside covers print blank.
 
 ## 7. Things that disagree: inconsistencies, duplication, dead code, stale docs
 

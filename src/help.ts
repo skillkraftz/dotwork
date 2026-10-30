@@ -62,7 +62,7 @@ export const HELP: Record<string, HelpEntry> = {
   'export-png-scope': e('What to save', 'Chooses the page you are editing, or the whole spread side by side.', 'Tap to choose.', 'Click to choose.'),
   'export-png-dpi': e('Resolution', 'How sharp the picture is, in dots per inch. 600 matches a printer; 150 makes a small file.', 'Tap and pick a resolution.', 'Pick a resolution.'),
   'export-pdf-pages': e('pages.pdf', 'Every page of the book at final size, 3.5 × 5.5 in, one after another. Dated pages show their dates.', 'Tap to include it or not.', 'Click to include it or not.'),
-  'export-pdf-cover': e('Covers', 'cover-outside.pdf (outside back | outside front), printed first, then cover-inside.pdf (inside front | inside back) on the back of it. Single-sided passes; two to a sheet on letter two-up.', 'Tap to include them or not.', 'Click to include them or not.'),
+  'export-pdf-cover': e('Covers', 'Auto duplex: cover-duplex.pdf, outside then inside, double-sided. By hand: cover-outside.pdf first, then cover-inside.pdf. Two to a sheet on two-up.', 'Tap to include them or not.', 'Click to include them or not.'),
   'export-pdf-signatures': e('Print files', 'print-first.pdf and print-second.pdf: the pages arranged on sheets, with creep, for printing on both sides and binding. Letter two-up adds print-duplex.pdf, for a printer that duplexes by itself. Adds a preview and a summary.', 'Tap to include them or not.', 'Click to include them or not.'),
 
   // ---- spreads ----------------------------------------------------------------

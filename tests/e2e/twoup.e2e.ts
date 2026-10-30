@@ -96,7 +96,7 @@ for (const device of ['phone', 'desktop'] as const) {
       const zipped = await download(app, 'dialog.export [data-key="export-pdf"]');
       expect(zipped.name).toBe('untitled-book-print.zip');
       const text = zipped.bytes.toString('latin1');
-      for (const f of ['print-duplex.pdf', 'cover-outside.pdf', 'cover-inside.pdf', 'summary.txt']) expect(text, f).toContain(f);
+      for (const f of ['print-duplex.pdf', 'cover-duplex.pdf', 'summary.txt']) expect(text, f).toContain(f);
 
       // Reset this layout to defaults: it shows the values first, Cancel changes nothing, Yes brings back the calibrated defaults
       await page.locator('dialog.export [data-key="reset-layout"]').scrollIntoViewIfNeeded();

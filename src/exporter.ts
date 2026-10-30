@@ -7,7 +7,7 @@ import type { ExportedFile, Include } from './print/export';
 import type { Page } from './format/types';
 import { bookLayout, readBook, type Book } from './book/book';
 import { svgToPng, pageToPng, spreadToPng, FONT_CSS, PNG_DPI, PNG_DPIS } from './png';
-import { methodOf } from './book/impose';
+import { coverFileNames, methodOf } from './book/impose';
 import { layoutPicker, methodPicker, printFields, resetLayout } from './settings';
 import { slug } from './slug';
 import { loadFontBytes } from './print/fonts';
@@ -198,7 +198,7 @@ export class ExportDialog {
     const { pages, cover, signatures } = this.pdf;
     const printer = this.host.printer.get(), twoUp = printer.sheet_layout === 'letter_two_up', auto = methodOf(printer) === 'auto';
     const names = [
-      ...(pages ? ['pages.pdf'] : []), ...(cover ? ['cover-outside.pdf', 'cover-inside.pdf'] : []),
+      ...(pages ? ['pages.pdf'] : []), ...(cover ? coverFileNames(methodOf(printer)) : []),
       ...(signatures ? [`${auto ? 'print-duplex.pdf' : 'print-first.pdf and print-second.pdf'} for each signature, with preview.png and summary.txt`] : []),
     ];
     const redraw = () => this.render();
@@ -209,7 +209,9 @@ export class ExportDialog {
           h('strong', {}, `${slug(book.name, 'book')}-print.zip`), `, holding ${names.join(', ')} and book.json (the book as JSON; error.txt too if anything goes wrong).`),
       h('div', { class: 'choices', role: 'group', 'aria-label': 'What to make' },
         box('pages', 'pages.pdf', 'Every page at final size, 3.5 × 5.5 in, one after another. To read, check or print one page at a time.'),
-        box('cover', 'Covers', 'cover-outside.pdf (outside back | outside front) printed first, then cover-inside.pdf (inside front | inside back) on the back of it. Single-sided passes, no creep.'),
+        box('cover', 'Covers', auto
+          ? 'cover-duplex.pdf: page 1 the outside (outside back | outside front), page 2 the inside (inside front | inside back), printed double-sided. No creep.'
+          : 'cover-outside.pdf (outside back | outside front) printed first, then cover-inside.pdf (inside front | inside back) on the back of it. Single-sided passes, no creep.'),
         box('signatures', 'Print files', `${auto
           ? 'print-duplex.pdf (front, back, front, back… for a printer that duplexes by itself)'
           : 'print-first.pdf (side A) and print-second.pdf (side B), for printing one side, putting the stack back and printing the other'}${twoUp ? ': two sheets per letter sheet, with creep, cut marks and labels' : ': pages arranged on letter-cut-in-half sheets, with creep, for binding'}. Also a preview and a summary.`)),

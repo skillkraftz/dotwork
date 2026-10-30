@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { emptyBook, setCover, type Book } from '../src/book/book';
 import { emptyPage, type Page } from '../src/format/types';
 import { withPages } from './books';
-import { DEFAULT_PRINT, clonePrint, everywhere, printOrder, type PrintSettings } from '../src/book/impose';
+import { DEFAULT_PRINT, clonePrint, coverFileNames, everywhere, printOrder, type PrintSettings } from '../src/book/impose';
 import { COVER_FILE, CREEP_FILE, SHEET_FILE, calibrationText, creepFiles, creepTestOrder, sheetFile } from '../src/print/calibrate';
 import { exportBookFiles, type ExportedFile } from '../src/print/export';
 import { madeFor } from '../src/print/settingstext';
@@ -119,8 +119,10 @@ describe('which offsets a file uses', () => {
       expect((await x(now, first, 'P1', fp)) - (await x(was, first, 'P1', fp)), `${method} front`).toBeCloseTo(inside, 2);
       expect((await x(now, second, 'P2', sp)) - (await x(was, second, 'P2', sp)), `${method} back`).toBeCloseTo(inside + 0.5, 2);
       // ...and the covers the cover set's.
-      expect((await x(now, 'cover-outside.pdf', 'OUTFRONT')) - (await x(was, 'cover-outside.pdf', 'OUTFRONT')), `${method} outside cover`).toBeCloseTo(cover, 2);
-      expect((await x(now, 'cover-inside.pdf', 'FRONT')) - (await x(was, 'cover-inside.pdf', 'FRONT')), `${method} inside cover`).toBeCloseTo(cover + 0.5, 2);
+      // By hand the two passes are two files; with auto duplex they are pages 1 and 2 of cover-duplex.pdf.
+      const [outsideFile, insideFile, insidePage] = method === 'hand' ? ['cover-outside.pdf', 'cover-inside.pdf', 0] as const : ['cover-duplex.pdf', 'cover-duplex.pdf', 1] as const;
+      expect((await x(now, outsideFile, 'OUTFRONT')) - (await x(was, outsideFile, 'OUTFRONT')), `${method} outside cover`).toBeCloseTo(cover, 2);
+      expect((await x(now, insideFile, 'FRONT', insidePage)) - (await x(was, insideFile, 'FRONT', insidePage)), `${method} inside cover`).toBeCloseTo(cover + 0.5, 2);
     }
   });
 
@@ -184,6 +186,29 @@ describe('the book’s readme (summary.txt) and files follow the method', () => 
       expect(h).toContain('Print method: I flip the paper by hand');
       expect(h).toMatch(/print-first\.pdf, put the stack back/);
       expect(h).not.toContain('print-duplex');
+    }
+  });
+});
+
+describe('the cover files follow the method', () => {
+  it('auto duplex makes one cover-duplex.pdf (outside, then inside); by hand makes cover-outside.pdf and cover-inside.pdf', async () => {
+    for (const [base, twoUp] of [[FLAT, false], [flatTwoUp(), true]] as const) {
+      const auto = await exportBookFiles(emptyBook(8), withMethod(base, 'auto'), fontBytes), hand = await exportBookFiles(emptyBook(8), withMethod(base, 'hand'), fontBytes);
+      const covers = (files: ExportedFile[]) => files.map((f) => f.name).filter((n) => /^cover-/.test(n));
+      expect(covers(auto), `auto ${twoUp}`).toEqual(['cover-duplex.pdf']);
+      expect(covers(hand), `hand ${twoUp}`).toEqual(['cover-outside.pdf', 'cover-inside.pdf']);
+      expect(coverFileNames('auto')).toEqual(covers(auto));
+      expect(coverFileNames('hand')).toEqual(covers(hand));
+      expect(await readPdf(file(auto, 'cover-duplex.pdf').bytes)).toHaveLength(2);
+      for (const name of covers(hand)) expect(await readPdf(file(hand, name).bytes), name).toHaveLength(1);
+      // The readme names only the chosen method's cover files.
+      const [a, h] = [decode(file(auto, 'summary.txt')), decode(file(hand, 'summary.txt'))];
+      expect(a).toContain('cover-duplex.pdf');
+      expect(a).not.toMatch(/cover-outside|cover-inside/);
+      expect(h).toMatch(/cover-outside\.pdf single-sided/);
+      expect(h).not.toContain('cover-duplex');
+      expect(a).toContain('Files: ');
+      expect(a.split('Files: ')[1].split('\n')[0]).toContain('cover-duplex.pdf');
     }
   });
 });

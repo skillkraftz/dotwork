@@ -25,8 +25,8 @@ previews of them). It runs entirely in the browser: no backend, nothing leaves t
   to reorder them or move them into or out of a group, pick several (Ctrl+click, or Select on a touch screen) to Group, Duplicate or Delete
   them, and change the picked row's settings under the list; spreads always start on a left page, with a gap page where needed. It shows the pages it makes one at a time (or an
   opening), covers included, and flips through the result. A book from before the outline is listed in the Library as Old format.
-- **Print.** One zip with `pages.pdf`, the covers (`cover-outside.pdf`, `cover-inside.pdf`), and print-ready files for manual duplex
-  (you choose the print method: `print-first.pdf` reversed, then `print-second.pdf` when you flip the paper by hand, or `print-duplex.pdf` for a printer that duplexes itself; each method and each paper, inside or cover, keeps its own calibration), on half letter or two books
+- **Print.** One zip with `pages.pdf`, the covers, and print-ready files for manual or auto duplex
+  (you choose the print method: `print-first.pdf` reversed, then `print-second.pdf` when you flip the paper by hand, or `print-duplex.pdf` and `cover-duplex.pdf` for a printer that duplexes itself; each method and each paper, inside or cover, keeps its own calibration), on half letter or two books
   per letter sheet, with creep, fore-edge shifts, `preview.png` and a `summary.txt`. A **Calibrate** wizard makes a calibration sheet and a creep
   test and turns your readings into the printer profile (offsets, rotation, scale, tones). The printer profile lives in the browser and
   is never part of a book.
