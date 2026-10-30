@@ -1,4 +1,4 @@
-import { COLS, DEFAULTS, ROWS, type Area, type Art, type IconSize, type PageElement, type Rule, type TextTone } from './format/types';
+import { COLS, DEFAULTS, ROWS, type Area, type Art, type Image, type IconSize, type PageElement, type Rule, type TextTone } from './format/types';
 import { CLOSED_HEADER, elementArea, hitsCorner, insideGrid, limitsArea, type Header } from './format/bounds';
 
 export interface Pt { x: number; y: number }
@@ -47,6 +47,7 @@ export function hitElement(el: PageElement, p: Pt, tol: number): boolean {
     case 'text':
     case 'sequence':
     case 'art':
+    case 'image':
     case 'generated':
       return within(elementArea(el), p, tol);
     case 'checkboxes': {
@@ -108,7 +109,7 @@ export function canMove(els: PageElement | readonly PageElement[], dx: number, d
 /** Handles an element offers for resizing. Checkboxes and text are resized in the properties panel. */
 export function handlesFor(el: PageElement): { handle: Handle; at: Pt }[] {
   if (el.type === 'rule') return [{ handle: 'p1', at: { x: el.x1, y: el.y1 } }, { handle: 'p2', at: { x: el.x2, y: el.y2 } }];
-  if (el.type !== 'pattern' && el.type !== 'shade' && el.type !== 'box' && el.type !== 'art' && el.type !== 'generated') return [];
+  if (el.type !== 'pattern' && el.type !== 'shade' && el.type !== 'box' && el.type !== 'art' && el.type !== 'image' && el.type !== 'generated') return [];
   const { x, y, w, h } = el;
   const xm = x + w / 2, ym = y + h / 2, r = x + w, b = y + h;
   return [
@@ -159,7 +160,7 @@ export function resizeElement<T extends PageElement>(el: T, handle: Handle, dot:
     if (el.y1 === el.y2) { if (handle === 'p1') out.x1 = dot.x; else out.x2 = dot.x; } else if (handle === 'p1') out.y1 = dot.y; else out.y2 = dot.y;
     return out.x1 === out.x2 && out.y1 === out.y2 ? null : (out as unknown as T);
   }
-  if (el.type !== 'pattern' && el.type !== 'shade' && el.type !== 'box' && el.type !== 'art' && el.type !== 'generated') return null;
+  if (el.type !== 'pattern' && el.type !== 'shade' && el.type !== 'box' && el.type !== 'art' && el.type !== 'image' && el.type !== 'generated') return null;
   let { x, y, w, h } = el;
   const right = x + w, bottom = y + h;
   if (handle.includes('n')) { y = dot.y; h = bottom - dot.y; }
@@ -304,13 +305,13 @@ export function touchedBy(el: PageElement, area: Area): boolean {
 }
 
 /**
- * Art drawn like a box: the rectangle dragged from `a` to `b` is where the art goes (fitted or stretched, as its
+ * Art or an image drawn like a box: the rectangle dragged from `a` to `b` is where the art goes (fitted or stretched, as its
  * scaling says). A tap, with no drag, puts it down at its first size with its top-left corner there, kept on the page.
  */
-export function artFromDrag(art: Art, a: Pt, b: Pt, top = 1): Art | null {
+export function artFromDrag<T extends Art | Image>(art: T, a: Pt, b: Pt, top = 1): T | null {
   const r = areaFromPoints(a, b);
-  const { group: _group, ...rest } = structuredClone(art) as Art & { group?: string };
-  if (r.w > 0 && r.h > 0) return { ...rest, ...r };
+  const { group: _group, ...rest } = structuredClone(art) as T & { group?: string };
+  if (r.w > 0 && r.h > 0) return { ...rest, ...r } as unknown as T;
   if (r.w > 0 || r.h > 0) return null; // a line has no inside to fit the art into
-  return { ...rest, x: Math.max(0, Math.min(COLS - art.w, a.x)), y: Math.max(top, Math.min(ROWS - art.h, a.y)) };
+  return { ...rest, x: Math.max(0, Math.min(COLS - art.w, a.x)), y: Math.max(top, Math.min(ROWS - art.h, a.y)) } as unknown as T;
 }

@@ -12,7 +12,7 @@ previews of them). It runs entirely in the browser: no backend, nothing leaves t
 ## What it does today
 
 - **Design pages and spreads.** A page is a stack of layered elements on whole or half cells: pattern (lines, grid, dots), shade
-  (three tones), box, rule, checkboxes, text, sequence (numbers, letters, lists, icons) and imported SVG art. Row 0 is the header the
+  (three tones), box, rule, checkboxes, text, sequence (numbers, letters, lists, icons) and imported SVG art and PNG or JPG images (zoomed, moved and turned inside their box). Row 0 is the header the
   software draws (page number at the outer corner, the page's identity by the spine; leave the identity empty to draw there). Date tokens
   such as `{weekday}` and `{day+1}` print the page's day, week or month in a book with a calendar (a book without one prints them blank). Tools are in a three-mode bottom bar (Select, Draw, Advanced); selection is by
   tap or drag-box, with groups, layers, a properties drawer, widgets (saved selections) and a help mode that explains any control.

@@ -136,7 +136,7 @@ export class AdvancedPicker {
     this.view = 'art';
     this.problem = problem;
     this.title.textContent = 'Art';
-    const file = h('input', { type: 'file', accept: '.svg,image/svg+xml', hidden: true, 'data-key': 'art-file' });
+    const file = h('input', { type: 'file', accept: '.svg,image/svg+xml,.png,image/png,.jpg,.jpeg,image/jpeg', hidden: true, 'data-key': 'art-file' });
     file.onchange = async () => {
       const f = file.files?.[0];
       file.value = '';
@@ -148,7 +148,7 @@ export class AdvancedPicker {
     const saved = this.widgets.list().filter(isArtWidget);
     this.body.replaceChildren(
       h('div', { class: 'lib-save' },
-        h('button', { type: 'button', class: 'primary', 'data-key': 'art-import', 'data-help': 'library-art-import', onclick: () => file.click() }, 'Import SVG art'),
+        h('button', { type: 'button', class: 'primary', 'data-key': 'art-import', 'data-help': 'library-art-import', onclick: () => file.click() }, 'Import art or image'),
         h('span', { class: 'hint' }, 'Pick art, then drag a rectangle on the page for it to fill.'),
         file),
       ...(problem ? [problemView(problem)] : []),

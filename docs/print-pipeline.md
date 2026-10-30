@@ -28,6 +28,7 @@ y down, **before any printer correction**. The items are:
 | `rect` | a filled rectangle |
 | `dots` | round dots on a lattice: the pattern's top-left, the column and row offsets in mm, the dot diameter, colour |
 | `text` | the string, anchor (on the baseline), font, size, alignment (`start`, `middle`, `end`) and rotation in degrees |
+| `image` | a PNG or JPG (its data URL) filling a rectangle, with the quarter turn (0, 90, 180, 270 clockwise) the design gave it; always in its own colours. The PDF stage embeds each distinct picture once per PDF (`embedImages`, which runs before `drawItems` because PDF libraries decode images asynchronously) |
 | `path` | absolute M, L, C and Z points, a fill, a stroke (width, colour, cap) or both: art and icons |
 | `clip` / `unclip` | everything between is cut off outside the polygon (each page is clipped to its own box) |
 
@@ -46,7 +47,7 @@ centre and keeps its own shape:
 
 * a **line** is placed at its rotated midpoint; a horizontal or vertical line stays exactly horizontal or vertical, an angled one keeps
   its angle, and the length is the same (times the scale);
-* a **rect** is placed at its rotated centre and stays axis-aligned;
+* a **rect** is placed at its rotated centre and stays axis-aligned; so is an **image** (its pixels are never turned by the printer, only by the design's own `rotate`);
 * a **text** anchor moves; the glyphs stay upright (no rotation in the text matrix) and keep the rotation the design gave them;
 * **dots** each move to their rotated centre, round and the same size;
 * a **path** (art, icons) is placed at the rotated centre of its points, not turned; clip polygons likewise.

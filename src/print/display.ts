@@ -5,6 +5,7 @@
 //   printer  the side's scale, rotation and offset move the POSITIONS in it   (correct.ts)
 //   pdf      the list is drawn                                                (draw.ts)
 import type { Seg } from '../format/path';
+import type { PictureRotation } from '../format/picture';
 
 export interface Pt { x: number; y: number }
 export type Cap = 'butt' | 'round' | 'square';
@@ -14,6 +15,8 @@ export type Item =
   /** A straight stroke. `fixed` is left out of the line-weight-by-direction correction (the calibration ladder). */
   | { k: 'line'; x1: number; y1: number; x2: number; y2: number; w: number; c: string; cap: Cap; fixed?: boolean }
   | { k: 'rect'; x: number; y: number; w: number; h: number; c: string }
+  /** A PNG or JPG (a data: URL) filling the rectangle, its top turned `rot` degrees clockwise (the rectangle is the size after the turn). Always in its own colours. */
+  | { k: 'image'; src: string; x: number; y: number; w: number; h: number; rot: PictureRotation }
   | { k: 'poly'; pts: Pt[]; c: string }
   /** Round dots on a lattice: the pattern's top-left is (x, y); `cols` and `rows` are mm from it; `d` is the dot's diameter. */
   | { k: 'dots'; x: number; y: number; cols: number[]; rows: number[]; d: number; c: string }
@@ -45,7 +48,8 @@ export function boundsOf(items: readonly Item[]): { x0: number; y0: number; x1: 
   for (const i of items) {
     switch (i.k) {
       case 'line': add(i.x1, i.y1, i.w / 2); add(i.x2, i.y2, i.w / 2); break;
-      case 'rect': add(i.x, i.y); add(i.x + i.w, i.y + i.h); break;
+      case 'rect':
+      case 'image': add(i.x, i.y); add(i.x + i.w, i.y + i.h); break;
       case 'poly': i.pts.forEach((p) => add(p.x, p.y)); break;
       case 'dots': {
         if (!i.cols.length || !i.rows.length) break;

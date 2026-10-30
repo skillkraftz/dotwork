@@ -1,5 +1,6 @@
 // Dotwork page format, version 2. See docs/page-format.md.
 import type { ArtFill, ArtPath, ArtScaling, ArtStroke } from './art';
+import type { PictureView } from './picture';
 
 export const COLS = 27;
 export const ROWS = 44;
@@ -157,7 +158,7 @@ export interface Sequence {
 }
 
 /** Imported artwork placed like a box: shapes in the art's own units, fitted or stretched into the area. See format/art.ts. */
-export interface Art extends Area {
+export interface Art extends Area, PictureView {
   type: 'art';
   view_box: [number, number, number, number];
   paths: ArtPath[];
@@ -167,6 +168,18 @@ export interface Art extends Area {
   fills?: Record<string, ArtFill>;
   /** Per placement, the line of named paths (by their `id`) in place of the one the art came with. */
   strokes?: Record<string, ArtStroke>;
+}
+
+/**
+ * A PNG or JPG placed in a box: stored inside the page as a data: URL with its size in pixels. It is centred in the box and keeps its proportions
+ * whatever the box's size; zoom, pan and rotate (see format/picture.ts) show part of it, and what lies outside the box is cut off.
+ */
+export interface Image extends Area, PictureView {
+  type: 'image';
+  /** `data:image/png;base64,...` or `data:image/jpeg;base64,...`. */
+  src: string;
+  width_px: number;
+  height_px: number;
 }
 
 /** The days an element can be limited to: only on weekends (Saturday and Sunday) or only on weekdays. */
@@ -197,9 +210,9 @@ export interface Generated extends Area {
   outcomes: Part;
 }
 
-export type PageElement = (Pattern | Shade | Box | Rule | Checkboxes | Text | Sequence | Art | Generated) & Grouped;
+export type PageElement = (Pattern | Shade | Box | Rule | Checkboxes | Text | Sequence | Art | Image | Generated) & Grouped;
 export type ElementType = PageElement['type'];
-export const ELEMENT_TYPES: readonly ElementType[] = ['pattern', 'shade', 'box', 'rule', 'checkboxes', 'text', 'sequence', 'art', 'generated'];
+export const ELEMENT_TYPES: readonly ElementType[] = ['pattern', 'shade', 'box', 'rule', 'checkboxes', 'text', 'sequence', 'art', 'image', 'generated'];
 
 export interface Page {
   format: 'dotwork-page';
@@ -211,6 +224,8 @@ export interface Page {
   side?: PageSide;
   /** Draw the page flipped left to right when it is on a left page (see format/mirror.ts). Default false. */
   mirror_left?: boolean;
+  /** A cover page: no page number and no identity, and row 0 is free to draw on. See format/bounds.ts. */
+  cover?: true;
   grid: { cols: 27; rows: 44; pitch_mm: 3 };
   elements: PageElement[];
 }

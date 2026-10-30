@@ -5,6 +5,8 @@ import {
 import { tonesProblem } from './shade';
 import { CLOSED_HEADER, checkboxSpan, headerOf, hitsCorner, insideGrid, limitsArea, type Header } from './bounds';
 import { ART_SCALINGS, artProblems } from './art';
+import { imageProblems } from './image';
+import { viewProblems } from './picture';
 import { sequenceProblem, sequenceSpan } from './sequence';
 import { findEndOffsets, findUnknownTokens, TOKEN_LIST } from './tokens';
 import type { Generated, PageElement } from './types';
@@ -61,6 +63,9 @@ export function validatePage(input: unknown): ValidationIssue[] {
   if (input.mirror_left !== undefined && typeof input.mirror_left !== 'boolean') {
     fail('mirror-left', 'mirror_left', '"mirror_left" must be true or false when present.');
   }
+  if (input.cover !== undefined && input.cover !== true) {
+    fail('cover', 'cover', '"cover" must be true when present (leave it out for an ordinary page).');
+  }
   if (input.side !== undefined && !oneOf(PAGE_SIDES, input.side)) {
     fail('side', 'side', `"side" must be one of ${list(PAGE_SIDES)}, got ${JSON.stringify(input.side)}.`);
   }
@@ -79,6 +84,7 @@ export function validatePage(input: unknown): ValidationIssue[] {
     identity: typeof input.identity === 'string' ? input.identity : undefined,
     side: oneOf(PAGE_SIDES, input.side) ? (input.side as 'left' | 'right' | 'either') : undefined,
     page_number: input.page_number === false ? false : undefined,
+    cover: input.cover === true ? true : undefined,
   });
   input.elements.forEach((el: unknown, i: number) => validateElementInto(el, `elements[${i}]`, fail, header));
   return issues;
@@ -135,6 +141,7 @@ function validateElementInto(el: unknown, at: string, fail: Fail, header: Header
     case 'shade':
     case 'box':
     case 'art':
+    case 'image':
     case 'generated': {
       for (const k of ['x', 'y', 'w', 'h']) half(k);
       if (usable && ((el.w as number) <= 0 || (el.h as number) <= 0)) {
@@ -162,7 +169,10 @@ function validateElementInto(el: unknown, at: string, fail: Fail, header: Header
       }
       if (el.type === 'art') {
         choice('scaling', ART_SCALINGS);
-        for (const [path, message] of artProblems(el)) fail('art', `${at}.${path}`, message);
+        for (const [path, message] of [...artProblems(el), ...viewProblems(el)]) fail('art', `${at}.${path}`, message);
+      }
+      if (el.type === 'image') {
+        for (const [path, message] of imageProblems(el)) fail('image', `${at}.${path}`, message);
       }
       if (el.type === 'box') {
         choice('weight', WEIGHTS);

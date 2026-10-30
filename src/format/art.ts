@@ -1,4 +1,5 @@
-import { PITCH_MM as P, type Art } from './types';
+import type { Art } from './types';
+import { contentMatrix, hasView, placePicture, type Placement } from './picture';
 import { parseStored, pathString, pointsOf, transformSegs, type Matrix } from './path';
 
 /** The tones art is drawn in: the shade tones, the gray of gray text, black and white, or nothing. */
@@ -115,15 +116,21 @@ export function artProblems(el: Record<string, unknown>): [string, string][] {
   return out;
 }
 
-/** Where the art lands inside its box: scale and offset (mm per art unit, and the box's top-left in mm), all relative to the grid. */
-export function artMatrix(el: Pick<Art, 'x' | 'y' | 'w' | 'h' | 'view_box' | 'scaling'>): Matrix {
+/** Where the art lands in its box: fitted (or stretched), then zoomed, panned and turned as the placement says. */
+export function artPlacement(el: Pick<Art, 'x' | 'y' | 'w' | 'h' | 'view_box' | 'scaling' | 'zoom' | 'pan_x' | 'pan_y' | 'rotate'>): Placement {
+  const [, , vw, vh] = el.view_box;
+  return placePicture(el, { w: vw, h: vh }, el, el.scaling === 'stretch');
+}
+
+/** The scale and offset of the art (mm per art unit, and the box's top-left in mm), all relative to the grid. */
+export function artMatrix(el: Pick<Art, 'x' | 'y' | 'w' | 'h' | 'view_box' | 'scaling' | 'zoom' | 'pan_x' | 'pan_y' | 'rotate'>): Matrix {
   const [vx, vy, vw, vh] = el.view_box;
-  const W = el.w * P, H = el.h * P;
-  const stretch = el.scaling === 'stretch';
-  const sx = stretch ? W / vw : Math.min(W / vw, H / vh);
-  const sy = stretch ? H / vh : sx;
-  const left = el.x * P + (W - vw * sx) / 2, top = el.y * P + (H - vh * sy) / 2;
-  return [sx, 0, 0, sy, left - vx * sx, top - vy * sy];
+  return contentMatrix(artPlacement(el), { x: vx + vw / 2, y: vy + vh / 2 });
+}
+
+/** The box (mm from the grid's corner) that cuts the art off, or null for art that has not been zoomed, panned or turned (it is not cut off at all). */
+export function artClip(el: Art) {
+  return hasView(el) ? artPlacement(el).clip : null;
 }
 
 /** One path as drawn: the path data in mm from the grid's corner, ready for the screen and the PDF alike. */

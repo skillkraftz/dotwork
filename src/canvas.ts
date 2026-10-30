@@ -1,4 +1,5 @@
-import { GRID_X_MM, GRID_Y_MM, PITCH_MM as P, type Area, type PageElement } from './format/types';
+import { GRID_X_MM, GRID_Y_MM, PITCH_MM as P, type Area, type Art, type Image, type PageElement } from './format/types';
+import { panTo } from './format/picture';
 import { validateElement } from './format/validate';
 import { headerOf } from './format/bounds';
 import {
@@ -22,7 +23,9 @@ type Drag =
   | { kind: 'text'; at: Pt }
   | { kind: 'move'; indices: number[]; origins: PageElement[]; startCells: Pt; last: PageElement[]; moved: boolean; clickSelect?: number }
   | { kind: 'marquee'; start: Pt; cur: Pt; add: boolean }
-  | { kind: 'resize'; index: number; handle: Handle; origin: PageElement; last: PageElement };
+  | { kind: 'resize'; index: number; handle: Handle; origin: PageElement; last: PageElement }
+  /** "Move picture" is on: dragging slides the picture inside its box. */
+  | { kind: 'pan'; index: number; origin: Art | Image; startCells: Pt; last: Art | Image };
 
 /** Tolerances in screen px. Fingers are fat and imprecise, so touch gets more room than a mouse. */
 const MOUSE = { handle: 8, hit: 5, dragStart: 3, handleDraw: 8 };
@@ -189,7 +192,7 @@ export class Canvas {
     let marquee: Area | undefined;
     if (d?.kind === 'move') {
       page = { ...page, elements: page.elements.map((e, i) => d.last[d.indices.indexOf(i)] ?? e) };
-    } else if (d?.kind === 'resize') {
+    } else if (d?.kind === 'resize' || d?.kind === 'pan') {
       page = { ...page, elements: page.elements.map((e, i) => (i === d.index ? d.last : e)) };
     } else if (d?.kind === 'marquee') {
       marquee = { x: Math.min(d.start.x, d.cur.x), y: Math.min(d.start.y, d.cur.y), w: Math.abs(d.cur.x - d.start.x), h: Math.abs(d.cur.y - d.start.y) };
@@ -321,6 +324,10 @@ export class Canvas {
       if (handle && sel !== null) {
         const origin = store.page.elements[sel];
         this.drag = { kind: 'resize', index: sel, handle, origin, last: origin };
+      } else if (sel !== null && store.movingPicture && hitElement(store.page.elements[sel], p, tol.hit * cellsPerPx)) {
+        // With "Move picture" on, a press on the selected picture slides the picture inside its box instead of moving the box.
+        const origin = store.page.elements[sel] as Art | Image;
+        this.drag = { kind: 'pan', index: sel, origin, startCells: p, last: origin };
       } else {
         const hits = this.hits(p, tol.hit * cellsPerPx);
         this.lastHits = hits;
@@ -404,6 +411,7 @@ export class Canvas {
       const sel = store.selected;
       const origin = sel === null ? undefined : store.page.elements[sel];
       if (sel !== null && origin && pd.handle) this.drag = { kind: 'resize', index: sel, handle: pd.handle, origin, last: origin };
+      else if (sel !== null && origin && pd.wasSelected && store.movingPicture) this.drag = { kind: 'pan', index: sel, origin: origin as Art | Image, startCells: pd.p, last: origin as Art | Image };
       else if (sel !== null && origin && pd.wasSelected) {
         const origins = store.selection.map((i) => store.page.elements[i]);
         this.drag = { kind: 'move', indices: store.selection, origins, startCells: pd.p, last: origins, moved: false };
@@ -432,6 +440,8 @@ export class Canvas {
       d.moved = true;
       const dx = Math.round((p.x - d.startCells.x) / step) * step, dy = Math.round((p.y - d.startCells.y) / step) * step;
       d.last = moveGroup(d.origins, dx, dy, this.header());
+    } else if (d.kind === 'pan') {
+      d.last = panTo(d.origin, (d.origin.pan_x ?? 0) + (p.x - d.startCells.x), (d.origin.pan_y ?? 0) + (p.y - d.startCells.y));
     } else if (d.kind === 'resize') {
       const next = resizeElement(d.origin, d.handle, snapPoint(p, this.half(e), this.header().top));
       // Hold the last good shape when the drag would leave nothing, and say why.
@@ -509,7 +519,7 @@ export class Canvas {
       d.indices.forEach((index, k) => { next.elements[index] = d.last[k]; });
       store.commit(next);
       return;
-    } else if (d.kind === 'resize' && JSON.stringify(d.last) !== JSON.stringify(d.origin)) {
+    } else if ((d.kind === 'resize' || d.kind === 'pan') && JSON.stringify(d.last) !== JSON.stringify(d.origin)) {
       const next = structuredClone(store.page);
       next.elements[d.index] = d.last;
       store.commit(next);

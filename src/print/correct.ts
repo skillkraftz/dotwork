@@ -52,6 +52,11 @@ export function correct(items: readonly Item[], t: SheetTransform, w: number, h:
         const [a, b] = place([{ x: i.x, y: i.y }, { x: i.x + i.w, y: i.y + i.h }]);
         return { k: 'rect', x: a.x, y: a.y, w: b.x - a.x, h: b.y - a.y, c: i.c };
       }
+      case 'image': {
+        // Placed like a rectangle: its centre goes where it goes and it stays upright (its pixels are turned only by the design's own rotate).
+        const [a, b] = place([{ x: i.x, y: i.y }, { x: i.x + i.w, y: i.y + i.h }]);
+        return { ...i, x: a.x, y: a.y, w: b.x - a.x, h: b.y - a.y };
+      }
       case 'poly': return { ...i, pts: place(i.pts) };
       case 'dots':
       case 'dotset': {

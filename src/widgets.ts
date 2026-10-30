@@ -16,7 +16,7 @@ export interface Widget { id: string; name: string; elements: PageElement[] }
 export interface WidgetData { name: string; elements: PageElement[] }
 
 /** Saved art is a widget of one art element (see art/widget.ts); the Library keeps it as its own kind. */
-export const kindOf = (elements: readonly PageElement[]): 'widget' | 'art' => (elements.length === 1 && elements[0].type === 'art' ? 'art' : 'widget');
+export const kindOf = (elements: readonly PageElement[]): 'widget' | 'art' => (elements.length === 1 && (elements[0].type === 'art' || elements[0].type === 'image') ? 'art' : 'widget');
 
 /** Check a widget or art document: its elements fit the page format wherever it is placed, and art is exactly one art element. */
 export function readWidget(data: unknown, kind: 'widget' | 'art'): { ok: true; widget: WidgetData } | { ok: false; issues: ValidationIssue[] } {
@@ -26,7 +26,7 @@ export function readWidget(data: unknown, kind: 'widget' | 'art'): { ok: true; w
   if (typeof d.name !== 'string') return { ok: false, issues: [{ rule: 'name', path: 'name', message: '"name" is required and must be a string.' }] };
   if (!Array.isArray(d.elements) || d.elements.length === 0) return fail('"elements" must be a non-empty array.');
   const widget: WidgetData = { name: d.name, elements: d.elements as PageElement[] };
-  if (kindOf(widget.elements) !== kind) return fail(kind === 'art' ? 'Art is exactly one art element.' : 'A widget is not a single art element (that is art).');
+  if (kindOf(widget.elements) !== kind) return fail(kind === 'art' ? 'Art is exactly one art or image element.' : 'A widget is not a single art or image element (that is art).');
   let issues: ValidationIssue[];
   try {
     issues = placeWidget({ id: '', ...widget }, { x: 0, y: 1 }).flatMap((el, i) => validateElement(el, `elements[${i}]`));

@@ -9,7 +9,7 @@ import {
   LAYOUT_NAMES, PAPER_SETTINGS, SHEET_H_MM, SHEET_W_MM, checkPrintSettings, duplexOrder, impose, pageOrigin,
   type PageRef, type PrintSettings, type Sheet, type SheetSide, type Signature,
 } from '../book/impose';
-import { drawItems, mmToPt, type Fonts } from './draw';
+import { drawItems, embedImages, mmToPt, type Fonts } from './draw';
 import type { Item } from './display';
 import { layoutPage } from './layout';
 import { printSide } from './correct';
@@ -57,6 +57,7 @@ async function pagesPdf(book: Book, print: PrintSettings, fontBytes: FontBytes):
   for (let n = 1; n <= book.page_count; n++) {
     const items: Item[] = [];
     d.page(items, n, 0, 0);
+    await embedImages(doc, items);
     drawItems(doc.addPage([mmToPt(PAGE_W_MM), mmToPt(PAGE_H_MM)]), items, fonts, PAGE_H_MM);
   }
   return doc.save({ useObjectStreams: false });
@@ -90,6 +91,7 @@ export async function sheetsPdf(plans: PagePlan[], print: PrintSettings, fontByt
       if (twoUp) items.push(halfLabelItem(halfLabel(fonts.regular, i as 0 | 1, ...half.label), tops[i]));
     });
     if (twoUp) items.push(...cutMarks());
+    await embedImages(doc, items);
     drawItems(doc.addPage([mmToPt(w), mmToPt(h)]), printSide(items, print, plan.side, w, h), fonts, h);
   }
   return doc.save({ useObjectStreams: false });

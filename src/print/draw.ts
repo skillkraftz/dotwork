@@ -3,9 +3,11 @@
 import {
   appendBezierCurve, clip, closePath, concatTransformationMatrix, degrees, drawObject, endPath, fill, fillAndStroke, LineCapStyle, lineTo, moveTo,
   popGraphicsState, pushGraphicsState, rgb, setFillingColor, setLineCap, setLineWidth, setStrokingColor, stroke,
-  type PDFDocument, type PDFFont, type PDFPage, type PDFRef,
+  type PDFDocument, type PDFFont, type PDFImage, type PDFPage, type PDFRef,
 } from 'pdf-lib';
 import type { Page } from '../format/types';
+import { fromDataUrl } from '../format/image';
+import { imageMatrix } from '../format/picture';
 import { dotsAsSet, type Cap, type Item, type Pt } from './display';
 import { layoutPage, type PageLayoutOptions } from './layout';
 
@@ -55,6 +57,23 @@ function dotForm(doc: PDFDocument, key: string, diameterMm: number, pts: [number
   return ref;
 }
 
+/** The images embedded in each PDF, by their data: URL, so a picture used on many pages is written once. */
+const embedded = new WeakMap<PDFDocument, Map<string, PDFImage>>();
+
+/**
+ * Embed the images a display list uses into the PDF. PDF libraries decode a PNG or JPG asynchronously, so this runs before `drawItems`
+ * (which draws what is embedded, and says so if an image was not).
+ */
+export async function embedImages(doc: PDFDocument, items: readonly Item[]): Promise<void> {
+  let have = embedded.get(doc);
+  if (!have) embedded.set(doc, (have = new Map()));
+  for (const i of items) {
+    if (i.k !== 'image' || have.has(i.src)) continue;
+    const { type, bytes } = fromDataUrl(i.src);
+    have.set(i.src, await (type === 'png' ? doc.embedPng(bytes) : doc.embedJpg(bytes)));
+  }
+}
+
 /** The text with any character the font has no glyph for replaced by "?", so a stray symbol can't stop an export. */
 function printable(str: string, font: PDFFont): string {
   const have = new Set(font.getCharacterSet());
@@ -74,6 +93,19 @@ export function drawItems(pdf: PDFPage, items: readonly Item[], fonts: Fonts, sh
       case 'rect':
         pdf.drawRectangle({ x: X(i.x), y: Y(i.y + i.h), width: mmToPt(i.w), height: mmToPt(i.h), color: color(i.c) });
         break;
+      case 'image': {
+        const image = embedded.get(pdf.doc)?.get(i.src);
+        if (!image) throw new Error('An image was not embedded before the page was drawn (call embedImages first).');
+        // The unit square of the image (v up in a PDF, down in the list) carried to its rectangle, turned as the design says.
+        const [a, b, c, d, e, f] = imageMatrix(i, i.rot);
+        pdf.pushOperators(
+          pushGraphicsState(),
+          concatTransformationMatrix(MM_TO_PT * a, -MM_TO_PT * b, -MM_TO_PT * c, MM_TO_PT * d, MM_TO_PT * (c + e), MM_TO_PT * (sheetHeight - d - f)),
+          drawObject(pdf.node.newXObject('Img', image.ref)),
+          popGraphicsState(),
+        );
+        break;
+      }
       case 'poly':
         pdf.pushOperators(pushGraphicsState(), setFillingColor(color(i.c)), ...trace(i.pts), fill(), popGraphicsState());
         break;
