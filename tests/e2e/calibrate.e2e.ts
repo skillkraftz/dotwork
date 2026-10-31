@@ -314,7 +314,7 @@ for (const device of ['phone', 'desktop'] as const) {
       await set(app, 'calibrate', 'book-inset-front-bottom', '6');
       await page.waitForFunction(() => /does not fit at this margin\. The largest that fits is 3\.\d+ mm/.test(document.querySelector('dialog.calibrate [data-key="calibrate-placement"]')?.textContent ?? ''));
       await set(app, 'calibrate', 'book-trim-margin', '3');
-      await page.waitForFunction(() => /each book is cut 138 mm tall\. Waste above Book 1: 0\.4 mm, below Book 2: 3 mm\./.test(document.querySelector('dialog.calibrate [data-key="calibrate-placement"]')?.textContent ?? ''));
+      await page.waitForFunction(() => /[Ee]ach book is cut 138 mm tall\. Waste above Book 1: 0\.4 mm, below Book 2: 3 mm\./.test(document.querySelector('dialog.calibrate [data-key="calibrate-placement"]')?.textContent ?? ''));
       await set(app, 'calibrate', 'book-inset-back-left', '4.5');
       await shot(app, `${device}-calibrate-edges`);
 

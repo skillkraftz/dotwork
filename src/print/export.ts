@@ -85,7 +85,7 @@ export async function sheetsPdf(plans: PagePlan[], print: PrintSettings, fontByt
   const drawerOf = (b: Book) => drawers.get(b) ?? drawers.set(b, drawer(b, print)).get(b)!;
   for (const plan of plans) {
     // Layout (every half, the labels, the cut marks), then the side's correction, then the PDF.
-    const items: Item[] = [], place = placeBooks(print, plan.paper ?? 'inside');
+    const items: Item[] = [], place = placeBooks(print);
     plan.halves.forEach((half, i) => {
       if (!half) return;
       half.draw(drawerOf(half.book), items, place.pageTops[i]);
@@ -197,17 +197,13 @@ export function printSteps(method: PrintMethod, twoUp: boolean): string[] {
     : ['Print each signature by hand: print-first.pdf, put the stack back in the tray the same way, then print-second.pdf.', ...cut];
 }
 
-/** Where to cut, for a stack cutter: the three cuts of the interior sheets and of the covers, in mm from the sheet's top edge. */
+/** Where to cut, for a stack cutter: the three cuts, in mm from the sheet's top edge. */
 export function cutLines(p: PrintSettings): string[] {
   const mm = (v: number) => String(Math.round(v * 100) / 100);
-  const line = (name: string, paper: PaperSet) => {
-    const { cuts, bookHeight } = placeBooks(p, paper);
-    return `  ${name}: top trim ${mm(cuts[0])} | between the books ${mm(cuts[1])} | bottom trim ${mm(cuts[2])} (each book is ${mm(bookHeight)} tall)`;
-  };
+  const { cuts, bookHeight } = placeBooks(p);
   return [
-    `Cuts, in mm from the sheet's top edge (trimmed top/bottom margin ${p.trim_margin_mm} mm; a trim of 0 needs no cut):`,
-    line('Interior sheets', 'inside'),
-    line('Covers', 'cover'),
+    `Cuts, in mm from the sheet's top edge, the same for the interior sheets and the covers (trimmed top/bottom margin ${p.trim_margin_mm} mm; a trim of 0 needs no cut):`,
+    `  top trim ${mm(cuts[0])} | between the books ${mm(cuts[1])} | bottom trim ${mm(cuts[2])} (each book is ${mm(bookHeight)} tall)`,
   ];
 }
 
@@ -283,10 +279,7 @@ export async function exportBookFiles(book: Book, print: PrintSettings, fontByte
     if (problem) throw new Error(problem);
   }
   // Near the sheet's edge is a warning, not a refusal: the files are made, and the owner checks by printing that page.
-  const placing = isTwoUp(print.sheet_layout) ? [
-    signatures ? placementWarning(placeBooks(print, 'inside'), 'inside', 'the interior sheets') : null,
-    cover ? placementWarning(placeBooks(print, 'cover'), 'cover', 'the covers') : null,
-  ].filter((w): w is string => w !== null) : [];
+  const placing = isTwoUp(print.sheet_layout) ? [placementWarning(placeBooks(print))].filter((w): w is string => w !== null) : [];
   // The books are placed by the grid, but a blank row at the edge costs nothing: the advice comes only when drawn content is in the way at the top or bottom.
   const edge = signatures || cover ? edgeWarnings(books, print, topSigs, bottomSigs) : [];
   const warnings = [...edge, ...(edge.some((w) => /mm from the (top|bottom) edge/.test(w)) ? placing : [])];

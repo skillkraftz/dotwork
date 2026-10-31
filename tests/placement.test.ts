@@ -58,19 +58,38 @@ describe('placing the two books on a letter sheet', () => {
     expect(q.fits).toBe(true);
   });
 
-  it('takes each side’s correction into account: an offset that moves a side down needs the books up', () => {
-    // A front offset of 1 mm down (negative y is down) lands the grid's bottom 1 mm lower, so the bottom waste must grow by 1.
+  it('is not moved by the offsets, scale or rotation: the insets are distances on the paper, and the corrections put content at its sheet position there', () => {
     const base = placeBooks(two({ trim_margin_mm: 3, inset_front_bottom_mm: 5 }));
-    const down = placeBooks(two({ trim_margin_mm: 3, inset_front_bottom_mm: 5, front_offset_y_mm: -1 }));
-    expect(down.wasteBottom - base.wasteBottom).toBeCloseTo(1, 6);
+    const moved = placeBooks(two({ trim_margin_mm: 3, inset_front_bottom_mm: 5, front_offset_y_mm: -1.65, back_offset_y_mm: 1, scale_y_pct: 100.5, scale_x_pct: 99.5, back_rotation_deg: -0.4, front_offset_x_mm: 2 }));
+    expect(moved).toEqual(base);
+    // The owner's settings with every inset 3 and a margin of 3 fit.
+    const owner = clonePrint(flatTwoUp());
+    owner.trim_margin_mm = 3;
+    setPrint(owner, { front_offset_y_mm: -1.65, scale_y_pct: 100.5 });
+    expect(placeBooks(owner).fits).toBe(true);
   });
 
-  it('uses the cover paper’s insets for the covers and the inside paper’s for the rest', () => {
-    const p = clonePrint(flatTwoUp());
-    p.trim_margin_mm = 3;
-    p.layouts.letter_two_up.hand.cover.inset_front_bottom_mm = 6;
-    expect(placeBooks(p, 'cover').wasteBottom).toBeCloseTo(3, 6);
-    expect(placeBooks(p, 'inside').wasteBottom).toBeCloseTo(1.7, 6);
+  it('shares one placement between the interior and the covers: the stricter inset of the two papers at each edge and side', () => {
+    const lower = (paper: 'inside' | 'cover') => {
+      const p = clonePrint(flatTwoUp());
+      p.trim_margin_mm = 3;
+      p.layouts.letter_two_up.hand[paper].inset_front_bottom_mm = 6;
+      return placeBooks(p);
+    };
+    const base = placeBooks(two({ trim_margin_mm: 3 }));
+    for (const paper of ['inside', 'cover'] as const) {
+      const p = lower(paper);
+      // Both papers' books move up by the same amount (there is only one placement).
+      expect(p.wasteBottom).toBeCloseTo(3, 6);
+      expect(p.pageTops[0] - base.pageTops[0]).toBeCloseTo(-1.3, 6);
+      expect(p.cuts).toEqual(lower(paper === 'inside' ? 'cover' : 'inside').cuts);
+    }
+    // The stricter of the two wins.
+    const both = clonePrint(flatTwoUp());
+    both.trim_margin_mm = 3;
+    both.layouts.letter_two_up.hand.inside.inset_front_bottom_mm = 4;
+    both.layouts.letter_two_up.hand.cover.inset_front_bottom_mm = 5;
+    expect(placeBooks(both).wasteBottom).toBeCloseTo(2, 6);
   });
 
   it('exports anyway when no split fits, balanced between top and bottom, and names the largest margin that would fit', () => {
@@ -130,5 +149,17 @@ describe('the edge scales land where they say once the side’s correction is ap
       }
       for (const n of ['0', '1', '2', '3', '4', '5', '6', '7', '8']) expect(page.strings.filter((s) => s === n).length, n).toBeGreaterThanOrEqual(4);
     }
+  });
+});
+
+describe('one placement for the interior and the covers', () => {
+  it('lists one set of cuts in summary.txt', async () => {
+    const { exportBookFiles } = await import('../src/print/export');
+    const p = clonePrint(flatTwoUp());
+    p.trim_margin_mm = 3;
+    p.layouts.letter_two_up.hand.cover.inset_front_bottom_mm = 6;
+    const text = new TextDecoder().decode((await exportBookFiles(emptyBook(8), p, fonts)).find((f) => f.name === 'summary.txt')!.bytes);
+    expect(text.match(/top trim/g)).toHaveLength(1);
+    expect(text).toContain('top trim 0.4 | between the books 138.4 | bottom trim 276.4');
   });
 });

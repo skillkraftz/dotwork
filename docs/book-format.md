@@ -223,19 +223,18 @@ cut off when trimming, shows where to cut. Each half is labelled along the left 
 sheets say `outside cover` or `inside cover`). A blank half has no label.
 
 **Where the books go (two-up).** The two books touch at one shared cut. What is left of the sheet's height after two books of 132 + 2 × `trim_margin_mm`
-(139.7 mm each at the default 3.85, which leaves none) is waste above Book 1 and below Book 2. `src/print/placement.ts` splits it so the grid, on both sides and
-carried through each side's correction, lies inside that side's printable insets: evenly when that fits, else as near even as fits (the cover files use the
-cover paper's insets, the rest the inside paper's). If no split fits the files are still made, split in balance, and a warning names the largest margin that would fit.
+(139.7 mm each at the default 3.85, which leaves none) is waste above Book 1 and below Book 2. `src/print/placement.ts` splits it so the grid lies inside the
+printable insets on both sides: evenly when that fits, else as near even as fits. The insets are distances on the paper, and the offsets, scale and rotation put
+content at its sheet position there, so sheet positions are compared with the insets as they are (corrections never move the books). The covers are sewn around the
+pages and cut in the same cuts, so there is one placement for the interior and the covers: at each edge and side, the stricter inset of the inside and cover paper.
+If no split fits the files are still made, split in balance, and a warning names the largest margin that would fit.
 Cut marks are drawn in both side trim zones at all three cuts (top trim, between the books, bottom trim), and `summary.txt` lists each cut's distance from the sheet's
-top edge in mm for a stack cutter.
+top edge in mm for a stack cutter (one set of cuts).
 
-**The edge check (two-up).** Printers can't print as close as the paper's edge, and the print driver may cut off
-what it can't print; the limit is each edge's printable inset (3 mm until measured by the Calibrate step Edges). Before a two-up export, each page is laid out and the box around what it actually draws is carried through the
-printer stage (scale, rotation, offset of the side it is printed on) at every place it lands: every sheet with its creep and fore-edge and the print driver may cut off
-what it can't print. Before a two-up export, each page is laid out and the box around what it actually draws is carried through the
-printer stage (scale, rotation, offset of the side it is printed on) at every place it lands: every sheet with its creep and fore-edge
-shift, both sides, and the covers. Where content would print closer than the inset to the letter sheet's edge the export **goes ahead** and
-warns, once for each book, side and edge, naming the closest page and its row (or column, for the left and right edges; row 0 is the
+**The edge check (two-up).** Printers can't print as close as the paper's edge, and the print driver may cut off what it can't print; the limit is each edge's
+printable inset (3 mm until measured by the Calibrate step Edges). Before a two-up export, each page is laid out and the box around what it actually draws is placed
+at every place it lands: every sheet with its creep and fore-edge shift, both sides, and the covers. Where content would print closer than the inset to the letter
+sheet's edge the export **goes ahead** and warns, once for each book, side and edge, naming the closest page and its row (or column, for the left and right edges; row 0 is the
 header): for example "Book 2, page 12, row 43: on the back of the letter sheet it prints 2.85 mm from the bottom edge. The print driver
 may cut it off; check by printing that page." The other pages about as close are listed. The cut marks and labels warn the same way. The
 warnings are in `summary.txt` and shown after the download. A page with nothing near the edge never warns, whatever the offsets. Half

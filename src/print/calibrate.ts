@@ -331,7 +331,7 @@ async function calibrationPdf(book: Book, print: PrintSettings, fontBytes: FontB
   const { doc, fonts } = await newDocument(fontBytes);
   const layout = print.sheet_layout, { w, h } = sheetSize(layout), twoUp = isTwoUp(layout);
   for (const page of pages) {
-    const items: Item[] = [], place = placeBooks(print, page.paper), tops = place.pageTops;
+    const items: Item[] = [], place = placeBooks(print), tops = place.pageTops;
     tops.forEach((top, i) => {
       page.draw({ items, fonts, height: h, dy: top, c: sheetCanvas(items, fonts, top), index: i, count: tops.length });
       if (twoUp) items.push(halfLabelItem(halfLabel(fonts.regular, i as 0 | 1, bookTitle(book), ...page.label), place.cuts[i + 1]));

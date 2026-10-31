@@ -275,9 +275,9 @@ export class CalibrateDialog {
     const placed = h('p', { class: 'hint', 'data-key': 'calibrate-placement', role: 'status' });
     // The placement math is loaded with the print code, the first time it is needed.
     const show = () => void import('./print/placement').then(({ placeBooks }) => {
-      const print = this.host.printer.get(), paper = paperShown(), p = placeBooks(print, paper);
+      const print = this.host.printer.get(), p = placeBooks(print);
       const mm_ = (v: number) => `${Math.round(v * 100) / 100}`;
-      placed.replaceChildren(h('span', {}, `On the ${PAPER_NAMES[paper].toLowerCase()}, each book is cut ${mm_(p.bookHeight)} mm tall. Waste above Book 1: ${mm_(p.wasteTop)} mm, below Book 2: ${mm_(p.wasteBottom)} mm. Cuts, from the sheet’s top edge: ${p.cuts.map(mm_).join(', ')} mm. `),
+      placed.replaceChildren(h('span', {}, `Each book is cut ${mm_(p.bookHeight)} mm tall. Waste above Book 1: ${mm_(p.wasteTop)} mm, below Book 2: ${mm_(p.wasteBottom)} mm. Cuts, from the sheet’s top edge: ${p.cuts.map(mm_).join(', ')} mm (the stricter of the inside and cover paper’s insets, for the covers too). `),
         p.fits ? h('strong', {}, 'The grid fits inside the printable area.')
           : h('strong', { class: 'warn' }, p.largestMargin === null ? 'The grid does not fit inside the printable area at any margin: check the insets.' : `The grid does not fit at this margin. The largest that fits is ${p.largestMargin} mm.`));
     });

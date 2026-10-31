@@ -3,15 +3,15 @@
 // It is a warning, never a refusal: the files are made and the owner checks by printing that page. Only the two-up layout is checked
 // (the half-letter layout prints borderless, to the edge).
 //
-// What is checked is what is drawn: each page is laid out (layout.ts), the box around its content is carried through the side's
-// correction at every place the page lands (every sheet, with its creep and shifts, both sides, and the covers), and the gap to
+// What is checked is what is drawn: each page is laid out (layout.ts), the box around its content is placed
+// at every place the page lands (every sheet, with its creep and shifts, both sides, and the covers), and the gap to
 // each edge of the sheet is measured. The nearest is named by book, page and row (or column, for the left and right edges).
 import { COLS, GRID_X_MM, GRID_Y_MM, PAGE_H_MM, PAGE_W_MM, PITCH_MM as P, ROWS } from '../format/types';
 import { FIRST_SLOT, bookExpand, bookPage, lastSlot, type Book } from '../book/book';
 import { PAPER_SETS, insetsOf, pageOrigin, type PaperSet, type PrintSettings, type Signature } from '../book/impose';
 import { boundsOf, type Item } from './display';
 import { layoutPage } from './layout';
-import { LETTER_H_MM, LETTER_W_MM, isTwoUp, mapPoint, transformOf, trimZoneBoxes } from './sheets';
+import { LETTER_H_MM, LETTER_W_MM, isTwoUp, trimZoneBoxes } from './sheets';
 import { placeBooks } from './placement';
 
 type Edge = 'left' | 'right' | 'top' | 'bottom';
@@ -42,13 +42,11 @@ interface Hit { gap: number; who: string; what: string; side: Side; edge: Edge; 
  */
 export function edgeWarnings(books: { top: Book; bottom: Book }, print: PrintSettings, topSigs: Signature[], bottomSigs: Signature[]): string[] {
   if (!isTwoUp(print.sheet_layout)) return [];
-  const W = LETTER_W_MM, H = LETTER_H_MM, placed = { inside: placeBooks(print, 'inside'), cover: placeBooks(print, 'cover') };
+  const W = LETTER_W_MM, H = LETTER_H_MM, placed = placeBooks(print);
   const hits = new Map<string, Hit>();
-  const gapsOf = (side: Side, box: Box, ox: number, oy: number, paper: PaperSet): [Edge, number][] => {
-    const t = transformOf(print, side, paper);
-    const corners = [[box.x0, box.y0], [box.x1, box.y0], [box.x0, box.y1], [box.x1, box.y1]].map(([x, y]) => mapPoint(t, W, H, { x: x + ox, y: y + oy }));
-    return [['left', Math.min(...corners.map((p) => p.x))], ['right', W - Math.max(...corners.map((p) => p.x))], ['top', Math.min(...corners.map((p) => p.y))], ['bottom', H - Math.max(...corners.map((p) => p.y))]];
-  };
+  // The insets are distances on the paper, and the side's offset, scale and rotation put content at its sheet position there, so the sheet positions are compared as they are.
+  const gapsOf = (box: Box, ox: number, oy: number): [Edge, number][] =>
+    [['left', box.x0 + ox], ['right', W - (box.x1 + ox)], ['top', box.y0 + oy], ['bottom', H - (box.y1 + oy)]];
   const note = (key: string, hit: Omit<Hit, 'others'>) => {
     const have = hits.get(key);
     if (!have) { hits.set(key, { ...hit, others: new Set() }); return; }
@@ -63,8 +61,8 @@ export function edgeWarnings(books: { top: Book; bottom: Book }, print: PrintSet
     if (!cache.has(key)) cache.set(key, contentBox(book, slot));
     const box = cache.get(key);
     if (!box) return;
-    const o = pageOrigin(isRight, creep, shift), top = placed[paper].pageTops[bookIndex];
-    for (const [edge, gap] of gapsOf(side, box, o.x, top + o.y, paper)) {
+    const o = pageOrigin(isRight, creep, shift), top = placed.pageTops[bookIndex];
+    for (const [edge, gap] of gapsOf(box, o.x, top + o.y)) {
       if (gap >= inset[edge]) continue;
       const near = edge === 'top' ? `row ${cell(box.y0, GRID_Y_MM, ROWS)}` : edge === 'bottom' ? `row ${cell(box.y1 - 1e-6, GRID_Y_MM, ROWS)}` : edge === 'left' ? `column ${cell(box.x0, GRID_X_MM, COLS)}` : `column ${cell(box.x1 - 1e-6, GRID_X_MM, COLS)}`;
       const row = near === 'row 0' ? 'row 0 (the header)' : near;
@@ -99,10 +97,8 @@ export function edgeWarnings(books: { top: Book; bottom: Book }, print: PrintSet
 
   // The cut marks and the labels are not pages, but they are printed and trimmed away: warn the same way.
   for (const paper of PAPER_SETS) for (const side of ['front', 'back'] as const) {
-    const t = transformOf(print, side, paper);
-    for (const b of trimZoneBoxes(placed[paper].cuts)) {
-      const corners = [[b.x, b.y], [b.x + b.w, b.y], [b.x, b.y + b.h], [b.x + b.w, b.y + b.h]].map(([x, y]) => mapPoint(t, W, H, { x, y }));
-      const gaps: [Edge, number][] = [['left', Math.min(...corners.map((p) => p.x))], ['right', W - Math.max(...corners.map((p) => p.x))], ['top', Math.min(...corners.map((p) => p.y))], ['bottom', H - Math.max(...corners.map((p) => p.y))]];
+    for (const b of trimZoneBoxes(placed.cuts)) {
+      const gaps = gapsOf({ x0: b.x, y0: b.y, x1: b.x + b.w, y1: b.y + b.h }, 0, 0);
       const inset = insetsOf(print, side, paper), [edge, gap] = gaps.reduce((m, g) => (g[1] - inset[g[0]] < m[1] - inset[m[0]] ? g : m));
       if (gap < inset[edge]) out.push(`On the ${side} of the letter sheet ${b.name} prints ${Math.max(0, gap).toFixed(2)} mm from the ${edge} edge. The print driver may cut it off; check by printing a sheet.`);
     }
