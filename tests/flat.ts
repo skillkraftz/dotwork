@@ -1,7 +1,7 @@
-import { DEFAULT_PRINT, clonePrint, everywhere, profileOf, type LayoutProfile, type PrintSettings } from '../src/book/impose';
+import { DEFAULT_INSETS, DEFAULT_PRINT, clonePrint, everywhere, profileOf, type LayoutProfile, type PrintSettings } from '../src/book/impose';
 import { LAYOUT_LIMITS } from '../src/book/book';
 
-const ZERO: LayoutProfile = { front_offset_x_mm: 0, front_offset_y_mm: 0, back_offset_x_mm: 0, back_offset_y_mm: 0, scale_x_pct: 100, scale_y_pct: 100, back_rotation_deg: 0, line_weight_x_pct: 100 };
+const ZERO: LayoutProfile = { front_offset_x_mm: 0, front_offset_y_mm: 0, back_offset_x_mm: 0, back_offset_y_mm: 0, scale_x_pct: 100, scale_y_pct: 100, back_rotation_deg: 0, line_weight_x_pct: 100, ...DEFAULT_INSETS };
 
 /** The print settings before the owner's calibration: no offsets, no fore-edge shift, 0.14 mm creep. Tests of the geometry start here so their numbers stay simple. */
 export const FLAT: PrintSettings = {

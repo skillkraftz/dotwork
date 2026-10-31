@@ -4,7 +4,7 @@ import { PDFDocument } from 'pdf-lib';
 import { emptyBook, PRINT_LIMITS, type Book } from '../src/book/book';
 import { onPages } from './books';
 import { DEFAULT_PRINT, SHEET_H_MM, SHEET_W_MM, clonePrint, creepFor, impose, pageOrigin, type PrintSettings } from '../src/book/impose';
-import { FOLD_FROM_CENTRE_MM, FOLD_HOW, LINE_MM, MARK_CLEAR_MM, markZone, crosshairs, foldScales, scaleCaptions, sheetHeight, type MarkName } from '../src/book/alignment';
+import { FOLD_FROM_CENTRE_MM, FOLD_HOW, INSET_EDGES, LINE_MM, MARK_CLEAR_MM, insetScaleZone, markZone, crosshairs, foldScales, scaleCaptions, sheetHeight, type MarkName } from '../src/book/alignment';
 import { PRINTER_KEYS, readPrinter } from '../src/printer';
 import { sheetSize } from '../src/print/sheets';
 import { GRID_X_MM, PAGE_H_MM, PAGE_W_MM, emptyPage, type Page } from '../src/format/types';
@@ -164,6 +164,8 @@ for (const layout of ['half_letter', 'letter_two_up'] as const) {
   describe(`the calibration sheet, ${layout}`, () => {
     const print = layout === 'letter_two_up' ? flatTwoUp() : clonePrint(FLAT);
     const H = sheetHeight(layout), twoUp = layout === 'letter_two_up';
+    /** Whether a point is on one of the edge scales (two-up only), which run to the paper's edge on purpose; 3 mm of slack for the correction. */
+    const inEdgeScale = (x: number, y: number) => twoUp && INSET_EDGES.some((e) => { const z = insetScaleZone(layout, e); return x >= z.x0 - 3 && x <= z.x1 + 3 && y >= z.y0 - 3 && y <= z.y1 + 3; });
     let made: ExportedFile;
     let sheets: Awaited<ReturnType<typeof readPdf>>;
     beforeAll(async () => {
@@ -291,7 +293,8 @@ for (const layout of ['half_letter', 'letter_two_up'] as const) {
     it('has a see-through scale at each edge mark on side 2 (-5 to +5, ticks every 0.5 mm, running parallel to the edge) and only a + at the centre', () => {
       const back = sheets[1], segs = segments(back.content, H), at = crosshairs(layout);
       expect(SCALE_MM).toBe(5);
-      for (const label of ['-5', '-4', '-3', '-2', '-1', '1', '3', '5']) expect(back.strings.filter((s) => s === label), label).toHaveLength(8); // four see-through and four fold scales
+      // Four see-through and four fold scales; on two-up the four edge scales (numbered 0 to 8, only upward) add to the positive ones.
+      for (const label of ['-5', '-4', '-3', '-2', '-1', '1', '3', '5']) expect(back.strings.filter((s) => s === label), label).toHaveLength(8 + (twoUp && !label.startsWith('-') ? 4 : 0));
       for (const p of [at.top, at.bottom]) {
         expect(segs.some((s) => near(s.y1, p.y) && near(s.y2, p.y) && near(s.x1, p.x - 5.5) && near(s.x2, p.x + 5.5)), 'x scale').toBe(true);
         // 21 ticks across it, one every 0.5 mm.
@@ -310,7 +313,7 @@ for (const layout of ['half_letter', 'letter_two_up'] as const) {
     it('has no edge rulers: nothing on side 2 runs to the paper’s edge', () => {
       const back = sheets[1];
       expect(back.strings.filter((t) => /edge should|edge distance/.test(t))).toEqual([]);
-      for (const s of segments(back.content, H)) for (const [x, y] of [[s.x1, s.y1], [s.x2, s.y2]]) expect(Math.min(x, SHEET_W_MM - x, y, H - y)).toBeGreaterThanOrEqual(5);
+      for (const s of segments(back.content, H)) for (const [x, y] of [[s.x1, s.y1], [s.x2, s.y2]]) if (!inEdgeScale(x, y)) expect(Math.min(x, SHEET_W_MM - x, y, H - y)).toBeGreaterThanOrEqual(5);
     });
 
     it('has two fold scales across each centre line, 38 mm from the centre +: -5 to +5, ticks every 0.5 mm, labelled, 0 longer, and told how to use', () => {
@@ -378,9 +381,10 @@ for (const layout of ['half_letter', 'letter_two_up'] as const) {
     it('stays 3 mm from every paper edge', () => {
       for (const sheet of sheets) {
         for (const s of segments(sheet.content, H)) for (const [x, y] of [[s.x1, s.y1], [s.x2, s.y2]]) {
-          expect(Math.min(x, SHEET_W_MM - x, y, H - y), `(${x.toFixed(1)}, ${y.toFixed(1)})`).toBeGreaterThanOrEqual(3 - 0.01);
+          if (!inEdgeScale(x, y)) expect(Math.min(x, SHEET_W_MM - x, y, H - y), `(${x.toFixed(1)}, ${y.toFixed(1)})`).toBeGreaterThanOrEqual(3 - 0.01);
         }
         for (const t of textPositions(sheet)) {
+          if (inEdgeScale(t.x, t.y)) continue;
           expect(Math.min(t.x, SHEET_W_MM - t.x, t.y, H - t.y), t.text).toBeGreaterThanOrEqual(3);
           // (The labels that run up the sheet start where they are drawn.)
           if (!t.text.startsWith('parallel to the 5.5') && !t.text.startsWith('parallel to the 11')) expect(t.x + 1.1 * t.text.length, t.text).toBeLessThanOrEqual(SHEET_W_MM - 3);

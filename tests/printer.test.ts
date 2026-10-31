@@ -20,7 +20,7 @@ function setPrintCopy(p: PrintSettings, change: Partial<LayoutProfile>): PrintSe
 
 describe('the printer profile', () => {
   it('holds the creep, the shifts, the target and the tones, and each layout’s offsets, rotation and scale, but not the signatures', () => {
-    expect([...PRINTER_KEYS].sort()).toEqual(['cover_fore_edge_shift_mm', 'creep_per_sheet_mm', 'fore_edge_shift_mm', 'gray_text_pct', 'shade_dark_pct', 'shade_light_pct', 'shade_medium_pct', 'target_fore_edge_margin_mm']);
+    expect([...PRINTER_KEYS].sort()).toEqual(['cover_fore_edge_shift_mm', 'creep_per_sheet_mm', 'fore_edge_shift_mm', 'gray_text_pct', 'shade_dark_pct', 'shade_light_pct', 'shade_medium_pct', 'target_fore_edge_margin_mm', 'trim_margin_mm']);
     expect(DEFAULT_PRINT).not.toHaveProperty('signatures');
     expect(Object.keys(calibrated.layouts)).toEqual(['half_letter', 'letter_two_up']);
     expect(Object.keys(DEFAULT_PRINT.layouts.half_letter.hand.inside)).toContain('back_rotation_deg');

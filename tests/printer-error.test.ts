@@ -1,3 +1,4 @@
+import { INSET_EDGES, insetScaleZone } from '../src/book/alignment';
 // A printer lands the image off by a little on every pass, and the back may also come out turned. These tests simulate printers
 // with real geometry (the same transforms the PDFs are drawn under), read the calibration sheet the way a person does, and check
 // that the settings sheetResult() finds put everything where it belongs: with the signs and the formula derived in alignment.ts.
@@ -182,6 +183,8 @@ for (const layout of layouts) {
   });
 }
 
+const onEdgeScale = (x: number, y: number) => INSET_EDGES.some((e) => { const z = insetScaleZone('letter_two_up', e); return x >= z.x0 - 1 && x <= z.x1 + 1 && y >= z.y0 - 1 && y <= z.y1 + 1; });
+
 describe('the PDF is drawn under the same transform the model uses', () => {
   it('places every stroke at the midpoint mapPoint says, for the back of each layout, rotated, scaled and moved, without turning it', async () => {
     for (const layout of layouts) {
@@ -196,6 +199,8 @@ describe('the PDF is drawn under the same transform the model uses', () => {
       expect(was.length).toBeGreaterThan(100);
       const sx = t.sx, sy = t.sy;
       was.forEach((s, i) => {
+        // The edge scales are placed with the correction already undone, so they do not move.
+        if (layout === 'letter_two_up' && onEdgeScale((s.x1 + s.x2) / 2, (s.y1 + s.y2) / 2)) return;
         // Each stroke is placed at its rotated midpoint and keeps its direction (scaled): it is not turned.
         const mid = mapPoint(t, W, H, { x: (s.x1 + s.x2) / 2, y: (s.y1 + s.y2) / 2 });
         expect((now[i].x1 + now[i].x2) / 2).toBeCloseTo(mid.x, 3);

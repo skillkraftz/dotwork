@@ -12,7 +12,7 @@ export const PRINTER_KEY = 'dotwork.printer';
 
 /** The settings that every layout shares; the layouts' own print method, offsets, scale and rotation are in `print_method` and `layouts`. */
 export const PRINTER_KEYS = [
-  'creep_per_sheet_mm', 'fore_edge_shift_mm', 'cover_fore_edge_shift_mm', 'target_fore_edge_margin_mm',
+  'creep_per_sheet_mm', 'fore_edge_shift_mm', 'cover_fore_edge_shift_mm', 'target_fore_edge_margin_mm', 'trim_margin_mm',
   'shade_light_pct', 'shade_medium_pct', 'shade_dark_pct', 'gray_text_pct',
 ] as const satisfies readonly (keyof PrintSettings)[];
 
@@ -24,7 +24,8 @@ export function readPrinter(data: unknown): { ok: true; value: PrintSettings } |
   if (typeof data !== 'object' || data === null || Array.isArray(data)) return { ok: false, issues: [{ rule: 'root-object', path: '(printer)', message: 'The printer settings must be a JSON object.' }] };
   const o = data as Record<string, unknown>, issues: ValidationIssue[] = [];
   for (const key of PRINTER_KEYS) {
-    const { min, max } = PRINT_LIMITS[key], v = o[key];
+    // A profile saved before the trimmed margin existed keeps everything it has; the margin starts at its default.
+    const { min, max } = PRINT_LIMITS[key], v = key === 'trim_margin_mm' && o[key] === undefined ? DEFAULT_PRINT[key] : o[key];
     if (typeof v !== 'number' || !Number.isFinite(v) || v < min || v > max) issues.push({ rule: 'print-setting', path: key, message: `"${key}" must be a number from ${min} to ${max}, got ${JSON.stringify(v)}.` });
   }
   if (!SHEET_LAYOUTS.includes(o.sheet_layout as never)) issues.push({ rule: 'print-setting', path: 'sheet_layout', message: `"sheet_layout" must be ${SHEET_LAYOUTS.map((l) => `"${l}"`).join(' or ')}, got ${JSON.stringify(o.sheet_layout)}.` });
@@ -55,7 +56,7 @@ export function readPrinter(data: unknown): { ok: true; value: PrintSettings } |
     layouts[layout] = sets;
   }
   if (issues.length) return { ok: false, issues };
-  return { ok: true, value: clonePrint({ ...(o as unknown as PrintSettings), print_method: methods, layouts }) };
+  return { ok: true, value: clonePrint({ ...(o as unknown as PrintSettings), trim_margin_mm: typeof o.trim_margin_mm === 'number' ? o.trim_margin_mm : DEFAULT_PRINT.trim_margin_mm, print_method: methods, layouts }) };
 }
 
 export type PrinterLoad = { status: 'none' } | { status: 'ok'; value: PrintSettings } | { status: 'bad'; problem: Problem };

@@ -14,7 +14,8 @@ import type { Item } from './display';
 import { layoutPage } from './layout';
 import { printSide } from './correct';
 import { edgeWarnings } from './edge';
-import { cutMarks, halfLabel, halfLabelItem, halfTops, isTwoUp, sheetSize } from './sheets';
+import { cutMarks, halfLabel, halfLabelItem, isTwoUp, sheetSize } from './sheets';
+import { placeBooks, placementWarning } from './placement';
 import { tonesOf } from './tones';
 import { settingsLines } from './settingstext';
 
@@ -79,18 +80,18 @@ export interface PagePlan { side: 'front' | 'back'; paper?: PaperSet; halves: (H
  */
 export async function sheetsPdf(plans: PagePlan[], print: PrintSettings, fontBytes: FontBytes): Promise<Uint8Array> {
   const { doc, fonts } = await newDocument(fontBytes);
-  const layout = print.sheet_layout, { w, h } = sheetSize(layout), tops = halfTops(layout), twoUp = isTwoUp(layout);
+  const layout = print.sheet_layout, { w, h } = sheetSize(layout), twoUp = isTwoUp(layout);
   const drawers = new Map<Book, Drawer>();
   const drawerOf = (b: Book) => drawers.get(b) ?? drawers.set(b, drawer(b, print)).get(b)!;
   for (const plan of plans) {
     // Layout (every half, the labels, the cut marks), then the side's correction, then the PDF.
-    const items: Item[] = [];
+    const items: Item[] = [], place = placeBooks(print);
     plan.halves.forEach((half, i) => {
       if (!half) return;
-      half.draw(drawerOf(half.book), items, tops[i]);
-      if (twoUp) items.push(halfLabelItem(halfLabel(fonts.regular, i as 0 | 1, ...half.label), tops[i]));
+      half.draw(drawerOf(half.book), items, place.pageTops[i]);
+      if (twoUp) items.push(halfLabelItem(halfLabel(fonts.regular, i as 0 | 1, ...half.label), place.cuts[i + 1]));
     });
-    if (twoUp) items.push(...cutMarks());
+    if (twoUp) items.push(...cutMarks(place.cuts));
     await embedImages(doc, items);
     drawItems(doc.addPage([mmToPt(w), mmToPt(h)]), printSide(items, print, plan.side, w, h, plan.paper), fonts, h);
   }
@@ -196,6 +197,16 @@ export function printSteps(method: PrintMethod, twoUp: boolean): string[] {
     : ['Print each signature by hand: print-first.pdf, put the stack back in the tray the same way, then print-second.pdf.', ...cut];
 }
 
+/** Where to cut, for a stack cutter: the three cuts, in mm from the sheet's top edge. */
+export function cutLines(p: PrintSettings): string[] {
+  const mm = (v: number) => String(Math.round(v * 100) / 100);
+  const { cuts, bookHeight } = placeBooks(p);
+  return [
+    `Cuts, in mm from the sheet's top edge, the same for the interior sheets and the covers (trimmed top/bottom margin ${p.trim_margin_mm} mm; a trim of 0 needs no cut):`,
+    `  top trim ${mm(cuts[0])} | between the books ${mm(cuts[1])} | bottom trim ${mm(cuts[2])} (each book is ${mm(bookHeight)} tall)`,
+  ];
+}
+
 export function summary(books: Books, p: PrintSettings, sigs: Signature[], files: string[], now = new Date(), bottomSigs: Signature[] = sigs, warnings: string[] = []): string {
   const book = books.top, twoUp = isTwoUp(p.sheet_layout), method = methodOf(p);
   const sheets = sigs.reduce((n, g) => n + g.sheets.length, 0);
@@ -213,6 +224,7 @@ export function summary(books: Books, p: PrintSettings, sigs: Signature[], files
       `Top: Book 1, ${bookTitle(books.top)} (${sigs.reduce((n, g) => n + g.sheets.length, 0)} sheets)`,
       `Bottom: Book 2, ${bookTitle(books.bottom)} (${bottomSigs.reduce((n, g) => n + g.sheets.length, 0)} sheets; a book with fewer sheets leaves its half blank)`,
       'Both books print with the same printer settings.',
+      ...cutLines(p),
     ] : []),
     '',
     'Print settings used for these files (the inside paper\'s offsets for the pages):',
@@ -267,7 +279,10 @@ export async function exportBookFiles(book: Book, print: PrintSettings, fontByte
     if (problem) throw new Error(problem);
   }
   // Near the sheet's edge is a warning, not a refusal: the files are made, and the owner checks by printing that page.
-  const warnings = signatures || cover ? edgeWarnings(books, print, topSigs, bottomSigs) : [];
+  const placing = isTwoUp(print.sheet_layout) ? [placementWarning(placeBooks(print))].filter((w): w is string => w !== null) : [];
+  // The books are placed by the grid, but a blank row at the edge costs nothing: the advice comes only when drawn content is in the way at the top or bottom.
+  const edge = signatures || cover ? edgeWarnings(books, print, topSigs, bottomSigs) : [];
+  const warnings = [...edge, ...(edge.some((w) => /mm from the (top|bottom) edge/.test(w)) ? placing : [])];
   const pdf = (name: string, bytes: Uint8Array): ExportedFile => ({ name, bytes, type: 'application/pdf' });
   const files: ExportedFiles = Object.assign([] as ExportedFile[], { warnings });
   if (signatures) {
