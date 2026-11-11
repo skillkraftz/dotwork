@@ -78,7 +78,7 @@ Dotwork's print export follows the same physical rules as journal-system
 
 - Build in stages; each task leaves the app working and deployable.
 - Validate every file the app loads or exports against `docs/page-format.md`.
-- Pre-release: keep it lean. Dotwork isn't public and will move to a database later. Don't add
+- Pre-release: keep it lean. Dotwork is pre-release and will move to a database later. Don't add
   format version bumps, migrations, conversions of old files, or new import/export options; when the format
   changes, update docs/page-format.md in place and let old drafts break. Spend the effort on what matters
   now: designing a page and laying out a book on a phone should be easy enough that someone can turn an idea
@@ -87,6 +87,8 @@ Dotwork's print export follows the same physical rules as journal-system
 - No back compatibility until the database. When the book, page or spread format changes, older files are not
   converted or read; the Library lists them as "Old format" with Export and Delete. No conversion code, no tests
   for old shapes. (Printer and calibration changes still never change the book format or stop a book from opening.)
+- Tests run through `hyperbeam lab run` (the e2e tests start Vite on a free port and need no Docker).
+  The first e2e run in the lab needs Chromium installed once: `hyperbeam lab run --why "install Chromium for e2e" npx playwright-core install chromium`.
 - Tests: unit tests for rules and math that must be exactly right (reading files, tokens and dates, imposition and
   the print pipeline, calibration and creep math). One e2e test per feature for its main path, run at phone and
   desktop; tablet only for tests about a layout at that size. No tests for old file shapes or replaced behaviour;
@@ -168,5 +170,12 @@ same PR. Where the code and a doc disagree, the code is right and the doc is a b
     calendar, links to designs and book versions, the Design / Plan / Print areas, then a database (planned, in ten phases; phases 1 to 4
     and 5a are done: self-saving documents, the full backup, token units, and the undated outline).
 21. Later: dials and other components, color, sharing, a page gallery.
+
+## Exceptions to hyperbeam rules
+
+- Rule: no versioning. Dotwork instead bumps the version in `docs/page-format.md` when the page format changes on purpose.
+  Reason: it is the contract shared with `journal-system`.
+
+Design decisions are recorded in `docs/DECISIONS.md`; D1 to D12 live in `docs/product-model.md`.
 
 @.hyperbeam/RULES.md
