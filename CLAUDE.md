@@ -168,3 +168,5 @@ same PR. Where the code and a doc disagree, the code is right and the doc is a b
     calendar, links to designs and book versions, the Design / Plan / Print areas, then a database (planned, in ten phases; phases 1 to 4
     and 5a are done: self-saving documents, the full backup, token units, and the undated outline).
 21. Later: dials and other components, color, sharing, a page gallery.
+
+@.hyperbeam/RULES.md
