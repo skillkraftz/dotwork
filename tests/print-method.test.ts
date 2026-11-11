@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { emptyBook, setCover, type Book } from '../src/book/book';
 import { emptyPage, type Page } from '../src/format/types';
 import { withPages } from './books';
-import { DEFAULT_PRINT, clonePrint, coverFileNames, everywhere, printOrder, type PrintSettings } from '../src/book/impose';
+import { DEFAULT_INSETS, DEFAULT_PRINT, clonePrint, coverFileNames, everywhere, printOrder, type PrintSettings } from '../src/book/impose';
 import { COVER_FILE, CREEP_FILE, SHEET_FILE, calibrationText, creepFiles, creepTestOrder, sheetFile } from '../src/print/calibrate';
 import { exportBookFiles, type ExportedFile } from '../src/print/export';
 import { madeFor } from '../src/print/settingstext';
@@ -141,7 +141,7 @@ describe('loading a profile saved before methods and papers', () => {
     creep_per_sheet_mm: 0.3, fore_edge_shift_mm: 2, cover_fore_edge_shift_mm: 2.2, target_fore_edge_margin_mm: 3.5, sheet_layout: 'letter_two_up',
     shade_light_pct: 6.3, shade_medium_pct: 13.7, shade_dark_pct: 25.9, gray_text_pct: 49.8, layouts: layout,
   });
-  const own = { front_offset_x_mm: 0.9, front_offset_y_mm: -0.7, back_offset_x_mm: 1.1, back_offset_y_mm: 0.4, scale_x_pct: 100.2, scale_y_pct: 100.8, back_rotation_deg: -0.2, line_weight_x_pct: 95 };
+  const own = { front_offset_x_mm: 0.9, front_offset_y_mm: -0.7, back_offset_x_mm: 1.1, back_offset_y_mm: 0.4, scale_x_pct: 100.2, scale_y_pct: 100.8, back_rotation_deg: -0.2, line_weight_x_pct: 95, ...DEFAULT_INSETS };
 
   it('keeps its numbers for the inside paper in every method, copies them to the cover paper, and starts each layout on its default method', () => {
     const r = readPrinter(old({ letter_two_up: own }));

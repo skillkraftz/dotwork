@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { FOLD_FROM_CENTRE_MM, FOLD_HOW, foldTwist, twistText, LINE_MM, MARK_FROM_EDGE_MM, NO_READINGS, backAgainstPaper, crosshairs, foldScales, fromCentre, scaleCaptions, scaleFromReading, seeThrough, sheetHeight, sheetResult } from '../src/book/alignment';
-import { DEFAULT_PRINT, SHEET_H_MM, SHEET_W_MM, type LayoutProfile } from '../src/book/impose';
+import { DEFAULT_INSETS, DEFAULT_PRINT, SHEET_H_MM, SHEET_W_MM, type LayoutProfile } from '../src/book/impose';
 
-const ZERO: LayoutProfile = { front_offset_x_mm: 0, front_offset_y_mm: 0, back_offset_x_mm: 0, back_offset_y_mm: 0, scale_x_pct: 100, scale_y_pct: 100, back_rotation_deg: 0, line_weight_x_pct: 100 };
+const ZERO: LayoutProfile = { front_offset_x_mm: 0, front_offset_y_mm: 0, back_offset_x_mm: 0, back_offset_y_mm: 0, scale_x_pct: 100, scale_y_pct: 100, back_rotation_deg: 0, line_weight_x_pct: 100, ...DEFAULT_INSETS };
 const DEG = Math.PI / 180;
 
 // printer-error.test.ts proves the signs against whole simulated printers; these pin each conversion down on its own.

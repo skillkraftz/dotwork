@@ -8,19 +8,19 @@
 //
 // Positions are millimeters from the PDF page's top left, y down.
 import type { PDFFont } from 'pdf-lib';
-import { SHEET_H_MM, SHEET_W_MM, offsetOf, profileOf, type Layouts, type PaperSet, type SheetLayout } from '../book/impose';
+import { DEFAULT_INSET_MM, SHEET_H_MM, SHEET_W_MM, offsetOf, profileOf, type Layouts, type PaperSet, type SheetLayout } from '../book/impose';
 import { mmToPt } from './draw';
 import type { Item } from './display';
 
 export const LETTER_W_MM = SHEET_W_MM; // 8.5 in
 export const LETTER_H_MM = 2 * SHEET_H_MM; // 11 in
-/** Printers can't print closer than this to the edge of letter paper (with normal margins). */
-export const EDGE_MM = 3;
+/** How close to the edge a printer is taken to print until the edge scales have measured it (see `DEFAULT_INSET_MM`). */
+export const EDGE_MM = DEFAULT_INSET_MM;
 
 export const isTwoUp = (layout: SheetLayout) => layout === 'letter_two_up';
 /** The PDF page for one sheet. */
 export const sheetSize = (layout: SheetLayout) => (isTwoUp(layout) ? { w: LETTER_W_MM, h: LETTER_H_MM } : { w: SHEET_W_MM, h: SHEET_H_MM });
-/** Where each half-letter sheet's top edge is on the PDF page: one for half letter, the top and the bottom half for two-up. */
+/** Where each half-letter sheet's top edge is on the PDF page at the default trimmed margin: one for half letter, the top and the bottom half for two-up. Other margins: placement.ts. */
 export const halfTops = (layout: SheetLayout): number[] => (isTwoUp(layout) ? [0, SHEET_H_MM] : [0]);
 export const BOOK_LABELS = ['Book 1', 'Book 2'] as const;
 
@@ -53,6 +53,13 @@ export function mapPoint(t: SheetTransform, w: number, h: number, p: { x: number
   return { x: w / 2 + u * c + v * s + t.dx, y: h / 2 - u * s + v * c + t.dy };
 }
 
+/** The inverse of `mapPoint`: the point on the sheet (before the correction) that lands at `p`. */
+export function unmapPoint(t: SheetTransform, w: number, h: number, p: { x: number; y: number }) {
+  const ux = p.x - w / 2 - t.dx, uy = p.y - h / 2 - t.dy, c = Math.cos(t.rot), s = Math.sin(t.rot);
+  const u = ux * c - uy * s, v = ux * s + uy * c;
+  return { x: w / 2 + u / t.sx, y: h / 2 + v / t.sy };
+}
+
 // ---- cut marks and labels (two-up) ---------------------------------------------------------------------------------
 
 const MARK_FROM_MM = 8, MARK_TO_MM = 16, MARK_W_MM = 0.15; // in the side trim zones, which are cut off when trimming
@@ -66,22 +73,25 @@ export function halfLabel(font: PDFFont, slot: 0 | 1, ...rest: string[]): string
   return text === full ? full : text.trimEnd() + '…';
 }
 
-/** The marks where to cut, drawn once on the middle line of a two-up page, on both sides. */
-export function cutMarks(): Item[] {
-  return [[MARK_FROM_MM, MARK_TO_MM], [LETTER_W_MM - MARK_TO_MM, LETTER_W_MM - MARK_FROM_MM]].map(([a, b]): Item => (
-    { k: 'line', x1: a, y1: SHEET_H_MM, x2: b, y2: SHEET_H_MM, w: MARK_W_MM, c: '#000000', cap: 'butt' }));
+/** The marks where to cut, one in each side trim zone at each cut (`cuts`: mm from the sheet's top edge, see placement.ts), on both sides. */
+export function cutMarks(cuts: number[]): Item[] {
+  return cuts.flatMap((y) => [[MARK_FROM_MM, MARK_TO_MM], [LETTER_W_MM - MARK_TO_MM, LETTER_W_MM - MARK_FROM_MM]].map(([a, b]): Item => (
+    { k: 'line', x1: a, y1: y, x2: b, y2: y, w: MARK_W_MM, c: '#000000', cap: 'butt' })));
 }
 
-/** The label text, running up the left trim zone of the half whose top is `top`, readable from the left. */
-export function halfLabelItem(text: string, top: number): Item {
-  return { k: 'text', str: text, x: LABEL_BASE_X_MM, y: top + SHEET_H_MM - LABEL_FROM_Y_MM, size: LABEL_SIZE_MM, font: 'regular', c: '#000000', align: 'start', rot: 90 };
+/** The label text, running up the left trim zone of the book whose bottom cut is at `bottom`, readable from the left. */
+export function halfLabelItem(text: string, bottom: number): Item {
+  return { k: 'text', str: text, x: LABEL_BASE_X_MM, y: bottom - LABEL_FROM_Y_MM, size: LABEL_SIZE_MM, font: 'regular', c: '#000000', align: 'start', rot: 90 };
 }
 
-/** The boxes (x, y, w, h) a two-up page draws that are not book pages: the marks and the labels. Used by the edge check (edge.ts). */
-export function trimZoneBoxes(): { name: string; x: number; y: number; w: number; h: number }[] {
+/**
+ * The boxes (x, y, w, h) a two-up page draws that are not book pages: the cut marks between the books and the labels. Used by the edge check (edge.ts).
+ * The marks at the top and bottom trim mark the sheet's own edge, so they are not checked. `cuts` are from placement.ts.
+ */
+export function trimZoneBoxes(cuts: number[] = [0, SHEET_H_MM, LETTER_H_MM]): { name: string; x: number; y: number; w: number; h: number }[] {
   return [
-    { name: 'a cut mark', x: MARK_FROM_MM, y: SHEET_H_MM - MARK_W_MM / 2, w: MARK_TO_MM - MARK_FROM_MM, h: MARK_W_MM },
-    { name: 'a cut mark', x: LETTER_W_MM - MARK_TO_MM, y: SHEET_H_MM - MARK_W_MM / 2, w: MARK_TO_MM - MARK_FROM_MM, h: MARK_W_MM },
-    ...halfTops('letter_two_up').map((top) => ({ name: 'a label', x: LABEL_BASE_X_MM - LABEL_SIZE_MM, y: top + SHEET_H_MM - LABEL_FROM_Y_MM - LABEL_MAX_MM, w: LABEL_SIZE_MM, h: LABEL_MAX_MM })),
+    { name: 'a cut mark', x: MARK_FROM_MM, y: cuts[1] - MARK_W_MM / 2, w: MARK_TO_MM - MARK_FROM_MM, h: MARK_W_MM },
+    { name: 'a cut mark', x: LETTER_W_MM - MARK_TO_MM, y: cuts[1] - MARK_W_MM / 2, w: MARK_TO_MM - MARK_FROM_MM, h: MARK_W_MM },
+    ...[cuts[1], cuts[2]].map((bottom) => ({ name: 'a label', x: LABEL_BASE_X_MM - LABEL_SIZE_MM, y: bottom - LABEL_FROM_Y_MM - LABEL_MAX_MM, w: LABEL_SIZE_MM, h: LABEL_MAX_MM })),
   ];
 }

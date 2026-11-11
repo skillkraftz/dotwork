@@ -80,7 +80,29 @@ export interface LayoutProfile {
    * Applied in the printer stage (src/print/correct.ts). Dots and text are never affected.
    */
   line_weight_x_pct: number;
+  /**
+   * How close to each edge of the paper the printer really prints, per side of the sheet, in mm, as seen on that side: the last number fully
+   * printed on the calibration sheet's edge scales (two-up only; 3 until measured). Content nearer the edge than this is lost. They place
+   * the two books on a two-up sheet (src/print/placement.ts) and drive the edge check (edge.ts).
+   */
+  inset_front_left_mm: number;
+  inset_front_right_mm: number;
+  inset_front_top_mm: number;
+  inset_front_bottom_mm: number;
+  inset_back_left_mm: number;
+  inset_back_right_mm: number;
+  inset_back_top_mm: number;
+  inset_back_bottom_mm: number;
 }
+
+/** The four insets of one side of a sheet. */
+export interface Insets { left: number; right: number; top: number; bottom: number }
+/** Until measured, a printer is taken to print up to 3 mm from every edge. */
+export const DEFAULT_INSET_MM = 3;
+export const DEFAULT_INSETS = {
+  inset_front_left_mm: DEFAULT_INSET_MM, inset_front_right_mm: DEFAULT_INSET_MM, inset_front_top_mm: DEFAULT_INSET_MM, inset_front_bottom_mm: DEFAULT_INSET_MM,
+  inset_back_left_mm: DEFAULT_INSET_MM, inset_back_right_mm: DEFAULT_INSET_MM, inset_back_top_mm: DEFAULT_INSET_MM, inset_back_bottom_mm: DEFAULT_INSET_MM,
+} as const;
 
 /** One layout's profiles: by print method, then by paper. */
 export type LayoutSets = Record<PrintMethod, Record<PaperSet, LayoutProfile>>;
@@ -119,6 +141,12 @@ export interface PrintSettings {
   shade_medium_pct: number;
   shade_dark_pct: number;
   gray_text_pct: number;
+  /**
+   * Two-up only: the margin between the grid (rows 0 to 43, 132 mm) and the cut top and bottom edge of each book. A book is cut to 132 + 2 x this
+   * tall. The default, 3.85, is the page's own margin: the two books fill the letter sheet. A smaller one leaves waste above Book 1 and below Book 2,
+   * which placement.ts splits so everything lands inside the printable insets.
+   */
+  trim_margin_mm: number;
 }
 
 /**
@@ -127,12 +155,12 @@ export interface PrintSettings {
  * owner's readings (cover 5.7, sheet 1 5.5, sheet 13 3.6 mm, printed with creep 0.14 and no shift) until the next creep test confirms them.
  */
 export const DEFAULT_PRINT: PrintSettings = {
-  creep_per_sheet_mm: 0.30, fore_edge_shift_mm: 2.0, cover_fore_edge_shift_mm: 2.2, target_fore_edge_margin_mm: 3.5,
+  creep_per_sheet_mm: 0.30, fore_edge_shift_mm: 2.0, cover_fore_edge_shift_mm: 2.2, target_fore_edge_margin_mm: 3.5, trim_margin_mm: 3.85,
   sheet_layout: 'half_letter',
   print_method: { ...DEFAULT_METHOD },
   layouts: {
-    half_letter: everywhere({ front_offset_x_mm: 1.7, front_offset_y_mm: -0.05, back_offset_x_mm: 1.5, back_offset_y_mm: 0.05, scale_x_pct: 100, scale_y_pct: 100, back_rotation_deg: 0, line_weight_x_pct: 100 }),
-    letter_two_up: everywhere({ front_offset_x_mm: -0.25, front_offset_y_mm: -1.55, back_offset_x_mm: -0.4, back_offset_y_mm: 1, scale_x_pct: 100, scale_y_pct: 101.01, back_rotation_deg: -0.183, line_weight_x_pct: 100 }),
+    half_letter: everywhere({ front_offset_x_mm: 1.7, front_offset_y_mm: -0.05, back_offset_x_mm: 1.5, back_offset_y_mm: 0.05, scale_x_pct: 100, scale_y_pct: 100, back_rotation_deg: 0, line_weight_x_pct: 100, ...DEFAULT_INSETS }),
+    letter_two_up: everywhere({ front_offset_x_mm: -0.25, front_offset_y_mm: -1.55, back_offset_x_mm: -0.4, back_offset_y_mm: 1, scale_x_pct: 100, scale_y_pct: 101.01, back_rotation_deg: -0.183, line_weight_x_pct: 100, ...DEFAULT_INSETS }),
   },
   shade_light_pct: 6.3, shade_medium_pct: 13.7, shade_dark_pct: 25.9, gray_text_pct: 49.8,
 };
@@ -225,6 +253,14 @@ export const methodOf = (s: Pick<PrintSettings, 'sheet_layout' | 'print_method'>
 
 /** The offsets and scale of the selected layout and its method, for the inside paper or the cover paper. */
 export const profileOf = (s: Layouts, paper: PaperSet = 'inside'): LayoutProfile => s.layouts[s.sheet_layout][methodOf(s)][paper];
+
+/** The printable insets of a side of the sheet, for the selected layout and method and the paper. */
+export function insetsOf(s: Layouts, side: 'front' | 'back', paper: PaperSet = 'inside'): Insets {
+  const p = profileOf(s, paper);
+  return side === 'front'
+    ? { left: p.inset_front_left_mm, right: p.inset_front_right_mm, top: p.inset_front_top_mm, bottom: p.inset_front_bottom_mm }
+    : { left: p.inset_back_left_mm, right: p.inset_back_right_mm, top: p.inset_back_top_mm, bottom: p.inset_back_bottom_mm };
+}
 
 /** The offset a side of the sheet takes, in mm: +x right, +y up, as seen on that side. */
 export function offsetOf(s: Layouts, side: 'front' | 'back', paper: PaperSet = 'inside') {

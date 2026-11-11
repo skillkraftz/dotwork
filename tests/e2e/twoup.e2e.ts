@@ -30,15 +30,15 @@ const pickLayout = async (app: App, dialog: string, layout: string) => {
   await app.page.locator(`dialog.${dialog} [data-key="book-sheet-layout"]`).selectOption(layout);
 };
 /** A saved printer profile with no two-up offsets, so these walks start from simple numbers (the app's own two-up defaults are the owner's calibration, which sits close to the paper's edge). */
-const startZeroTwoUp = async (app: App) => {
+const startZeroTwoUp = async (app: App, twoUp: Record<string, number> = {}) => {
   const none = { front_offset_x_mm: 0, front_offset_y_mm: 0, back_offset_x_mm: 0, back_offset_y_mm: 0, scale_x_pct: 100, scale_y_pct: 100, back_rotation_deg: 0 };
-  await app.page.evaluate((zero) => {
+  await app.page.evaluate(([zero, extra]) => {
     localStorage.setItem('dotwork.printer', JSON.stringify({
       creep_per_sheet_mm: 0.3, fore_edge_shift_mm: 2, cover_fore_edge_shift_mm: 2.2, target_fore_edge_margin_mm: 3.5, sheet_layout: 'half_letter',
-      layouts: { half_letter: { ...zero, front_offset_x_mm: 1.7, front_offset_y_mm: -0.05, back_offset_x_mm: 1.5, back_offset_y_mm: 0.05 }, letter_two_up: zero },
+      layouts: { half_letter: { ...zero, front_offset_x_mm: 1.7, front_offset_y_mm: -0.05, back_offset_x_mm: 1.5, back_offset_y_mm: 0.05 }, letter_two_up: { ...zero, ...extra } },
       shade_light_pct: 6.3, shade_medium_pct: 13.7, shade_dark_pct: 25.9, gray_text_pct: 49.8,
     }));
-  }, none);
+  }, [none, twoUp] as const);
   await app.page.reload();
   await app.page.waitForSelector('#canvas');
 };
@@ -118,13 +118,12 @@ for (const device of ['phone', 'desktop'] as const) {
       expect(app.errors).toEqual([]);
     });
 
-    it('warns about an offset that would print content closer than 3 mm to the edge, naming the page and row, and still makes the files', async () => {
+    it('warns about content that would print closer to the edge than the printable inset, naming the page and row, and still makes the files', async () => {
       const app = await open(env, device);
       const { page } = app;
-      await startZeroTwoUp(app);
+      await startZeroTwoUp(app, { inset_front_top_mm: 6 }); // the printer leaves the front's top 6 mm unprinted
       await openPdfTab(app);
       await pickLayout(app, 'export', 'letter_two_up');
-      await type(app, 'dialog.export [data-key="book-front-offset-y"]', '3');
       const zipped = await download(app, 'dialog.export [data-key="export-pdf"]');
       const files = zipped.bytes.toString('latin1');
       for (const f of ['print-duplex.pdf', 'summary.txt']) expect(files, f).toContain(f);
@@ -147,7 +146,7 @@ for (const device of ['phone', 'desktop'] as const) {
       await pickLayout(app, 'export', 'letter_two_up');
       await hit(app, 'dialog.export [data-key="calibrate-open"]');
       await page.waitForSelector('dialog.calibrate[open]');
-      expect(await page.locator('dialog.calibrate .cal-progress').innerText()).toBe('Step 1 of 3: Sheet');
+      expect(await page.locator('dialog.calibrate .cal-progress').innerText()).toBe('Step 1 of 4: Sheet');
       expect(await page.locator('dialog.calibrate').innerText()).toContain('Letter (not borderless)');
       expect(await page.locator('dialog.calibrate').innerText()).not.toContain('Statement (Borderless)');
       expect(await page.locator('dialog.calibrate [data-key="book-sheet-layout"]').count()).toBe(0);

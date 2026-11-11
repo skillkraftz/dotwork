@@ -60,6 +60,34 @@ export function crosshairs(layout: SheetLayout): Record<MarkName, Pt> {
   return { top: { x: W / 2, y: m }, bottom: { x: W / 2, y: H - m }, left: { x: m, y: H / 2 }, right: { x: W - m, y: H / 2 }, centre: { x: W / 2, y: H / 2 } };
 }
 
+// ---- the edge scales (two-up) ---------------------------------------------------------------------------------------
+// A scale at the middle of each paper edge, on both sides: short lines every 0.5 mm from the edge to INSET_SCALE_MM, numbered every 1 mm, placed so each
+// line lands that far from the paper's edge once the side's offset, scale and rotation have been applied. The number to enter is the last one fully
+// printed at that edge: it is the printable inset (impose.ts `LayoutProfile.inset_*`).
+
+export const INSET_SCALE_MM = 8;
+export type InsetEdge = 'left' | 'right' | 'top' | 'bottom';
+export const INSET_EDGES: readonly InsetEdge[] = ['left', 'right', 'top', 'bottom'];
+/** How far along its edge, from the middle, each scale sits: clear of the edge marks at the middle and of the page content. */
+const INSET_ALONG_MM = { top: 47, bottom: 47, left: 30, right: 30 } as const;
+
+/** The paper point `d` mm in from an edge on the scale of that edge, as it should print. */
+export function insetScalePoint(layout: SheetLayout, edge: InsetEdge, d: number): Pt {
+  const W = SHEET_W_MM, H = sheetHeight(layout), a = INSET_ALONG_MM[edge];
+  return { top: { x: W / 2 + a, y: d }, bottom: { x: W / 2 + a, y: H - d }, left: { x: d, y: H / 2 + a }, right: { x: W - d, y: H / 2 + a } }[edge];
+}
+
+/** The box (sheet mm from the top left, y down) that holds a scale, its numbers and its caption, to the paper's edge. */
+export function insetScaleZone(layout: SheetLayout, edge: InsetEdge): { x0: number; y0: number; x1: number; y1: number } {
+  const W = SHEET_W_MM, H = sheetHeight(layout), a = INSET_ALONG_MM[edge], reach = INSET_SCALE_MM + 1.5;
+  if (edge === 'top') return { x0: W / 2 + a - 5, y0: 0, x1: W / 2 + a + 32, y1: reach + 1.5 };
+  if (edge === 'bottom') return { x0: W / 2 + a - 5, y0: H - reach - 1.5, x1: W / 2 + a + 32, y1: H };
+  return edge === 'left' ? { x0: 0, y0: H / 2 + a - 2, x1: reach + 30, y1: H / 2 + a + 5 } : { x0: W - reach - 30, y0: H / 2 + a - 2, x1: W, y1: H / 2 + a + 5 };
+}
+
+/** How the scale of an edge is captioned, on the sheet and in the wizard, in the same words. */
+export const insetCaption = (side: 'front' | 'back', edge: InsetEdge) => `${side} ${edge} edge: last number printed`;
+
 /** How far side 2's marks' captions reach (mm), and how far from them anything else on the sheet must stay. */
 export const MARK_CLEAR_MM = 10;
 /**

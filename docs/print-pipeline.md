@@ -34,7 +34,7 @@ y down, **before any printer correction**. The items are:
 
 An outlined box is four lines with squared ends, so its corners are filled and each side takes its own direction's line weight. A
 book page is laid out by `layoutPage` with its top-left corner where it goes on the sheet (so the creep and the fore-edge shift are
-layout); the half-letter sheets of a two-up page are laid out one above the other, with their labels and the cut marks. The screen draws
+layout); the books of a two-up page are laid out one above the other where `placement.ts` puts them (from the trimmed margin and the printable insets), with their labels and the cut marks at the three cuts. The screen draws
 a page from the same model (`src/render.ts`) with no printer correction; the layout stage is the print side of that, and with no
 correction it is that page.
 

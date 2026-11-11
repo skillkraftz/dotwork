@@ -1,7 +1,8 @@
 // The calibration sheets: paper that shows, without printing a whole book, how a printer places and tones the pages.
 // Built with the same imposition, page size and drawing code as the book's own print files. Printer settings come from the printer profile.
 //
-//   calibration-sheet.pdf  one double-sided sheet per layout on the WHOLE paper (the half sheet, or the whole letter sheet for two-up: no halves,
+//   calibration-sheet.pdf  (on two-up, also an edge scale at the middle of each paper edge on both sides: lines every 0.5 mm out to 8 mm, numbered every mm,
+//       placed so they print that far from the edge after the side's correction; the last number fully printed is the printable inset) one double-sided sheet per layout on the WHOLE paper (the half sheet, or the whole letter sheet for two-up: no halves,
 //       labels or cut marks): page 1 = the front, page 2 = the back; print them the way print-first and print-second are printed. Five
 //       marks, 8 mm in from the edges and at the centre. Side 1: a fine + at each, and the gray ramp, sample text, dots, lines,
 //       hairlines and the line weight by direction (pairs of identical lines along each paper edge, and a ladder) at least 10 mm from every mark. Side 2 (all measuring): at the four edge marks a see-through scale, at the centre a +,
@@ -22,14 +23,15 @@
 import { GRID_X_MM, GRID_Y_MM, PAGE_H_MM, PAGE_W_MM, COLS, ROWS, PITCH_MM as P, emptyPage, type Page, type PageElement, type Text } from '../format/types';
 import type { Book } from '../book/book';
 import { EDGE_NAMES, SHEET_W_MM, checkPrintSettings, impose, methodOf, pageOrigin, printOrder, type PaperSet, type PrintMethod, type PrintSettings, type Sheet, type SheetLayout, type SheetSideRef } from '../book/impose';
-import { FOLD_HOW, LINE_MM, SCALE_RANGE_MM, crosshairs, foldScales, scaleCaptions, sheetHeight, type FoldName } from '../book/alignment';
+import { FOLD_HOW, INSET_EDGES, INSET_SCALE_MM, LINE_MM, SCALE_RANGE_MM, crosshairs, foldScales, insetCaption, insetScalePoint, scaleCaptions, sheetHeight, type FoldName } from '../book/alignment';
 import { LINE } from '../render';
 import { drawItems, embedImages, mmToPt, type Fonts } from './draw';
 import type { Item } from './display';
 import { layoutPage } from './layout';
 import { printSide } from './correct';
 import { newDocument, type ExportedFile, type FontBytes } from './export';
-import { cutMarks, halfLabel, halfLabelItem, halfTops, isTwoUp, lineWeightOf, sheetSize } from './sheets';
+import { cutMarks, halfLabel, halfLabelItem, isTwoUp, lineWeightOf, sheetSize, transformOf, unmapPoint } from './sheets';
+import { placeBooks } from './placement';
 import { creepPages, creepSheets, validPages } from '../book/creep';
 import { settingsLines } from './settingstext';
 import { coverHow, creepHow, sheetHow } from './instructions';
@@ -327,15 +329,15 @@ const bookTitle = (b: Book) => b.name.trim() || 'Untitled book';
  */
 async function calibrationPdf(book: Book, print: PrintSettings, fontBytes: FontBytes, pages: CalPage[]): Promise<Uint8Array> {
   const { doc, fonts } = await newDocument(fontBytes);
-  const layout = print.sheet_layout, { w, h } = sheetSize(layout), tops = halfTops(layout), twoUp = isTwoUp(layout);
+  const layout = print.sheet_layout, { w, h } = sheetSize(layout), twoUp = isTwoUp(layout);
   for (const page of pages) {
-    const items: Item[] = [];
+    const items: Item[] = [], place = placeBooks(print), tops = place.pageTops;
     tops.forEach((top, i) => {
       page.draw({ items, fonts, height: h, dy: top, c: sheetCanvas(items, fonts, top), index: i, count: tops.length });
-      if (twoUp) items.push(halfLabelItem(halfLabel(fonts.regular, i as 0 | 1, bookTitle(book), ...page.label), top));
+      if (twoUp) items.push(halfLabelItem(halfLabel(fonts.regular, i as 0 | 1, bookTitle(book), ...page.label), place.cuts[i + 1]));
     });
     page.whole?.({ items, fonts, height: h, dy: 0, c: sheetCanvas(items, fonts), index: 0, count: tops.length });
-    if (twoUp) items.push(...cutMarks());
+    if (twoUp) items.push(...cutMarks(place.cuts));
     await embedImages(doc, items);
     drawItems(doc.addPage([mmToPt(w), mmToPt(h)]), printSide(items, print, page.side, w, h, page.paper), fonts, h);
   }
@@ -348,6 +350,28 @@ const PLUS_MM = 0.2, PLUS_ARM_MM = 3; // side 1's and the centre's +: 0.2 mm lin
 const CAPTION_MM = 1.8;
 const plus = (c: Canvas, p: Pt) => { c.line(p.x - PLUS_ARM_MM, p.y, p.x + PLUS_ARM_MM, p.y, PLUS_MM); c.line(p.x, p.y - PLUS_ARM_MM, p.x, p.y + PLUS_ARM_MM, PLUS_MM); };
 
+/**
+ * The edge scales of a two-up sheet, on either side: at the middle of each paper edge, a line every 0.5 mm out to 8 mm from the edge (longer at each
+ * whole mm, which is numbered). Each line is placed so that, once this side's correction is applied, it prints exactly that far from the paper's edge:
+ * the number to enter is the last one fully printed.
+ */
+function insetScales(g: Half, print: PrintSettings, side: 'front' | 'back', paper: PaperSet) {
+  const layout = print.sheet_layout, c = g.c, W = SHEET_W_MM, H = sheetHeight(layout), t = transformOf(print, side, paper), size = 1.3;
+  for (const edge of INSET_EDGES) {
+    const across = edge === 'top' || edge === 'bottom'; // the lines run along the edge
+    for (let half = 0; half <= 2 * INSET_SCALE_MM; half++) {
+      const d = half / 2, whole = half % 2 === 0, len = whole ? 3 : 1.6, q = unmapPoint(t, W, H, insetScalePoint(layout, edge, d));
+      if (across) c.line(q.x - len / 2, q.y, q.x + len / 2, q.y, HAIR_MM); else c.line(q.x, q.y - len / 2, q.x, q.y + len / 2, HAIR_MM);
+      if (!whole) continue;
+      // Even numbers on one side of the line and odd on the other, so the neighbours' numbers don't touch; across a vertical edge they sit below.
+      if (across) c.text(String(d), q.x + (d % 2 ? len / 2 + 0.3 : -len / 2 - 0.3), q.y + size * 0.35, size, BLACK, d % 2 ? 'start' : 'end', true);
+      else c.text(String(d), q.x, q.y + len / 2 + size + 0.2, size, BLACK, 'middle', true);
+    }
+    const cap = unmapPoint(t, W, H, edge === 'top' ? { x: insetScalePoint(layout, edge, 0).x + 7, y: 6.5 } : edge === 'bottom' ? { x: insetScalePoint(layout, edge, 0).x + 7, y: H - 9.5 } : edge === 'left' ? { x: 10, y: insetScalePoint(layout, edge, 0).y + 0.5 } : { x: W - 10, y: insetScalePoint(layout, edge, 0).y + 0.5 });
+    c.text(insetCaption(side, edge), cap.x, cap.y, CAPTION_MM, BLACK, edge === 'right' ? 'end' : 'start');
+  }
+}
+
 /** Side 1: the ramp, sample text, dots, lines and hairlines, in the top half of the paper (the left page's settings footer is small and ends 10 mm short of the marks). */
 function sheetFront(g: Half, print: PrintSettings, now: Date, paper: PaperSet) {
   content(g, print, frontLeft(print), false);
@@ -359,6 +383,7 @@ function sheetFront(g: Half, print: PrintSettings, now: Date, paper: PaperSet) {
   const lines = ['SIDE 1 (FRONT)', ...settingsLines(print, now, undefined, paper)];
   lines.forEach((line, i) => g.c.text(line, x + 0.8, y + 114 - (lines.length - 1 - i) * 1.7, 1.4));
   for (const p of Object.values(crosshairs(print.sheet_layout))) plus(g.c, p);
+  if (isTwoUp(print.sheet_layout)) insetScales(g, print, 'front', paper);
 }
 
 /** The unit vectors, in sheet millimetres (y down), of an edge mark: toward the paper's edge, and along its see-through scale in the direction a reading counts up (right, or up). */
@@ -424,7 +449,7 @@ function wrap(c: Canvas, str: string, max: number, size: number): string[] {
 }
 
 /** Side 2: the four see-through scales, the centre +, the four fold scales, the two 100 mm lines, and how to read them. */
-function sheetBack(g: Half, print: PrintSettings) {
+function sheetBack(g: Half, print: PrintSettings, paper: PaperSet) {
   const layout = print.sheet_layout, cap = scaleCaptions(layout), at = crosshairs(layout), fold = foldScales(layout), c = g.c, W = SHEET_W_MM, H = sheetHeight(layout);
   for (const name of ['top', 'bottom', 'left', 'right'] as const) edgeMark(g, name, at[name], cap);
   plus(c, at.centre);
@@ -444,6 +469,7 @@ function sheetBack(g: Half, print: PrintSettings) {
   c.line(x, y0, x, y0 + LINE_MM, PLUS_MM);
   for (const yy of [y0, y0 + LINE_MM]) c.line(x - 2.5, yy, x + 2.5, yy, PLUS_MM);
   c.text(cap.longY, x + 5.6, y0 + LINE_MM - 3, CAPTION_MM, BLACK, 'start', false, true);
+  if (isTwoUp(layout)) insetScales(g, print, 'back', paper);
 }
 
 /** calibration-sheet.pdf: page 1 the front, page 2 the back, each on the whole paper with its own offset (of the paper set it is for); the back is turned by the layout's rotation. */
@@ -453,7 +479,7 @@ async function sheetPdf(print: PrintSettings, fontBytes: FontBytes, now: Date, p
   for (const side of ['front', 'back'] as const) {
     const items: Item[] = [];
     const g: Half = { items, fonts, height: h, dy: 0, c: sheetCanvas(items, fonts), index: 0, count: 1 };
-    if (side === 'front') sheetFront(g, print, now, paper); else sheetBack(g, print);
+    if (side === 'front') sheetFront(g, print, now, paper); else sheetBack(g, print, paper);
     drawItems(doc.addPage([mmToPt(w), mmToPt(h)]), printSide(items, print, side, w, h, paper), fonts, h);
   }
   return doc.save({ useObjectStreams: false });

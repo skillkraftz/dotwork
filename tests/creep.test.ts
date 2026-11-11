@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { PRINT_LIMITS } from '../src/book/book';
 import { SPINE_WARN_MM, bindingFromReadings, coverMarginAt, creepResult, innermostSpineMargin, marginAt, predictedMargins } from '../src/book/creep';
-import { DEFAULT_PRINT, FOLD_X_MM, checkPrintSettings, impose, pageOrigin, TRIM_ZONE_MM } from '../src/book/impose';
+import { DEFAULT_INSETS, DEFAULT_PRINT, FOLD_X_MM, checkPrintSettings, impose, pageOrigin, TRIM_ZONE_MM } from '../src/book/impose';
 import { GRID_X_MM, PAGE_W_MM } from '../src/format/types';
 
 const printed = { creep: 0.14, foreEdgeShift: 0, coverShift: 0, target: 3.5 };
@@ -126,7 +126,7 @@ describe('checkPrintSettings with the shifts', () => {
 
 describe('the owner’s calibration as the defaults', () => {
   it('is locked in', () => {
-    expect(DEFAULT_PRINT.layouts.half_letter.hand.inside).toEqual({ front_offset_x_mm: 1.7, front_offset_y_mm: -0.05, back_offset_x_mm: 1.5, back_offset_y_mm: 0.05, scale_x_pct: 100, scale_y_pct: 100, back_rotation_deg: 0, line_weight_x_pct: 100 });
+    expect(DEFAULT_PRINT.layouts.half_letter.hand.inside).toEqual({ front_offset_x_mm: 1.7, front_offset_y_mm: -0.05, back_offset_x_mm: 1.5, back_offset_y_mm: 0.05, scale_x_pct: 100, scale_y_pct: 100, back_rotation_deg: 0, line_weight_x_pct: 100, ...DEFAULT_INSETS });
     expect(DEFAULT_PRINT).toMatchObject({
       shade_light_pct: 6.3, shade_medium_pct: 13.7, shade_dark_pct: 25.9, gray_text_pct: 49.8,
       creep_per_sheet_mm: 0.3, fore_edge_shift_mm: 2.0, cover_fore_edge_shift_mm: 2.2, target_fore_edge_margin_mm: 3.5,

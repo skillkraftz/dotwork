@@ -1,3 +1,4 @@
+import { INSET_EDGES, insetScaleZone } from '../src/book/alignment';
 import type { PrintSettings } from '../src/book/impose';
 import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
@@ -6,7 +7,7 @@ import { emptyBook, getSlot, lastSlot, readBook, setCover, slotSide, type Book }
 import { opening, slotLabel } from '../src/book/labels';
 import { withPages } from './books';
 import {
-  DEFAULT_PRINT, FOLD_X_MM, LAYOUT_NAMES, SHEET_H_MM, SHEET_W_MM, TRIM_ZONE_MM, clonePrint, creepFor, duplexOrder, offsetOf, pageOrigin, profileOf,
+  DEFAULT_INSETS, DEFAULT_PRINT, FOLD_X_MM, LAYOUT_NAMES, SHEET_H_MM, SHEET_W_MM, TRIM_ZONE_MM, clonePrint, creepFor, duplexOrder, offsetOf, pageOrigin, profileOf,
 } from '../src/book/impose';
 import { emptyPage, GRID_X_MM, GRID_Y_MM, PAGE_H_MM, PAGE_W_MM, type Page } from '../src/format/types';
 import { exportBookFiles, type ExportedFile } from '../src/print/export';
@@ -39,6 +40,8 @@ function book(pages: number, prefix: string, _layout: 'half_letter' | 'letter_tw
 }
 const at = (page: PageInfo, text: string) => textPositions(page).find((t) => t.text === text)!;
 
+const onEdgeScale = (x: number, y: number) => INSET_EDGES.some((e) => { const z = insetScaleZone('letter_two_up', e); return x >= z.x0 - 1 && x <= z.x1 + 1 && y >= z.y0 - 1 && y <= z.y1 + 1; });
+
 describe('the sheet layouts', () => {
   it('half letter is today’s sheet, and two-up a portrait letter sheet with a half-letter sheet at its top and its bottom', () => {
     expect(sheetSize('half_letter')).toEqual({ w: SHEET_W_MM, h: SHEET_H_MM });
@@ -51,8 +54,8 @@ describe('the sheet layouts', () => {
 
   it('keeps a separate offset and scale for each layout, and the half-letter values are the owner’s', () => {
     expect(DEFAULT_PRINT.sheet_layout).toBe('half_letter');
-    expect(DEFAULT_PRINT.layouts.half_letter.hand.inside).toEqual({ front_offset_x_mm: 1.7, front_offset_y_mm: -0.05, back_offset_x_mm: 1.5, back_offset_y_mm: 0.05, scale_x_pct: 100, scale_y_pct: 100, back_rotation_deg: 0, line_weight_x_pct: 100 });
-    expect(DEFAULT_PRINT.layouts.letter_two_up.hand.inside).toEqual({ front_offset_x_mm: -0.25, front_offset_y_mm: -1.55, back_offset_x_mm: -0.4, back_offset_y_mm: 1, scale_x_pct: 100, scale_y_pct: 101.01, back_rotation_deg: -0.183, line_weight_x_pct: 100 });
+    expect(DEFAULT_PRINT.layouts.half_letter.hand.inside).toEqual({ front_offset_x_mm: 1.7, front_offset_y_mm: -0.05, back_offset_x_mm: 1.5, back_offset_y_mm: 0.05, scale_x_pct: 100, scale_y_pct: 100, back_rotation_deg: 0, line_weight_x_pct: 100, ...DEFAULT_INSETS });
+    expect(DEFAULT_PRINT.layouts.letter_two_up.hand.inside).toEqual({ front_offset_x_mm: -0.25, front_offset_y_mm: -1.55, back_offset_x_mm: -0.4, back_offset_y_mm: 1, scale_x_pct: 100, scale_y_pct: 101.01, back_rotation_deg: -0.183, line_weight_x_pct: 100, ...DEFAULT_INSETS });
     const p = clonePrint(DEFAULT_PRINT);
     p.layouts.letter_two_up.hand.inside.front_offset_x_mm = 0.8;
     p.layouts.letter_two_up.hand.inside.front_offset_y_mm = 0;
@@ -251,7 +254,7 @@ describe('two-up files', () => {
   });
 });
 
-describe('the 3 mm edge check', () => {
+describe('the edge check', () => {
   const two = (change: Parameters<typeof setPrint>[1]) => { const p = clonePrint(TWO); setPrint(p, change); return p; };
   /** A book whose pages have a band of shade in the first row (the header row) and in the last, so there is content at both edges. */
   const edgy = (prefix: string, name?: string): Book => {
@@ -266,12 +269,14 @@ describe('the 3 mm edge check', () => {
     expect(decode(file(files, 'summary.txt'))).not.toContain('Warnings:');
   });
 
-  it('warns, naming the book, page and row, when content would print closer than 3 mm to the sheet’s edge, and still makes the files', async () => {
-    // The grid starts 3.85 mm below the top of the top half: 1 mm up leaves 2.85.
-    const files = await exportBookFiles(edgy('A'), two({ front_offset_y_mm: 1 }), fonts);
-    expect(files.warnings).toHaveLength(1);
-    expect(files.warnings[0]).toMatch(/^Book 1, page \d+, row 0 \(the header\): on the front of the letter sheet it prints 2\.85 mm from the top edge\. The print driver may cut it off; check by printing that page\./);
+  it('warns, naming the book, page and row, when content would print closer to the edge than the printable inset, and still makes the files', async () => {
+    // The grid starts 3.85 mm below the top of the top half: an inset of 4.5 on the front's top edge is passed by 0.65.
+    const files = await exportBookFiles(edgy('A'), two({ inset_front_top_mm: 4.5 }), fonts);
+    // One for the page, and the advice that no split fits (the margin can't give the top any more room), naming the largest margin that would.
+    expect(files.warnings).toHaveLength(2);
+    expect(files.warnings[0]).toMatch(/^Book 1, page \d+, row 0 \(the header\): on the front of the letter sheet it prints 3\.85 mm from the top edge\. The print driver may cut it off; check by printing that page\./);
     expect(files.warnings[0]).toMatch(/ about as close\.$/); // the other pages with content that close
+    expect(files.warnings[1]).toMatch(/^The books don't fit inside the printable area at a trimmed top\/bottom margin of 3\.85 mm.* The largest trimmed top\/bottom margin that would fit is 3\.6\d? mm\.$/);
     expect(files.map((f) => f.name)).toEqual(expect.arrayContaining(['print-first.pdf', 'print-second.pdf', 'cover-outside.pdf', 'cover-inside.pdf', 'pages.pdf', 'summary.txt']));
     const summaryText = decode(file(files, 'summary.txt'));
     expect(summaryText).toContain('Warnings:');
@@ -279,39 +284,34 @@ describe('the 3 mm edge check', () => {
   });
 
   it('names the book and row of the bottom edge, which the bottom book is nearest to', async () => {
-    const files = await exportBookFiles(edgy('A'), two({ back_offset_y_mm: -1 }), fonts);
-    // The back moves 1 mm toward the bottom: the last row of Book 2 prints 2.85 mm from the sheet's bottom edge.
-    expect(files.warnings.find((w) => /on the back/.test(w))).toMatch(/^Book 2, page \d+, row 43: on the back of the letter sheet it prints 2\.85 mm from the bottom edge\./);
+    const files = await exportBookFiles(edgy('A'), two({ inset_back_bottom_mm: 4.5 }), fonts);
+    expect(files.warnings.find((w) => /on the back/.test(w))).toMatch(/^Book 2, page \d+, row 43: on the back of the letter sheet it prints 3\.85 mm from the bottom edge\./);
     expect(files.warnings.some((w) => /^Book 1/.test(w) && /on the back/.test(w))).toBe(false);
   });
 
-  it('is about what is drawn: a book with nothing near the edge gets no warning, whatever the offset', async () => {
-    expect((await exportBookFiles(book(8, 'A', 'letter_two_up'), two({ front_offset_y_mm: 1 }), fonts)).warnings).toEqual([]);
+  it('is about what is drawn: a book with nothing near the edge gets no warning, whatever the inset', async () => {
+    expect((await exportBookFiles(book(8, 'A', 'letter_two_up'), two({ inset_front_top_mm: 4.5 }), fonts)).warnings).toEqual([]);
     // Book 2 alone has content at the edge.
-    const files = await exportBookFiles(book(8, 'A', 'letter_two_up'), two({ back_offset_y_mm: -1 }), fonts, {}, edgy('B'));
+    const files = await exportBookFiles(book(8, 'A', 'letter_two_up'), two({ inset_back_bottom_mm: 4.5 }), fonts, {}, edgy('B'));
     expect(files.warnings.filter((w) => /^Book 2/.test(w))).toHaveLength(1);
     expect(files.warnings.filter((w) => /^Book 1/.test(w))).toEqual([]);
   });
 
-  it('warns about the labels and the cut marks too when they come within 3 mm', async () => {
-    const files = await exportBookFiles(book(8, 'A', 'letter_two_up'), two({ front_offset_x_mm: -10 }), fonts);
+  it('warns about the labels and the cut marks too when they come within the inset', async () => {
+    const files = await exportBookFiles(book(8, 'A', 'letter_two_up'), two({ inset_front_left_mm: 9 }), fonts);
     expect(files.warnings.some((w) => /a label|a cut mark/.test(w) && /mm from the left edge/.test(w))).toBe(true);
-    expect((await exportBookFiles(edgy('A'), two({ front_offset_y_mm: 0.8 }), fonts)).warnings).toEqual([]); // 3.05 mm left
+    expect((await exportBookFiles(edgy('A'), two({ inset_front_left_mm: 7 }), fonts)).warnings).toEqual([]);
   });
 
-  it('counts the scale: it grows content away from the centre', async () => {
-    expect((await exportBookFiles(edgy('A'), two({ scale_y_pct: 100.5 }), fonts)).warnings).toEqual([]);
-    expect((await exportBookFiles(edgy('A'), two({ scale_y_pct: 101 }), fonts)).warnings.join('\n')).toMatch(/row 0 \(the header\).*top edge/);
+  it('compares the sheet positions with the insets: the offsets, scale and rotation are there to put content there, so they are not counted twice', async () => {
+    // Row 43 ends 3.85 mm from the bottom edge (about 4): with an inset of 3 that is fine, whatever the corrections.
+    const owner = two({ front_offset_y_mm: -1.65, scale_y_pct: 100.5, back_rotation_deg: 1.5, front_offset_x_mm: 3, back_offset_y_mm: 2 });
+    expect((await exportBookFiles(edgy('A'), owner, fonts)).warnings).toEqual([]);
   });
 
-  it('counts the back’s rotation: turning it about the letter sheet’s centre swings the corners toward an edge', async () => {
-    expect((await exportBookFiles(edgy('A'), two({}), fonts)).warnings).toEqual([]);
-    expect((await exportBookFiles(edgy('A'), two({ back_rotation_deg: 1.5 }), fonts)).warnings.join('\n')).toMatch(/on the back of the letter sheet/);
-  });
-
-  it('warns the owner’s two-up defaults too: their back already prints the first row near the top edge', async () => {
+  it('does not warn the owner’s two-up defaults: their corrections are not counted', async () => {
     const files = await exportBookFiles(edgy('A'), { ...clonePrint(DEFAULT_PRINT), sheet_layout: 'letter_two_up', fore_edge_shift_mm: 0, cover_fore_edge_shift_mm: 0, creep_per_sheet_mm: 0.14 }, fonts);
-    expect(files.warnings.join('\n')).toMatch(/on the back of the letter sheet it prints 1\.\d\d mm from the top edge/);
+    expect(files.warnings).toEqual([]);
     expect(files.map((f) => f.name)).toContain('print-duplex.pdf'); // two-up defaults to auto duplex
   });
 
@@ -361,6 +361,8 @@ describe('size correction', () => {
           const [a, b2] = [segments(pagesWas[i].content, h), segments(page.content, h)];
           expect(b2.length, `${layout} ${name} page ${i + 1}`).toBe(a.length);
           a.forEach((s, k) => {
+            // The edge scales of the calibration sheet are placed with the correction already undone, so they do not move.
+            if (name === SHEET_FILE && onEdgeScale((s.x1 + s.x2) / 2, (s.y1 + s.y2) / 2)) return;
             const p1 = mapPoint(t, w, h, { x: s.x1, y: s.y1 }), p2 = mapPoint(t, w, h, { x: s.x2, y: s.y2 });
             [b2[k].x1, b2[k].y1, b2[k].x2, b2[k].y2].forEach((v, c) => expect(v, `${layout} ${name} page ${i + 1} stroke ${k}`).toBeCloseTo([p1.x, p1.y, p2.x, p2.y][c], 2));
           });
